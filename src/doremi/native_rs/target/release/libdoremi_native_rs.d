@@ -1,0 +1,1 @@
+/home/eirom/Projects/Doremi/src/doremi/native_rs/target/release/libdoremi_native_rs.so: /home/eirom/Projects/Doremi/src/doremi/native_rs/src/color.rs /home/eirom/Projects/Doremi/src/doremi/native_rs/src/image.rs /home/eirom/Projects/Doremi/src/doremi/native_rs/src/lib.rs /home/eirom/Projects/Doremi/src/doremi/native_rs/src/qss.rs

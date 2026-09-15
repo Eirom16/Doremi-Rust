@@ -1,0 +1,4 @@
+module Doremi
+singleton Theme 1.0 Theme.qml
+HeaderButton 1.0 HeaderButton.qml
+HeroButton 1.0 HeroButton.qml

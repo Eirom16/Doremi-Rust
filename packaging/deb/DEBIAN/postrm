@@ -1,0 +1,10 @@
+#!/bin/bash
+set -e
+if [ "$1" = "purge" ]; then
+    pip3 uninstall -y ytmusicapi yt-dlp syncedlyrics qasync \
+        qt-material python-vlc 2>/dev/null || true
+    rm -rf /usr/lib/doremi
+    rm -f  /usr/share/applications/doremi.desktop
+    rm -f  /usr/share/pixmaps/doremi.png
+fi
+exit 0

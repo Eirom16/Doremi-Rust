@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Doremi
+GenericName=Reproductor de Música
+Comment=Cliente de escritorio para YouTube Music
+Exec=doremi %U
+Icon=doremi
+Terminal=false
+Type=Application
+Categories=Audio;Music;Player;AudioVideo;
+Keywords=music;youtube;streaming;lyrics;letras;
+StartupWMClass=doremi
+MimeType=x-scheme-handler/doremi;
+X-GNOME-UsesNotifications=true

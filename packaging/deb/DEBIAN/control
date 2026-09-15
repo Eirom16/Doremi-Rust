@@ -1,0 +1,24 @@
+Package: doremi
+Version: VERSION_PLACEHOLDER
+Section: sound
+Priority: optional
+Architecture: amd64
+Installed-Size: INSTALLEDSIZE_PLACEHOLDER
+Depends: python3 (>= 3.12),
+         python3-pip,
+         vlc,
+         libvlc-dev,
+         libvlc5,
+         python3-dbus,
+         libdbus-1-3,
+         libqt6core6,
+         libqt6gui6,
+         libqt6widgets6
+Recommends: python3-pyside6
+Maintainer: Eirom16 <eirom16@users.noreply.github.com>
+Description: Cliente de escritorio para YouTube Music
+ Doremi es un cliente moderno de YouTube Music para escritorio Linux
+ con soporte de letras sincronizadas en tiempo real, ecualizador
+ paramétrico de 10 bandas, Discord Rich Presence, scrobbling a Last.fm,
+ integración MPRIS2 y descarga de canciones para uso offline.
+Homepage: https://github.com/Eirom16/doremi

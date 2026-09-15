@@ -1,0 +1,82 @@
+# Maintainer: Eirom16 <eirom16@users.noreply.github.com>
+pkgname=doremi
+pkgver=VERSION_PLACEHOLDER
+pkgrel=1
+pkgdesc="Cliente de escritorio moderno para YouTube Music con letras sincronizadas, ecualizador y Discord RPC"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Eirom16/doremi"
+license=('GPL3')
+depends=(
+    'python>=3.12'
+    'pyside6'
+    'vlc'
+    'python-sqlalchemy'
+    'python-aiosqlite'
+    'python-httpx'
+    'python-pydantic'
+    'python-pillow'
+    'python-loguru'
+    'python-dbus'
+    'dbus'
+    'qt6-svg'
+    'qt6-multimedia'
+)
+makedepends=(
+    'python-pip'
+    'python-build'
+    'python-installer'
+    'python-wheel'
+)
+optdepends=(
+    'python-pypresence: Discord Rich Presence'
+    'python-pylast: scrobbling a Last.fm'
+)
+source=("$pkgname-$pkgver.tar.gz::https://github.com/Eirom16/$pkgname/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+    cd "Doremi-$pkgver"
+    sed -i "s/__version__ = \".*\"/__version__ = \"$pkgver\"/" src/doremi/__init__.py
+    sed -i "s/version = \".*\"/version = \"$pkgver\"/" pyproject.toml
+    mkdir -p "$srcdir/tmp_deps"
+    pip install --isolated --break-system-packages --target="$srcdir/tmp_deps" \
+        ytmusicapi \
+        yt-dlp \
+        syncedlyrics \
+        pypresence \
+        pylast \
+        qasync \
+        qt-material \
+        python-vlc
+}
+
+package() {
+    cd "Doremi-$pkgver"
+
+    # Deps aisladas
+    if [ -d "$srcdir/tmp_deps" ]; then
+        install -dm755 "$pkgdir/usr/lib/doremi/dependencies"
+        cp -r "$srcdir/tmp_deps/"* "$pkgdir/usr/lib/doremi/dependencies/"
+    fi
+
+    # Código fuente de la app
+    install -dm755 "$pkgdir/usr/lib/$pkgname"
+    cp -r src/doremi "$pkgdir/usr/lib/$pkgname/doremi"
+    cp -r assets       "$pkgdir/usr/lib/$pkgname/assets"
+
+    # Script lanzador en PATH
+    install -Dm755 /dev/stdin "$pkgdir/usr/bin/$pkgname" << 'LAUNCHER'
+#!/bin/bash
+export DOREMI_ASSETS="/usr/lib/doremi/assets"
+export PYTHONPATH="/usr/lib/doremi:/usr/lib/doremi/dependencies:$PYTHONPATH"
+exec python3 -m doremi.main "$@"
+LAUNCHER
+
+    # Integración escritorio
+    install -Dm644 packaging/doremi.desktop \
+        "$pkgdir/usr/share/applications/$pkgname.desktop"
+    install -Dm644 assets/icon.png \
+        "$pkgdir/usr/share/pixmaps/$pkgname.png"
+    install -Dm644 assets/icon.png \
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
+}

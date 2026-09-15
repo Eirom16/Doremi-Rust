@@ -1,0 +1,75 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Project Specific
+vlc-portable/
+Metrolist/
+vlc_libs/
+headers_auth.json
+oauth.json
+headers.txt
+github_token.txt
+cookie_headers.json
+browser.json
+*.log
+*.patch
+*.spec
+
+# Test artifacts (generated data/fixtures)
+test_*.json
+test_*.png
+# NOTE: test_*.py se versionan (ver commit que habilitó tests en CI).
+
+# Database
+*.sqlite
+*.db
+
+# IDEs
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+.antigravitycli/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Ignore all markdown files except README.md
+*.md
+*.MD
+!README.md
+!README.MD
+
+# Módulos nativos compilados (se recompilan localmente / en CI)
+src/pyrolist/native_rs/target/
+src/pyrolist/native_rs/native_rs*.so
+src/pyrolist/native_rs/native_rs*.pyd
+

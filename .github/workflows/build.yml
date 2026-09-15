@@ -1,0 +1,378 @@
+name: Build y Release Doremi
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+env:
+  APP_NAME: doremi
+  PYTHON_VERSION: "3.12"
+
+jobs:
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Arch Linux / CachyOS / Manjaro / EndeavourOS → .pkg.tar.zst
+  # ──────────────────────────────────────────────────────────────────────────
+  build-arch:
+    name: Build Arch Package (.pkg.tar.zst)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+      options: --privileged
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Actualizar sistema e instalar dependencias de build
+        run: |
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm \
+            base-devel \
+            python \
+            python-pip \
+            vlc \
+            git \
+            sudo
+
+      - name: Reemplazar VERSION en PKGBUILD
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"   # quitar la 'v' inicial
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" packaging/arch/PKGBUILD
+
+      - name: Actualizar versión en el código
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION_NO_V}\"/" \
+            src/doremi/__init__.py
+          sed -i "s/version = \".*\"/version = \"${VERSION_NO_V}\"/" \
+            pyproject.toml
+
+      - name: Crear usuario builder (makepkg no puede correr como root)
+        run: |
+          useradd -m -G wheel builder
+          echo "builder ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+          chown -R builder:builder .
+
+      - name: Construir paquete con makepkg
+        run: |
+          su builder -c "cd $GITHUB_WORKSPACE/packaging/arch && makepkg -s --noconfirm"
+
+      - name: Mover paquete al directorio raíz
+        run: mv packaging/arch/*.pkg.tar.zst ./
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: arch-package
+          path: "*.pkg.tar.zst"
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Debian / Ubuntu / Linux Mint / Pop!_OS → .deb
+  # ──────────────────────────────────────────────────────────────────────────
+  build-deb:
+    name: Build Debian Package (.deb)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas de empaquetado
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y \
+            dpkg-dev \
+            lintian
+
+      - name: Actualizar versión en el código
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION_NO_V}\"/" \
+            src/doremi/__init__.py
+          sed -i "s/version = \".*\"/version = \"${VERSION_NO_V}\"/" \
+            pyproject.toml
+
+      - name: Preparar estructura del paquete
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          PKG_DIR="packaging/deb/${APP_NAME}_${VERSION}_amd64"
+
+          mkdir -p "$PKG_DIR/DEBIAN"
+          mkdir -p "$PKG_DIR/usr/bin"
+          mkdir -p "$PKG_DIR/usr/lib/${APP_NAME}"
+          mkdir -p "$PKG_DIR/usr/share/applications"
+          mkdir -p "$PKG_DIR/usr/share/pixmaps"
+          mkdir -p "$PKG_DIR/usr/share/icons/hicolor/256x256/apps"
+
+          # Código y assets
+          cp -r src/${APP_NAME} "$PKG_DIR/usr/lib/${APP_NAME}/${APP_NAME}"
+          cp -r assets           "$PKG_DIR/usr/lib/${APP_NAME}/assets"
+
+          # DEBIAN control con versión real
+          cp packaging/deb/DEBIAN/control    "$PKG_DIR/DEBIAN/control"
+          cp packaging/deb/DEBIAN/postinst   "$PKG_DIR/DEBIAN/postinst"
+          cp packaging/deb/DEBIAN/postrm     "$PKG_DIR/DEBIAN/postrm"
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" "$PKG_DIR/DEBIAN/control"
+          chmod 755 "$PKG_DIR/DEBIAN/postinst" "$PKG_DIR/DEBIAN/postrm"
+
+          # Script lanzador
+          cat > "$PKG_DIR/usr/bin/${APP_NAME}" << 'EOF'
+          #!/bin/bash
+          export DOREMI_ASSETS="/usr/lib/doremi/assets"
+          export PYTHONPATH="/usr/lib/doremi:$PYTHONPATH"
+          exec python3 -m doremi.main "$@"
+          EOF
+          chmod 755 "$PKG_DIR/usr/bin/${APP_NAME}"
+
+          # Integración escritorio
+          cp packaging/doremi.desktop \
+            "$PKG_DIR/usr/share/applications/${APP_NAME}.desktop"
+          cp assets/icon.png \
+            "$PKG_DIR/usr/share/pixmaps/${APP_NAME}.png"
+          cp assets/icon.png \
+            "$PKG_DIR/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
+
+          # Tamaño instalado
+          SIZE=$(du -sk "$PKG_DIR/usr" | cut -f1)
+          sed -i "s/INSTALLEDSIZE_PLACEHOLDER/$SIZE/" "$PKG_DIR/DEBIAN/control"
+
+          # Construir .deb
+          dpkg-deb --build "$PKG_DIR"
+          mv "packaging/deb/${APP_NAME}_${VERSION}_amd64.deb" ./
+
+      - name: Verificar .deb con lintian
+        run: lintian --no-tag-display-limit *.deb || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-package
+          path: "*.deb"
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Fedora / RHEL / AlmaLinux / Rocky → .rpm
+  # ──────────────────────────────────────────────────────────────────────────
+  build-rpm:
+    name: Build RPM Package (.rpm)
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas de build
+        run: |
+          dnf install -y \
+            rpm-build \
+            rpmdevtools \
+            python3-devel \
+            python3-pip \
+            git
+
+      - name: Setup estructura rpmbuild
+        run: rpmdev-setuptree
+
+      - name: Actualizar versión en el código
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION_NO_V}\"/" \
+            src/doremi/__init__.py
+          sed -i "s/version = \".*\"/version = \"${VERSION_NO_V}\"/" \
+            pyproject.toml
+
+      - name: Preparar fuentes
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          tar czf ~/rpmbuild/SOURCES/${APP_NAME}-${VERSION}.tar.gz \
+            --transform "s|^\.|${APP_NAME}-${VERSION}|" .
+
+      - name: Reemplazar versión en spec
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          DATE=$(date "+%a %b %d %Y")
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g"  packaging/rpm/${APP_NAME}.spec
+          sed -i "s/VERSION_DATE/$DATE/g"             packaging/rpm/${APP_NAME}.spec
+          cp packaging/rpm/${APP_NAME}.spec ~/rpmbuild/SPECS/
+
+      - name: Construir RPM
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          rpmbuild -ba ~/rpmbuild/SPECS/${APP_NAME}.spec
+
+      - name: Mover RPM al directorio raíz
+        run: mv ~/rpmbuild/RPMS/x86_64/*.rpm ./
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-package
+          path: "*.rpm"
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # openSUSE → .rpm (mismo spec, distinto runner)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-opensuse:
+    name: Build openSUSE Package (.rpm)
+    runs-on: ubuntu-latest
+    container:
+      image: opensuse/tumbleweed:latest
+
+    steps:
+      - name: Instalar herramientas básicas en el contenedor
+        run: |
+          zypper refresh || true
+          zypper install -y gawk git tar gzip
+
+      - uses: actions/checkout@v4
+
+      - name: Instalar herramientas de compilación
+        run: |
+          zypper remove -y busybox-gawk || true
+          zypper install -y \
+            gawk \
+            rpm-build \
+            python3-devel \
+            python3-pip
+
+      - name: Actualizar versión en el código
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION_NO_V="${VERSION#v}"
+          sed -i "s/__version__ = \".*\"/__version__ = \"${VERSION_NO_V}\"/" \
+            src/doremi/__init__.py
+          sed -i "s/version = \".*\"/version = \"${VERSION_NO_V}\"/" \
+            pyproject.toml
+
+      - name: Construir RPM para openSUSE
+        run: |
+          echo "%_topdir $HOME/rpmbuild" > ~/.rpmmacros
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          mkdir -p ~/rpmbuild/{BUILD,RPMS,SOURCES,SPECS,SRPMS}
+          tar czf ~/rpmbuild/SOURCES/${APP_NAME}-${VERSION}.tar.gz \
+            --transform "s|^\.|${APP_NAME}-${VERSION}|" .
+          DATE=$(date "+%a %b %d %Y")
+          sed -i "s/VERSION_PLACEHOLDER/$VERSION/g" packaging/rpm/${APP_NAME}.spec
+          sed -i "s/VERSION_DATE/$DATE/g"           packaging/rpm/${APP_NAME}.spec
+          cp packaging/rpm/${APP_NAME}.spec ~/rpmbuild/SPECS/
+          rpmbuild -ba ~/rpmbuild/SPECS/${APP_NAME}.spec
+          mv ~/rpmbuild/RPMS/x86_64/*.rpm ./${APP_NAME}-${VERSION}-opensuse.x86_64.rpm
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: opensuse-package
+          path: "*-opensuse.x86_64.rpm"
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Windows → .exe (instalador Inno Setup + standalone PyInstaller)
+  # ──────────────────────────────────────────────────────────────────────────
+  build-windows:
+    name: Build Windows Installer (.exe)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Instalar VLC
+        run: choco install vlc --yes --no-progress
+
+      - name: Instalar dependencias Python
+        run: pip install . pyinstaller
+
+      - name: Copiar DLLs de VLC
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path vlc_libs\plugins
+          $vlcPath = "C:\Program Files\VideoLAN\VLC"
+          Copy-Item "$vlcPath\libvlc.dll"     vlc_libs\
+          Copy-Item "$vlcPath\libvlccore.dll" vlc_libs\
+          Copy-Item -Recurse "$vlcPath\plugins\*" vlc_libs\plugins\
+
+      - name: Reemplazar versión en código
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}"
+          $versionNoV = $version.TrimStart("v")
+          (Get-Content src\doremi\__init__.py) `
+            -replace '__version__ = ".*"', "__version__ = `"$versionNoV`"" |
+            Set-Content src\doremi\__init__.py
+          (Get-Content pyproject.toml) `
+            -replace 'version = ".*"', "version = `"$versionNoV`"" |
+            Set-Content pyproject.toml
+
+      - name: Construir con PyInstaller
+        run: pyinstaller doremi.spec
+
+      - name: Instalar Inno Setup
+        run: choco install innosetup --yes --no-progress
+
+      - name: Crear instalador con Inno Setup
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart("v")
+          (Get-Content packaging\windows\installer.iss) `
+            -replace "VERSION_PLACEHOLDER", $version |
+            Set-Content packaging\windows\installer_final.iss
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" `
+            packaging\windows\installer_final.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/installer/Doremi-*-Setup.exe
+          retention-days: 1
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Publicar todos los artifacts en el GitHub Release
+  # ──────────────────────────────────────────────────────────────────────────
+  release:
+    name: Publicar Release
+    needs:
+      - build-arch
+      - build-deb
+      - build-rpm
+      - build-opensuse
+      - build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          merge-multiple: true
+
+      - name: Listar archivos generados
+        run: find artifacts/ -type f | sort
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/*.pkg.tar.zst
+            artifacts/*.deb
+            artifacts/*.rpm
+            artifacts/*-opensuse.x86_64.rpm
+            artifacts/*.exe
+          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
+          fail_on_unmatched_files: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

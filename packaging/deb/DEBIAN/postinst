@@ -1,0 +1,35 @@
+#!/bin/bash
+set -e
+
+echo "Instalando dependencias Python de Doremi..."
+pip3 install --quiet --break-system-packages \
+    ytmusicapi \
+    yt-dlp \
+    syncedlyrics \
+    qasync \
+    qt-material \
+    "sqlalchemy[asyncio]" \
+    aiosqlite \
+    pydantic \
+    httpx \
+    loguru \
+    pystray \
+    pillow \
+    pylast \
+    pypresence \
+    python-vlc \
+    2>/dev/null || pip3 install --quiet \
+    ytmusicapi yt-dlp syncedlyrics qasync qt-material \
+    "sqlalchemy[asyncio]" aiosqlite pydantic httpx loguru \
+    pystray pillow pylast pypresence python-vlc
+
+# Actualizar caché de íconos y entradas .desktop
+if command -v update-desktop-database &>/dev/null; then
+    update-desktop-database /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache &>/dev/null; then
+    gtk-update-icon-cache -f /usr/share/icons/hicolor || true
+fi
+
+echo "Doremi instalado correctamente. Ejecuta 'doremi' para iniciar."
+exit 0
