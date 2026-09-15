@@ -1,90 +1,88 @@
-# 🔥 Doremi: Tu Música, a Tu Manera 🎵
+# Doremi
 
 <p align="center">
-  <img src="assets/logo.png" alt="Doremi Logo" width="250">
+  <img src="assets/logo.png" alt="Doremi logo" width="220" />
 </p>
 
 <p align="center">
-  <b>Experimenta la música como nunca antes en tu escritorio Linux.</b>
+  <strong>Reproductor de música local + cliente de streaming para Linux</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Estilo-Premium-ff4b2b?style=for-the-badge" alt="Premium Style">
-  <img src="https://img.shields.io/badge/Velocidad-Increíble-ff9068?style=for-the-badge" alt="Fast">
-  <img src="https://img.shields.io/badge/Para-Linux-00c6ff?style=for-the-badge" alt="Linux">
+  <img src="https://img.shields.io/badge/Python-3.12%20%7C%203.13-3776AB?logo=python&logoColor=white" alt="Python version" />
+  <img src="https://img.shields.io/badge/Qt-PySide6-41CD52?logo=qt&logoColor=white" alt="Qt PySide6" />
+  <img src="https://img.shields.io/badge/Rust-Native-000000?logo=rust&logoColor=white" alt="Rust native module" />
 </p>
 
----
+Doremi es un reproductor musical moderno para escritorio, pensado para ofrecer una experiencia elegante, rápida y centrada en el usuario en Linux. Combina reproducción local, biblioteca personal, streaming desde YouTube Music y una interfaz basada en Qt/QML con una capa nativa en Rust para optimizar tareas intensivas como procesamiento visual y variantes de color.
 
-## 🌟 ¿Qué es Doremi?
+## Características principales
 
-**Doremi** no es solo un reproductor de música; es tu portal personal a todo el universo de
-**La música en general**. Olvídate de las pestañas pesadas del navegador y disfruta de una aplicación dedicada, rápida y diseñada específicamente para integrarse con tu sistema Linux. 🐧✨
+- Reproducción local y gestión de biblioteca
+- Integración con YouTube Music para streaming y descubrimiento
+- Interfaz moderna con QML y tema dinámico
+- Módulo nativo en Rust para rendimiento y procesamiento visual
+- Descargas, historial, listas de reproducción y estadísticas
+- Soporte para integración del sistema: bandeja, MPRIS, Discord, Last.fm y atajos
+- Diseño preparado para Linux con foco en fluidez y estética premium
 
-### ✨ Lo que te encantará:
+## Stack tecnológico
 
-- 🎧 **Streaming sin interrupciones**: Disfruta de toda tu biblioteca de YouTube Music con la mejor calidad de audio posible.
-- 🎤 **Canta con nosotros**: Letras que se sincronizan con la música para que no pierdas ni una palabra.
-- 🔥 **Sonido Perfecto**: Ajusta cada frecuencia con nuestro ecualizador de 10 bandas incorporado.
-- 💾 **Tu música, siempre contigo**: Descarga tus canciones y álbumes favoritos para escucharlos incluso cuando no tengas internet.
-- 🎮 **Presume tu gusto musical**: Integración automática con Discord para que todos vean qué joya estás escuchando.
-- 📊 **Estadísticas Reales**: Conexión con Last.fm para que nunca pierdas el rastro de tus reproducciones.
-- 🖱️ **Control Total**: Maneja todo desde la bandeja del sistema o con las teclas multimedia de tu teclado.
+- Python 3.12 / 3.13
+- PySide6 + QML
+- SQLAlchemy + SQLite
+- VLC / python-vlc
+- Rust + PyO3 + maturin
+- YouTube Music client + yt-dlp
 
----
+## Requisitos
 
-## 🚀 ¡Empieza a Escuchar Ahora!
+- Python 3.12 o 3.13
+- Qt / PySide6
+- VLC instalado en el sistema
+- Rust y maturin para compilar el módulo nativo
 
-¿Listo para subir el volumen? Sigue estos sencillos pasos:
+> Python 3.14 queda excluido temporalmente por compatibilidad con dependencias del proyecto.
 
-> **Requisito de Python:** usa Python 3.12 o 3.13. Python 3.14 queda excluido temporalmente porque `aiosqlite` puede bloquearse al abrir conexiones SQLite en esa versión.
-
-1.  **Abre la aplicación** y déjate llevar por la interfaz moderna.
-2.  **Conecta tu cuenta** de forma segura para acceder a tus listas y recomendaciones.
-3.  **Dale al Play** y disfruta de una experiencia fluida, sin distracciones.
-
----
-
-## ⚡ Módulo nativo Rust (requerido)
-
-Doremi acelera con **Rust** el procesamiento de imágenes, las variantes de color
-del tema y las animaciones del fondo ambiental. Es parte obligatoria del proyecto:
-hay que compilarlo antes de ejecutar la app.
+## Instalación
 
 ```bash
-# Con el venv activado (ver sección de desarrollo):
+python -m venv venv
+source venv/bin/activate
+pip install -e ".[dev]" maturin
+```
+
+## Módulo nativo Rust
+
+El proyecto requiere compilar el módulo nativo antes de ejecutar la aplicación.
+
+```bash
 cd src/doremi/native_rs
 maturin develop --release
 ```
 
----
-
-## 🛠️ Desarrollo
+## Ejecución
 
 ```bash
-# 1. Entorno (Python 3.13 recomendado; el repo fija 3.13.9 en .python-version)
-python -m venv venv
-source venv/bin/activate
-pip install -e ".[dev]" maturin
+doremi
+# o
+PYTHONPATH=src python -m doremi.main
+```
 
-# 2. Compilar el módulo nativo Rust
-cd src/doremi/native_rs && maturin develop --release && cd -
+## Tests
 
-# 3. Ejecutar la app
-doremi        # o: PYTHONPATH=src python -m doremi.main
-
-# 4. Tests
+```bash
 QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
 ```
 
+## Estado del proyecto
+
+Este repositorio representa la evolución del proyecto hacia una arquitectura más moderna con Rust + QML como base de rendimiento y experiencia visual, manteniendo compatibilidad con la base Python existente.
+
+## Licencia
+
+Este proyecto se distribuye bajo la licencia incluida en [LICENSE](LICENSE).
+
 ---
 
-## 🎨 Diseñado para la Elegancia
-
-Doremi ha sido creado con una estética **Premium**, combinando colores vibrantes con una interfaz minimalista que hace que navegar por tu música sea un placer visual.
-
----
-
-<p align="center">
-  Creado con ❤️ para los amantes de la música en Linux por <b>Eirom</b>
-</p>
+Desarrollado con ❤️ por Eirom.
