@@ -132,6 +132,11 @@ class HomeScreenQml(QWidget):
             self._vm.set_tiles(data["tiles"])
             self._vm.set_horizontal(data["horizontal"])
             self._vm.set_songs(data["songs"])
+            if data.get("_source") == "online":
+                from doremi.services.offline_cache import OfflineCacheManager
+                settings = getattr(self.yt, "settings", None)
+                if settings is not None:
+                    OfflineCacheManager.get_instance().schedule_sync(data, settings)
             self._loaded = True
         except Exception as e:
             logger.error(f"Error loading QML home: {e}")

@@ -9,7 +9,22 @@ from doremi.ui.screens.home_data import (
     _parse_duration_ms,
 )
 
-YT_FILTERS = {"song": "songs", "album": "albums", "playlist": "playlists"}
+YT_FILTERS = {
+    "song": "songs",
+    "album": "albums",
+    "podcast": "podcasts",
+    "playlist": "playlists",
+}
+
+
+def _collection_author(item: dict, category: str) -> str:
+    artists = item.get("artists", [])
+    if artists:
+        return _extract_artist_names(artists)
+    author = item.get("author", "")
+    if isinstance(author, dict):
+        author = author.get("name", "")
+    return str(author or ("Podcast" if category == "podcast" else ""))
 
 
 async def gather_search(yt_client, query: str, category: str, limit: int = 40) -> list[dict]:
@@ -21,7 +36,7 @@ async def gather_search(yt_client, query: str, category: str, limit: int = 40) -
         results = await yt_client.search(query, filter=YT_FILTERS.get(category), limit=limit)
     except Exception as e:
         logger.error(f"Error searching '{category}' for '{query}': {e}")
-        return []
+        raise
 
     results = results or []
 
@@ -34,15 +49,18 @@ async def gather_search(yt_client, query: str, category: str, limit: int = 40) -
             pass
         return [_normalize_song(it, liked_ids) for it in results if it.get("videoId")]
 
-    if category == "album":
+    if category in {"album", "podcast"}:
+        route = "podcast" if category == "podcast" else "album"
+        prefix = "MPSP" if category == "podcast" else "MPRE"
         return [
             {
                 "title": str(it.get("title", "Unknown")),
-                "artist": _extract_artist_names(it.get("artists", [])),
+                "artist": _collection_author(it, category),
                 "thumbnail_url": _extract_thumbnail(it),
-                "navigate": f"album?id={it['browseId']}" if it.get("browseId") else "",
+                "navigate": f"{route}?id={it['browseId']}" if it.get("browseId") else "",
             }
             for it in results
+            if str(it.get("browseId", "")).startswith(prefix)
         ]
 
     if category == "playlist":

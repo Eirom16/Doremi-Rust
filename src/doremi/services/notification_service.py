@@ -49,6 +49,8 @@ class NotificationService(QObject):
 
     async def _check_subscriptions(self):
         try:
+            if not self.yt or not getattr(self.yt, "is_authenticated", False) or not getattr(self.yt, "_ytmusicapi", None):
+                return
             # We must use self.yt._run to call the sync ytmusicapi function
             subs = await self.yt._run(lambda: self.yt._ytmusicapi.get_library_subscriptions(limit=100))
             if not subs:

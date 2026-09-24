@@ -137,7 +137,8 @@ class AlbumScreen(QWidget):
         self.content_layout.addWidget(skeleton)
         
         try:
-            data = await self.yt.get_album(browse_id)
+            from doremi.ui.screens.album_data import fetch_album_or_podcast
+            data = await fetch_album_or_podcast(self.yt, browse_id)
             self._album_data = data
 
             # Check which tracks are already downloaded and liked
@@ -162,10 +163,10 @@ class AlbumScreen(QWidget):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(f"Error loading album: {e}")
+            logger.error(f"Error loading album/podcast: {e}")
             self._clear_content()
             self.content_layout.addWidget(ErrorStateWidget(
-                "No se pudo cargar el álbum",
+                "No se pudo cargar la colección",
                 retry_callback=lambda: asyncio.ensure_future(self.load(browse_id)),
             ))
 
@@ -177,7 +178,7 @@ class AlbumScreen(QWidget):
         self.btn_dl = None
         
         if not data:
-            self.content_layout.addWidget(EmptyStateWidget("Álbum no encontrado", icon="album"))
+            self.content_layout.addWidget(EmptyStateWidget("Colección no encontrada", icon="album"))
             return
             
         from doremi.ui.design import tokens
@@ -254,7 +255,8 @@ class AlbumScreen(QWidget):
         if year:
             meta_str += f" • {year}"
         if track_count:
-            meta_str += f" • {track_count} canciones"
+            item_name = "episodios" if data.get("type", "").lower() == "podcast" else "canciones"
+            meta_str += f" • {track_count} {item_name}"
             
         meta_lbl = QLabel(meta_str)
         meta_lbl.setFont(QFont("Inter", 11))
@@ -308,7 +310,8 @@ class AlbumScreen(QWidget):
         else:
             self.label_offline_status.hide()
 
-            btn_label = " Descargar Álbum"
+            collection_name = "Podcast" if data.get("type", "").lower() == "podcast" else "Álbum"
+            btn_label = f" Descargar {collection_name}"
             if data.get('is_partially_downloaded', False):
                 btn_label = f" Descargar restantes ({data.get('downloaded_count')}/{track_count} completas)"
 

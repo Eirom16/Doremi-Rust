@@ -109,3 +109,29 @@ async def test_set_volume_clamps(player):
     assert player.status.volume == 200
     player.set_volume(-50)
     assert player.status.volume == 0
+
+
+@pytest.mark.asyncio
+async def test_play_url_reports_vlc_startup_error_as_failure(player, monkeypatch):
+    monkeypatch.setattr(player._player, "play", lambda: player._on_error(None))
+    try:
+        assert await player.play_url("https://example.invalid/audio", "broken") is False
+        assert player.status.state == PlayerState.ERROR
+        assert player._poll_task is None
+    finally:
+        if player._poll_task:
+            player._poll_task.cancel()
+            await asyncio.gather(player._poll_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_successful_play_clears_previous_error(player, monkeypatch):
+    player.status.error_msg = "previous error"
+    monkeypatch.setattr(player._player, "play", lambda: player._on_playing(None))
+    try:
+        assert await player.play_url("https://example.invalid/audio", "ok") is True
+        assert player.status.error_msg is None
+    finally:
+        if player._poll_task:
+            player._poll_task.cancel()
+            await asyncio.gather(player._poll_task, return_exceptions=True)

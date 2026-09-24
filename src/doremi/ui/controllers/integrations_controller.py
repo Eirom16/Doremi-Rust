@@ -68,34 +68,14 @@ class IntegrationsController:
         self.run_async(self.main_window.playback_controller._advance_queue())
 
     def on_player_error_callback(self, status) -> None:
-        self.run_async(self.recover_player_error(status))
+        self.main_window.playback_controller.on_player_error(status)
 
     async def recover_player_error(self, status) -> None:
-        item = self.queue.current
-        if not item:
-            return
-
-        if (
-            item.video_id not in self.main_window._stream_recovery_attempts
-            and not item.is_local
-            and not self.main_window._should_show_offline_state("home")
-        ):
-            self.main_window._stream_recovery_attempts.add(item.video_id)
-            logger.warning(f"Trying alternative stream after VLC error: {item.title}")
-            alt_url = await self.extractor.get_alternative_stream(item.video_id)
-            if alt_url and await self.player.play_url(alt_url, item.video_id):
-                ToastNotification.show(self.main_window, "Reproduciendo formato alternativo", "info")
-                return
-
-        await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista. Saltando a la siguiente.")
+        # Compatibilidad: la reproducción es la única dueña de los reintentos.
+        self.main_window.playback_controller.on_player_error(status)
 
     async def handle_playback_failure(self, item: QueueItem, message: str) -> None:
-        logger.error(f"Playback failed for {item.video_id}: {item.title}")
-        ToastNotification.show(self.main_window, message, "error")
-        if self.queue.next_item:
-            await self.main_window.playback_controller._advance_queue()
-        else:
-            await self.player.stop()
+        await self.main_window.playback_controller.handle_playback_failure(item, message)
 
     def on_state_changed_callback(self, status) -> None:
         self.main_window.mini_player.update_state(status)
@@ -237,13 +217,22 @@ class IntegrationsController:
         """Handle network status transitions dynamically."""
         if not is_connected:
             self.main_window.offline_banner.show_banner()
-            ToastNotification.show(self.main_window, "Sin conexión: reproduciendo descargas locales", "warning")
+            ToastNotification.show(self.main_window, "Modo sin conexión: usando música guardada", "warning")
+            if (
+                self.main_window._current_route == "home"
+                and getattr(self.main_window.home_screen, "_loaded", False)
+            ):
+                self.main_window.home_screen.force_reload()
             if self.main_window._current_route in self.main_window.ONLINE_ROUTES:
                 self.main_window._offline_blocked_path = self.main_window._current_route
                 self.main_window._show_offline_state(self.main_window._current_route)
         else:
             self.main_window.offline_banner.hide_banner()
             ToastNotification.show(self.main_window, "Conexión de red restablecida", "success")
+
+            if self.main_window._current_route == "home":
+                self.main_window.home_screen.force_reload()
+                return
 
             # Reload active static screen to resume online capabilities
             if self.main_window._offline_blocked_path:

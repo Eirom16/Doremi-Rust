@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import asyncio
 
-from PySide6.QtCore import QEasingCurve, QSize, Qt, QPropertyAnimation, Signal
-from PySide6.QtGui import QIcon, QPixmap, QPainter, QPainterPath, QColor, QFontMetrics
+from PySide6.QtCore import QEasingCurve, QRectF, Qt, QPropertyAnimation, Signal
+from PySide6.QtGui import QPixmap, QPainter, QPainterPath, QColor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from doremi.ui.design.fonts import AppFont
@@ -25,13 +25,23 @@ NAV_ITEMS = [
 
 
 class NavButton(QPushButton, HoverColorAnimationMixin):
-    def __init__(self, route: str, icon_name: str, label: str, parent=None):
+    def __init__(
+        self,
+        route: str,
+        icon_name: str,
+        label: str,
+        parent=None,
+        thumbnail_url: str = "",
+    ):
         super().__init__(parent)
         self.init_hover_animation(normal_color="transparent", hover_color="#1E1E38")
         self.route = route
         self.icon_name = icon_name
         self.label = label
+        self.thumbnail_url = thumbnail_url
         self._collapsed = False
+        self._thumbnail_task: asyncio.Task | None = None
+        self._icon_width = 28 if thumbnail_url else 22
         self.setCheckable(True)
         self.setFixedHeight(44)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -45,7 +55,7 @@ class NavButton(QPushButton, HoverColorAnimationMixin):
         from doremi.ui.design import tokens
         self.icon_label = Icon.label(icon_name, 22, tokens.CURRENT.text_secondary)
         self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.icon_label.setFixedWidth(22)
+        self.icon_label.setFixedWidth(self._icon_width)
         self.text_label = QLabel(label)
         self.text_label.setFont(AppFont.body(13))
         self.text_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
@@ -55,6 +65,54 @@ class NavButton(QPushButton, HoverColorAnimationMixin):
         self._row.addStretch()
 
         self._apply_style(False)
+        if thumbnail_url:
+            self._load_thumbnail(thumbnail_url)
+
+    def _load_thumbnail(self, url: str) -> None:
+        """Carga la carátula de una playlist sin bloquear la navegación."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Los tests de widgets no siempre tienen un bucle asyncio activo.
+            return
+
+        async def load() -> None:
+            try:
+                image_path = await _image_cache.download(url)
+                import shiboken6
+                if not image_path or not shiboken6.isValid(self):
+                    return
+                source = QPixmap(str(image_path))
+                if source.isNull():
+                    return
+
+                size = 28
+                scaled = source.scaled(
+                    size, size,
+                    Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+                x = (scaled.width() - size) // 2
+                y = (scaled.height() - size) // 2
+                cropped = scaled.copy(x, y, size, size)
+                rounded = QPixmap(size, size)
+                rounded.fill(Qt.GlobalColor.transparent)
+                painter = QPainter(rounded)
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+                clip = QPainterPath()
+                clip.addRoundedRect(QRectF(0, 0, size, size), 5, 5)
+                painter.setClipPath(clip)
+                painter.drawPixmap(0, 0, cropped)
+                painter.end()
+                if shiboken6.isValid(self):
+                    self.icon_label.setPixmap(rounded)
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                from loguru import logger
+                logger.debug(f"No se pudo cargar la miniatura de playlist: {exc}")
+
+        self._thumbnail_task = loop.create_task(load())
 
     def set_active(self, active: bool) -> None:
         self.setChecked(active)
@@ -70,7 +128,7 @@ class NavButton(QPushButton, HoverColorAnimationMixin):
         else:
             self._row.setContentsMargins(11, 0, 11, 0)
             self._row.setSpacing(12)
-            self.icon_label.setFixedWidth(22)
+            self.icon_label.setFixedWidth(self._icon_width)
 
     def _update_hover_stylesheet(self):
         if not self.isChecked():
@@ -127,8 +185,6 @@ class NavButton(QPushButton, HoverColorAnimationMixin):
 
 class NavSidebar(QWidget):
     on_navigate = Signal(str)
-    on_login_click = Signal()
-    auth_changed = Signal(bool)
 
     EXPANDED_WIDTH = 214
     COLLAPSED_WIDTH = 64
@@ -139,11 +195,8 @@ class NavSidebar(QWidget):
         self._is_function = callable(on_navigate) and not hasattr(on_navigate, "emit")
         self._active = "home"
         self._collapsed = False
-        self._is_authenticated = False
-        self._user_avatar = ""
-        self._user_name = ""
         self._nav_buttons: dict[str, NavButton] = {}
-        self._avatar_task: asyncio.Task | None = None
+        self._playlist_buttons: list[NavButton] = []
 
         self.setObjectName("navSidebar")
         self.setFixedWidth(self.EXPANDED_WIDTH)
@@ -197,15 +250,19 @@ class NavSidebar(QWidget):
             self._nav_buttons[route] = btn
             layout.addWidget(btn)
 
-        layout.addStretch()
+        self._playlist_section = QWidget(self)
+        playlist_layout = QVBoxLayout(self._playlist_section)
+        playlist_layout.setContentsMargins(0, 12, 0, 0)
+        playlist_layout.setSpacing(4)
+        self._playlist_heading = QLabel("Tus playlists")
+        self._playlist_heading.setFont(AppFont.body(11))
+        self._playlist_heading.setContentsMargins(11, 0, 0, 4)
+        playlist_layout.addWidget(self._playlist_heading)
+        self._playlist_list_layout = playlist_layout
+        self._playlist_section.hide()
+        layout.addWidget(self._playlist_section)
 
-        # Profile button — directly in the main layout, no wrapping QFrame
-        self._profile_btn = QPushButton()
-        self._profile_btn.setFixedHeight(42)
-        self._profile_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._profile_btn.clicked.connect(self._on_profile_clicked)
-        self._profile_btn.setAccessibleName("Iniciar sesión")
-        layout.addWidget(self._profile_btn)
+        layout.addStretch()
 
         # Collapse/expand toggle
         self._toggle_btn = QPushButton()
@@ -221,13 +278,40 @@ class NavSidebar(QWidget):
             if previous:
                 QWidget.setTabOrder(previous, btn)
             previous = btn
-        QWidget.setTabOrder(previous, self._profile_btn)
-        QWidget.setTabOrder(self._profile_btn, self._toggle_btn)
+        QWidget.setTabOrder(previous, self._toggle_btn)
 
         self._update_sidebar_styles()
         self._update_toggle_icon()
-        self._update_profile_ui()
         self._select("home")
+
+    def set_playlists(self, playlists: list[dict]) -> None:
+        """Muestra hasta cuatro playlists de acceso rápido en la barra lateral."""
+        while self._playlist_buttons:
+            button = self._playlist_buttons.pop()
+            self._playlist_list_layout.removeWidget(button)
+            button.deleteLater()
+
+        for playlist in playlists[:4]:
+            title = str(playlist.get("title", "")).strip()
+            route = str(playlist.get("navigate", "")).strip()
+            if not title or not route:
+                continue
+            button = NavButton(
+                route,
+                "playlist_play",
+                title,
+                self._playlist_section,
+                thumbnail_url=str(playlist.get("thumbnail_url", "")),
+            )
+            button.clicked.connect(lambda checked=False, r=route: self._navigate(r))
+            button.set_collapsed(self._collapsed)
+            self._playlist_list_layout.addWidget(button)
+            self._playlist_buttons.append(button)
+
+        self._update_playlist_visibility()
+
+    def _update_playlist_visibility(self) -> None:
+        self._playlist_section.setVisible(bool(self._playlist_buttons) and not self._collapsed)
 
     def toggle_collapse(self) -> None:
         self._collapsed = not self._collapsed
@@ -247,8 +331,10 @@ class NavSidebar(QWidget):
 
         for btn in self._nav_buttons.values():
             btn.set_collapsed(self._collapsed)
+        for btn in self._playlist_buttons:
+            btn.set_collapsed(self._collapsed)
         self._app_title.setVisible(not self._collapsed)
-        self._update_profile_ui()
+        self._update_playlist_visibility()
         self._update_toggle_icon()
 
     def _update_toggle_icon(self) -> None:
@@ -267,127 +353,12 @@ class NavSidebar(QWidget):
         self._active = route
         for key, btn in self._nav_buttons.items():
             btn.set_active(key == route)
+        for btn in self._playlist_buttons:
+            btn.set_active(btn.route == route)
 
     def setEnabled(self, enabled: bool) -> None:
         for btn in self.findChildren(QPushButton):
             btn.setEnabled(enabled)
-
-    def _update_profile_ui(self) -> None:
-        label = self._user_name or ""
-        if self._is_authenticated:
-            display_text = label if label else "Mi cuenta"
-        else:
-            display_text = "Iniciar sesión"
-
-        self._profile_btn.setToolTip(display_text)
-        self._profile_btn.setAccessibleName(display_text)
-
-        # Build the button content with icon + text using a layout
-        # Clear any existing icon/text first
-        self._profile_btn.setIcon(QIcon())
-        self._profile_btn.setIconSize(QSize(24, 24))
-        self._profile_btn.setFont(AppFont.body(12))
-        if self._collapsed:
-            button_text = ""
-        else:
-            metrics = QFontMetrics(self._profile_btn.font())
-            max_text_width = max(48, self.width() - 58)
-            button_text = metrics.elidedText(display_text, Qt.TextElideMode.ElideRight, max_text_width)
-        from doremi.ui.design import tokens
-        from PySide6.QtGui import QColor
-        accent = tokens.CURRENT.accent
-        c = QColor(accent)
-        r, g, b, _ = c.getRgb()
-
-        self._profile_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: transparent;
-                
-                border: none;
-                border-radius: 12px;
-                padding: 8px 8px;
-                text-align: left;
-            }}
-            QPushButton:hover {{
-                background-color: rgba({r},{g},{b},0.08);
-                
-            }}
-        """)
-
-        # Cancel any active avatar loading task first
-        if self._avatar_task and not self._avatar_task.done():
-            self._avatar_task.cancel()
-            self._avatar_task = None
-
-        if self._is_authenticated and self._user_avatar:
-            async def load_avatar() -> None:
-                try:
-                    path = await _image_cache.download(self._user_avatar)
-                    import shiboken6
-                    if not shiboken6.isValid(self):
-                        return
-                    if path:
-                        pixmap = QPixmap(str(path))
-                        if not pixmap.isNull():
-                            # Scale and crop to circle
-                            size = 24
-                            scaled = pixmap.scaled(
-                                size, size,
-                                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
-                                Qt.TransformationMode.SmoothTransformation,
-                            )
-                            # Center crop
-                            x = (scaled.width() - size) // 2
-                            y = (scaled.height() - size) // 2
-                            cropped = scaled.copy(x, y, size, size)
-                            # Clip to circle
-                            from PySide6.QtCore import QRectF
-                            circular = QPixmap(size, size)
-                            circular.fill(Qt.GlobalColor.transparent)
-                            painter = QPainter()
-                            if painter.begin(circular):
-                                painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                                path_clip = QPainterPath()
-                                path_clip.addEllipse(QRectF(0, 0, size, size))
-                                painter.setClipPath(path_clip)
-                                painter.drawPixmap(0, 0, cropped)
-                                painter.end()
-                            self._profile_btn.setIcon(QIcon(circular))
-                            self._profile_btn.setText(button_text)
-                            return
-                except asyncio.CancelledError:
-                    return
-                except Exception as e:
-                    from loguru import logger
-                    logger.error(f"Avatar load failed: {e}")
-                # Fallback: use person icon
-                self._profile_btn.setIcon(Icon.icon("person", tokens.CURRENT.text_secondary, 20 if not self._collapsed else 22))
-                self._profile_btn.setText(button_text)
-
-            self._avatar_task = asyncio.create_task(load_avatar())
-        else:
-            # Not authenticated or no avatar — show icon + text
-            self._profile_btn.setIcon(Icon.icon("person", tokens.CURRENT.text_secondary, 20 if not self._collapsed else 22))
-            self._profile_btn.setText(button_text)
-
-    def _on_profile_clicked(self) -> None:
-        if self._is_authenticated:
-            self._navigate("settings")
-        else:
-            self.on_login_click.emit()
-
-    def _on_login_dialog_success(self, avatar_url: str = "") -> None:
-        self._is_authenticated = True
-        self._user_name = "YouTube Music"
-        self._user_avatar = avatar_url
-        self._update_profile_ui()
-        self.auth_changed.emit(True)
-
-    def update_auth_state(self, is_authenticated: bool, user_name: str = "", avatar_url: str = "") -> None:
-        self._is_authenticated = is_authenticated
-        self._user_name = user_name
-        self._user_avatar = avatar_url
-        self._update_profile_ui()
 
     def _update_header_style(self) -> None:
         from doremi.ui.design import tokens
@@ -433,7 +404,10 @@ class NavSidebar(QWidget):
                 }}
             """)
         self._update_header_style()
-        self._update_profile_ui()
+        if hasattr(self, "_playlist_heading"):
+            self._playlist_heading.setStyleSheet(
+                f"color: {text_secondary}; background: transparent;"
+            )
 
     def changeEvent(self, event) -> None:
         from PySide6.QtCore import QEvent

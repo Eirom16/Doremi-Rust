@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
 from loguru import logger
 
 from doremi.ui.theme_bridge import theme_bridge
+from doremi.utils.i18n import _
 from doremi.ui.viewmodels.search_vm import SearchViewModel
 
 QML_DIR = Path(__file__).resolve().parent.parent / "qml"
@@ -116,7 +117,7 @@ class SearchScreenQml(QWidget):
             self._results_by_cat = {}
             self._apply_results(self._vm.category, [])
             return
-        if query == self._current_query:
+        if query == self._current_query and self._vm.category in self._results_by_cat:
             return
         self._current_query = query
         self._vm.set_query(query)
@@ -125,6 +126,14 @@ class SearchScreenQml(QWidget):
 
     async def load(self) -> None:
         pass  # paridad con SearchScreen (no-op; la búsqueda la dispara `search()`)
+
+    def update_liked_state(self, video_id: str, liked: bool) -> None:
+        items = self._results_by_cat.get("song", [])
+        for item in items:
+            if item.get("videoId") == video_id:
+                item["is_liked"] = liked
+        if self._vm.category == "song":
+            self._vm.set_songs(items)
 
     # ── Fetch con caché por categoría ──────────────────────────────────────
 
@@ -153,8 +162,8 @@ class SearchScreenQml(QWidget):
             raise
         except Exception as e:
             logger.error(f"Error en búsqueda QML ({category}): {e}")
-            if category == self._vm.category:
-                self._vm.set_error("No se pudieron cargar los resultados")
+            if category == self._vm.category and query == self._current_query:
+                self._vm.set_error(_("No se pudieron cargar los resultados"))
         finally:
             if category == self._vm.category and query == self._current_query:
                 self._vm.set_loading(False)
@@ -164,7 +173,7 @@ class SearchScreenQml(QWidget):
         self._vm.set_error("")
         if category == "song":
             self._vm.set_songs(items)
-        elif category == "album":
+        elif category in {"album", "podcast"}:
             self._vm.set_albums(items)
         elif category == "playlist":
             self._vm.set_playlists(items)

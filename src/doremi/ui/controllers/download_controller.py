@@ -4,6 +4,8 @@ from pathlib import Path
 from PySide6.QtWidgets import QMessageBox
 
 from loguru import logger
+from doremi.utils.i18n import _, _f
+from doremi.ui.screens.downloads_data import delete_audio_file
 
 
 class DownloadController:
@@ -118,18 +120,24 @@ class DownloadController:
         self.run_async(self.download_album_async(browse_id, title, thumbnail_url))
 
     async def download_album_async(self, browse_id, title, thumbnail_url):
-        self.main_window.statusBar().showMessage(f"Iniciando descarga de álbum: {title}", 3000)
+        from doremi.ui.screens.album_data import fetch_album_or_podcast, is_podcast_id
+
+        collection_name = "podcast" if is_podcast_id(browse_id) else "álbum"
+        item_name = "episodios" if is_podcast_id(browse_id) else "canciones"
+        self.main_window.statusBar().showMessage(
+            f"Iniciando descarga de {collection_name}: {title}", 3000
+        )
 
         def navigate_to_downloads():
             self.main_window._navigate_to("downloads")
 
         self.main_window.show_notification(
-            f"Iniciando descarga de álbum: {title}", "info",
+            f"Iniciando descarga de {collection_name}: {title}", "info",
             action_text="VER", action_callback=navigate_to_downloads,
         )
 
         try:
-            data = await self.main_window.yt.get_album(browse_id)
+            data = await fetch_album_or_podcast(self.main_window.yt, browse_id)
             album_thumbnails = data.get('thumbnails', [])
             if album_thumbnails:
                 high_res_thumb = album_thumbnails[-1].get('url', '')
@@ -169,11 +177,14 @@ class DownloadController:
                 self.main_window.statusBar().showMessage(f"{queued} añadidas a cola • {already_downloaded} ya descargadas", 5000)
                 self.main_window.show_notification(f"{queued} añadidas, {already_downloaded} omitidas (ya descargadas).", "success")
             else:
-                self.main_window.statusBar().showMessage(f"{queued} canciones del álbum añadidas a cola", 4000)
-                self.main_window.show_notification(f"{queued} canciones del álbum añadidas a la cola", "success")
+                message = f"{queued} {item_name} del {collection_name} añadidos a la cola"
+                self.main_window.statusBar().showMessage(message, 4000)
+                self.main_window.show_notification(message, "success")
         except Exception as e:
-            logger.error(f"Error downloading album: {e}")
-            self.main_window.statusBar().showMessage("Error al iniciar descarga de álbum", 4000)
+            logger.error(f"Error downloading album/podcast: {e}")
+            self.main_window.statusBar().showMessage(
+                f"Error al iniciar descarga de {collection_name}", 4000
+            )
 
     def on_download_error(self, video_id, error):
         self.main_window.statusBar().showMessage(f"Error en descarga: {error}", 5000)
@@ -202,17 +213,15 @@ class DownloadController:
                 f"¿Eliminar la descarga local de \"{title}\"?",
             ):
                 return
-            if d.file_path:
-                try:
-                    p = Path(d.file_path)
-                    if p.exists():
-                        p.unlink()
-                        lrc_path = p.with_suffix(".lrc")
-                        if lrc_path.exists():
-                            lrc_path.unlink()
-                except Exception as e:
-                    logger.error(f"Error deleting file {d.file_path}: {e}")
-            await repo.remove_download(video_id)
+            try:
+                lyrics_deleted = delete_audio_file(d.file_path)
+                await repo.remove_download(video_id)
+            except Exception as exc:
+                logger.error(f"No se pudo eliminar {video_id}: {exc}")
+                self.main_window.show_notification(_("No se pudo eliminar la descarga. Puedes reintentarlo."), "error")
+                return
+            if not lyrics_deleted:
+                self.main_window.show_notification(_("Se eliminó el audio, pero no se pudo borrar la letra."), "warning")
             self.main_window.statusBar().showMessage(f"Descarga eliminada: {title}", 3000)
             self.main_window.show_notification(f"Descarga eliminada: {title}", "info")
 
@@ -248,23 +257,20 @@ class DownloadController:
         ):
             return
 
-        count = 0
+        count, failures = 0, 0
         for d in playlist_downloads:
-            if d.file_path:
-                try:
-                    p = Path(d.file_path)
-                    if p.exists():
-                        p.unlink()
-                        lrc_path = p.with_suffix(".lrc")
-                        if lrc_path.exists():
-                            lrc_path.unlink()
-                except Exception as e:
-                    logger.error(f"Error deleting file {d.file_path}: {e}")
-            await repo.remove_download(d.video_id)
-            count += 1
-
-        self.main_window.statusBar().showMessage(f"Playlist eliminada: {playlist_title or playlist_id} ({count} canciones)", 4000)
-        self.main_window.show_notification(f"Playlist local eliminada: {playlist_title or playlist_id}", "info")
+            try:
+                lyrics_deleted = delete_audio_file(d.file_path)
+                await repo.remove_download(d.video_id)
+                count += 1
+                if not lyrics_deleted:
+                    failures += 1
+            except Exception as exc:
+                failures += 1
+                logger.error(f"No se pudo eliminar {d.video_id}: {exc}")
+        message = _f("Audios eliminados: {count}. Fallos de borrado: {failed}.", count=count, failed=failures)
+        self.main_window.statusBar().showMessage(message, 4000)
+        self.main_window.show_notification(message, "warning" if failures else "info")
         await self.main_window._navigate("downloads")
 
     def play_local_playlist(self, tracks_metadata: list[dict], start_index: int = 0) -> None:

@@ -20,7 +20,9 @@ Item {
         anchors.leftMargin: Theme.spacingMd
         anchors.rightMargin: Theme.spacingMd
         anchors.topMargin: Theme.spacingSm
-        anchors.bottomMargin: 112
+        // Inicio conserva 100% de la altura: el mini-player es una capa
+        // flotante y no debe recortar la vista ni crear una franja vacía.
+        anchors.bottomMargin: 0
         contentHeight: contentCol.height + Theme.spacingSm
         clip: true
         flickableDirection: Flickable.VerticalFlick
@@ -344,25 +346,25 @@ Item {
                                     onClicked: tileMenu.popup()
                                 }
 
-                                Menu {
+                                ContextMenu {
                                     id: tileMenu
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Reproducir siguiente"
                                         onTriggered: vm.tile_action(index, "play_next")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Añadir a la cola"
                                         onTriggered: vm.tile_action(index, "add_to_queue")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Me gusta"
                                         onTriggered: vm.tile_action(index, "like")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Añadir a playlist"
                                         onTriggered: vm.tile_action(index, "add_to_playlist")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Descargar"
                                         onTriggered: vm.tile_action(index, "download")
                                     }
@@ -642,29 +644,29 @@ Item {
                                 onClicked: songCtxMenu.popup()
                             }
 
-                            Menu {
+                            ContextMenu {
                                 id: songCtxMenu
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Reproducir siguiente"
                                     onTriggered: vm.song_action(index, "play_next")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a la cola"
                                     onTriggered: vm.song_action(index, "add_to_queue")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Me gusta"
                                     onTriggered: vm.song_action(index, "like")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a playlist"
                                     onTriggered: vm.song_action(index, "add_to_playlist")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Descargar"
                                     onTriggered: vm.song_action(index, "download")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Ir al artista"
                                     onTriggered: vm.song_action(index, "go_artist")
                                 }
@@ -674,10 +676,10 @@ Item {
                 }
             }
 
-            // ── Genre grid ────────────────────────────────────────────
+            // ── Empty offline state ───────────────────────────────────
             Label {
                 visible: !vm.loading && vm.horizontal.rowCount() === 0 && vm.songs.rowCount() === 0 && vm.tiles.rowCount() === 0
-                text: "Explorar por género"
+                text: "Aún no hay música disponible sin conexión"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeHeading
@@ -686,48 +688,9 @@ Item {
                 Layout.topMargin: Theme.spacingSm
             }
 
-            GridLayout {
-                visible: !vm.loading && vm.horizontal.rowCount() === 0 && vm.songs.rowCount() === 0 && vm.tiles.rowCount() === 0
-                Layout.fillWidth: true
-                columns: 4
-                rowSpacing: Theme.spacingSm
-                columnSpacing: Theme.spacingSm
-
-                Repeater {
-                    model: vm.genres
-
-                    Rectangle {
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 80
-                        radius: Theme.radiusLg
-                        color: genreMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_elevated"]
-                        border.width: 1
-                        border.color: genreMa.containsMouse ? Qt.rgba(167, 139, 250, 0.33) : root.colors["border"]
-
-                        Label {
-                            anchors.centerIn: parent
-                            text: model.name
-                            color: root.colors["text_primary"]
-                            font.family: Theme.fontFamily
-                            font.pixelSize: Theme.typeBody
-                            font.weight: Font.Bold
-                        }
-
-                        MouseArea {
-                            id: genreMa
-                            anchors.fill: parent
-                            hoverEnabled: true
-                            cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.navigate_genre(model.query)
-                        }
-                    }
-                }
-            }
-
-            // ── Suggestion hint ───────────────────────────────────────
             Label {
                 visible: !vm.loading && vm.horizontal.rowCount() === 0 && vm.songs.rowCount() === 0 && vm.tiles.rowCount() === 0
-                text: "Haz clic en un género para buscar"
+                text: "Conéctate una vez para que Doremi prepare y rote tus recomendaciones."
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeBody

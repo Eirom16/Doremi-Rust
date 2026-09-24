@@ -136,6 +136,10 @@ class LibraryScreenQml(QWidget):
     async def load(self) -> None:
         await self._load_tab(self._vm.tab)
 
+    def select_tab(self, tab: str) -> None:
+        """Abre una pestaña desde navegación externa sin duplicar una vista."""
+        self._vm.set_tab(tab)
+
     def _schedule_load(self, force: bool = False) -> None:
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()

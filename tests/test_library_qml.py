@@ -5,6 +5,8 @@ colores rgba() del ThemeBridge para QML y la carga offscreen del QML.
 """
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 
@@ -209,6 +211,15 @@ class TestLibraryScreenQml:
         assert screen.is_ok
         screen._vm.navigate("album?id=A1")
         assert routes == ["album?id=A1"]
+
+    @pytest.mark.asyncio
+    async def test_external_tab_selection(self, qapp):
+        from doremi.ui.screens.library_qml import LibraryScreenQml
+
+        screen = LibraryScreenQml(None, lambda *a: None, lambda r: None)
+        screen.select_tab("playlists")
+        await asyncio.sleep(0)
+        assert screen._current_tab == "playlists"
 
     def test_invalidate_songs_cache(self, qapp):
         from doremi.ui.screens.library_qml import LibraryScreenQml

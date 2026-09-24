@@ -8,6 +8,13 @@ Rectangle {
     id: btn
 
     signal clicked()
+    activeFocusOnTab: enabled && visible
+    Accessible.role: Accessible.Button
+    Accessible.name: text
+    Accessible.onPressAction: if (enabled) clicked()
+    Keys.onReturnPressed: if (enabled && !event.isAutoRepeat) clicked()
+    Keys.onEnterPressed: if (enabled && !event.isAutoRepeat) clicked()
+    Keys.onSpacePressed: if (enabled && !event.isAutoRepeat) clicked()
 
     property bool primary: false
     property string text: ""
@@ -24,8 +31,8 @@ Rectangle {
         if (primary) return ma.containsMouse ? colors["accent_bright"] : accentColor
         return ma.containsMouse ? colors["bg_high"] : colors["bg_elevated"]
     }
-    border.width: primary ? 0 : 1
-    border.color: ma.containsMouse ? accentColor : colors["border"]
+    border.width: activeFocus ? 2 : (primary ? 0 : 1)
+    border.color: activeFocus || ma.containsMouse ? accentColor : colors["border"]
 
     Row {
         id: row
@@ -56,6 +63,6 @@ Rectangle {
         hoverEnabled: true
         enabled: btn.enabled
         cursorShape: btn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
-        onClicked: btn.clicked()
+        onClicked: { btn.forceActiveFocus(); btn.clicked() }
     }
 }

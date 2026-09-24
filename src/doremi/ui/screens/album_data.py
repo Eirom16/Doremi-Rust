@@ -39,6 +39,32 @@ def normalize_album_track(track: dict, album_artists: str) -> dict | None:
     }
 
 
+def is_podcast_id(browse_id: str) -> bool:
+    """Los podcasts de YouTube Music usan identificadores MPSP."""
+    return browse_id.startswith("MPSP")
+
+
+async def fetch_album_or_podcast(yt_client, browse_id: str) -> dict:
+    """Devuelve álbumes y podcasts con la misma forma para ambas interfaces."""
+    if is_podcast_id(browse_id):
+        podcast = await yt_client.get_podcast(browse_id)
+        if not podcast:
+            return {}
+        author = podcast.get("author", {})
+        author_name = author.get("name", "") if isinstance(author, dict) else str(author or "")
+        data = dict(podcast)
+        data["type"] = "Podcast"
+        data["artists"] = [{"name": author_name}] if author_name else []
+        data["tracks"] = []
+        for episode in podcast.get("episodes", []):
+            normalized = dict(episode)
+            normalized.setdefault("artists", data["artists"])
+            data["tracks"].append(normalized)
+        data["trackCount"] = len(data["tracks"])
+        return data
+    return await yt_client.get_album(browse_id)
+
+
 async def gather_album(yt_client, browse_id: str) -> dict:
     """Fetch album data and normalize it for both UI versions."""
     result = {
@@ -56,7 +82,7 @@ async def gather_album(yt_client, browse_id: str) -> dict:
         return result
 
     try:
-        data = await yt_client.get_album(browse_id)
+        data = await fetch_album_or_podcast(yt_client, browse_id)
     except Exception as e:
         logger.error(f"Error fetching album {browse_id}: {e}")
         return result
@@ -100,6 +126,7 @@ async def gather_album(yt_client, browse_id: str) -> dict:
     if year:
         meta += f" • {year}"
     if result["track_count"]:
-        meta += f" • {result['track_count']} canciones"
+        item_name = "episodios" if is_podcast_id(browse_id) else "canciones"
+        meta += f" • {result['track_count']} {item_name}"
     result["meta"] = meta
     return result

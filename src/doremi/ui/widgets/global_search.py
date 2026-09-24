@@ -16,13 +16,16 @@ from PySide6.QtWidgets import (
     QLineEdit, QPushButton, QScrollArea,
     QSizePolicy, QGraphicsDropShadowEffect, QFrame
 )
-from PySide6.QtCore import Signal, Qt, QTimer, QPoint
-from PySide6.QtGui import QFont, QColor, QPixmap
+from PySide6.QtCore import Signal, Qt, QTimer, QPoint, QRectF
+from PySide6.QtGui import QFont, QColor, QIcon, QPainter, QPainterPath, QPixmap
 from loguru import logger
 
 from doremi.config.paths import AppDirs
 from doremi.ui.design.icons import Icon
 from doremi.ui.widgets.glass_panel import GlassPanel
+from doremi.utils.image_cache import ImageCache
+
+_image_cache = ImageCache()
 
 
 # ---------------------------------------------------------------------------
@@ -273,12 +276,15 @@ class GlobalSearchBar(QWidget):
     """
     search_submitted = Signal(str)
     notifications_requested = Signal()
+    profile_requested = Signal()
 
     def __init__(self, yt_client, on_play_song):
         super().__init__()
         self.yt = yt_client
         self.on_play_song = on_play_song
         self._history: list[str] = _load_history()
+        self._profile_avatar_task: asyncio.Task | None = None
+        self._profile_avatar_url = ""
 
         self._suggestion_timer = QTimer()
         self._suggestion_timer.setSingleShot(True)
@@ -355,6 +361,15 @@ class GlobalSearchBar(QWidget):
         self.notif_btn = NotificationButton(self)
         self.notif_btn.clicked.connect(self.notifications_requested.emit)
         bar_layout.addWidget(self.notif_btn)
+
+        self.profile_btn = QPushButton()
+        self.profile_btn.setObjectName("headerProfileButton")
+        self.profile_btn.setFixedSize(38, 38)
+        self.profile_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.profile_btn.setAccessibleName("Iniciar sesión")
+        self.profile_btn.clicked.connect(self.profile_requested.emit)
+        bar_layout.addWidget(self.profile_btn)
+        self.update_profile(False)
 
         layout.addWidget(self.bar_widget)
 
@@ -592,6 +607,66 @@ class GlobalSearchBar(QWidget):
         self.input.setFocus()
         self.input.selectAll()
 
+    def update_profile(self, is_authenticated: bool, name: str = "", avatar_url: str = "") -> None:
+        """Actualiza el acceso a la cuenta que vive junto a notificaciones."""
+        label = name or ("Mi cuenta" if is_authenticated else "Iniciar sesión")
+        self.profile_btn.setToolTip(label)
+        self.profile_btn.setAccessibleName(label)
+        self._profile_avatar_url = avatar_url if is_authenticated else ""
+
+        if self._profile_avatar_task and not self._profile_avatar_task.done():
+            self._profile_avatar_task.cancel()
+
+        from doremi.ui.design import tokens
+        self.profile_btn.setIcon(Icon.icon("person", tokens.CURRENT.text_secondary, 21))
+        if avatar_url and is_authenticated:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                return
+            self._profile_avatar_task = loop.create_task(self._load_profile_avatar(avatar_url))
+
+    async def _load_profile_avatar(self, avatar_url: str) -> None:
+        try:
+            image_path = await _image_cache.download(avatar_url)
+            import shiboken6
+            if (
+                not image_path
+                or avatar_url != self._profile_avatar_url
+                or not shiboken6.isValid(self)
+            ):
+                return
+            source = QPixmap(str(image_path))
+            if source.isNull():
+                return
+            size = 28
+            scaled = source.scaled(
+                size, size,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            cropped = scaled.copy(
+                (scaled.width() - size) // 2,
+                (scaled.height() - size) // 2,
+                size,
+                size,
+            )
+            circular = QPixmap(size, size)
+            circular.fill(Qt.GlobalColor.transparent)
+            painter = QPainter(circular)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            clip = QPainterPath()
+            clip.addEllipse(QRectF(0, 0, size, size))
+            painter.setClipPath(clip)
+            painter.drawPixmap(0, 0, cropped)
+            painter.end()
+            if shiboken6.isValid(self) and avatar_url == self._profile_avatar_url:
+                self.profile_btn.setIcon(QIcon(circular))
+        except asyncio.CancelledError:
+            return
+        except Exception as exc:
+            logger.debug(f"No se pudo cargar el avatar del perfil: {exc}")
+
     def _update_search_bar_styles(self) -> None:
         from doremi.ui.design import tokens
         from PySide6.QtGui import QColor
@@ -661,6 +736,19 @@ class GlobalSearchBar(QWidget):
 
         if hasattr(self, 'notif_btn') and self.notif_btn:
             self.notif_btn._update_styles()
+
+        if hasattr(self, "profile_btn") and self.profile_btn:
+            self.profile_btn.setStyleSheet(f"""
+                QPushButton#headerProfileButton {{
+                    background: transparent;
+                    border: none;
+                    border-radius: 19px;
+                    padding: 0;
+                }}
+                QPushButton#headerProfileButton:hover {{
+                    background: rgba({c.red()},{c.green()},{c.blue()},0.08);
+                }}
+            """)
 
     def changeEvent(self, event) -> None:
         from PySide6.QtCore import QEvent

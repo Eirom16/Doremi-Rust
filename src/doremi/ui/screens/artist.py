@@ -264,9 +264,9 @@ class ArtistScreen(QWidget):
 
         self.content_layout.addSpacing(8)
 
-        # ── Top Songs ──────────────────────────────────────────────────
+        # ── Canciones ──────────────────────────────────────────────────
         if songs:
-            songs_header = QLabel("Top Canciones")
+            songs_header = QLabel("Canciones")
             songs_header.setFont(AppFont.heading(18))
             songs_header.setStyleSheet(f"""
                 color: {tokens.CURRENT.text_primary}; background: transparent;
@@ -274,7 +274,7 @@ class ArtistScreen(QWidget):
             """)
             self.content_layout.addWidget(songs_header)
 
-            for i, track in enumerate(songs[:5]):
+            for i, track in enumerate(songs):
                 title = track.get('title', 'Unknown')
                 video_id = track.get('videoId', '')
 

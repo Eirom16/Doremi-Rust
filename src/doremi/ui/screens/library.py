@@ -231,6 +231,11 @@ class LibraryScreen(QWidget):
         self._tab_fade_anim.finished.connect(on_fade_out_finished)
         self._tab_fade_anim.start()
 
+    def select_tab(self, tab: str) -> None:
+        """Abre una pestaña desde navegación externa sin duplicar una vista."""
+        if tab in {"songs", "albums", "artists", "playlists"}:
+            self._switch_tab(tab)
+
     def _on_library_filter_changed(self, text: str) -> None:
         self._library_filter = text.strip().lower()
         self._reload_current_tab_for_filters()

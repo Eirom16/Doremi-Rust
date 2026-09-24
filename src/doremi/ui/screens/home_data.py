@@ -47,6 +47,15 @@ def _extract_thumbnail(item: dict) -> str:
     return thumbnails[-1].get("url", "") if thumbnails else ""
 
 
+def browse_id_route(browse_id: str) -> str:
+    """Clasifica IDs navegables sin tratar podcasts como álbumes."""
+    if browse_id.startswith("MPSP"):
+        return f"podcast?id={browse_id}"
+    if browse_id.startswith("UC"):
+        return f"artist?id={browse_id}"
+    return f"album?id={browse_id}"
+
+
 def _extract_navigate(item: dict) -> str:
     """Extract navigation route from a YouTube Music item."""
     video_id = item.get("videoId", "")
@@ -60,11 +69,11 @@ def _extract_navigate(item: dict) -> str:
     if video_id:
         return f"play:{video_id}"
     if playlist_id:
+        if str(playlist_id).startswith("MPSP"):
+            return f"podcast?id={playlist_id}"
         return f"playlist?id={playlist_id}"
     if browse_id:
-        if str(browse_id).startswith("UC"):
-            return f"artist?id={browse_id}"
-        return f"album?id={browse_id}"
+        return browse_id_route(str(browse_id))
     return ""
 
 
@@ -91,14 +100,21 @@ async def gather_home(yt_client) -> dict:
     else:
         result["greeting"] = "¡Buenas noches!"
 
+    from doremi.services.offline_cache import OfflineCacheManager
+    offline_cache = OfflineCacheManager.get_instance()
+
+    from doremi.system.network import NetworkMonitor
+    if NetworkMonitor.current_connectivity() is False:
+        return offline_cache.load_home()
+
     if not yt_client:
-        return result
+        return offline_cache.load_home()
 
     try:
         home_data = await yt_client.get_home()
     except Exception as e:
         logger.error(f"Error fetching home: {e}")
-        return result
+        return offline_cache.load_home()
 
     contents = None
     if isinstance(home_data, list) and home_data:
@@ -145,6 +161,17 @@ async def gather_home(yt_client) -> dict:
                     })
         except Exception as e:
             logger.error(f"Error fetching charts fallback: {e}")
+        if not result["songs"] and not result["horizontal"]:
+            return offline_cache.load_home()
+        _sections: dict[str, list] = {}
+        for item in result["horizontal"]:
+            _sections.setdefault(item.get("section_title", ""), []).append(item)
+        result["sections"] = [
+            {"title": title, "items": items}
+            for title, items in _sections.items() if title
+        ]
+        result["_source"] = "online"
+        offline_cache.remember_feed(result)
         return result
 
     # Fetch liked IDs
@@ -284,5 +311,8 @@ async def gather_home(yt_client) -> dict:
     result["sections"] = [
         {"title": title, "items": items} for title, items in _sections.items() if title
     ]
+
+    result["_source"] = "online"
+    offline_cache.remember_feed(result)
 
     return result

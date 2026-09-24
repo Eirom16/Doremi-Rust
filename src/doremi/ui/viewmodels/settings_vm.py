@@ -387,6 +387,12 @@ class SettingsViewModel(QObject):
     def _page_storage(self) -> list[dict]:
         from doremi.config.paths import AppDirs
         return [
+            self._section("Modo sin conexión"),
+            self._toggle("offline.enabled", "Caché inteligente",
+                         "Guarda y rota recomendaciones para escucharlas sin internet"),
+            self._stepper("offline.song_limit", "Canciones guardadas",
+                          "Cantidad máxima administrada automáticamente", 5,
+                          " canciones", 5, 100),
             self._section("Uso"),
             self._info("Base de datos", "Historial y biblioteca local",
                        self._dir_size(AppDirs.database)),

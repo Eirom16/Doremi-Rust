@@ -58,7 +58,7 @@ Item {
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingMd
-        anchors.bottomMargin: 112
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         spacing: Theme.spacingSm
 
         // ── Header ────────────────────────────────────────────────────
@@ -436,21 +436,21 @@ Item {
                             onClicked: rowMenu.popup()
                         }
 
-                        Menu {
+                        ContextMenu {
                             id: rowMenu
-                            MenuItem {
+                            ContextMenuItem {
                                 text: "Reproducir siguiente"
                                 onTriggered: vm.item_action(row.index, "play_next")
                             }
-                            MenuItem {
+                            ContextMenuItem {
                                 text: "Añadir a la cola"
                                 onTriggered: vm.item_action(row.index, "add_to_queue")
                             }
-                            MenuItem {
+                            ContextMenuItem {
                                 text: "Añadir a playlist"
                                 onTriggered: vm.item_action(row.index, "add_to_playlist")
                             }
-                            MenuItem {
+                            ContextMenuItem {
                                 text: "Eliminar descarga"
                                 onTriggered: vm.item_action(row.index, "delete")
                             }

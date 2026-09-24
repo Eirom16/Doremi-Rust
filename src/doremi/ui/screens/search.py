@@ -340,6 +340,7 @@ class SearchScreen(QWidget):
     CATEGORIES = [
         ("Canciones", "song"),
         ("Álbumes", "album"),
+        ("Podcasts", "podcast"),
         ("Playlists", "playlist"),
     ]
 
@@ -556,10 +557,21 @@ class SearchScreen(QWidget):
             yt_filter = {
                 "song": "songs",
                 "album": "albums",
+                "podcast": "podcasts",
                 "playlist": "playlists"
             }.get(category, None)
 
             results = await self.yt.search(query, filter=yt_filter, limit=40)
+            if category == "album":
+                results = [
+                    item for item in (results or [])
+                    if str(item.get("browseId", "")).startswith("MPRE")
+                ]
+            elif category == "podcast":
+                results = [
+                    item for item in (results or [])
+                    if str(item.get("browseId", "")).startswith("MPSP")
+                ]
             import shiboken6
             if not shiboken6.isValid(self):
                 return
@@ -846,7 +858,7 @@ class SearchScreen(QWidget):
             card.delete_download_requested.connect(lambda *a: self.delete_download_requested.emit(*a))
             return card
 
-        elif cat == "album":
+        elif cat in {"album", "podcast"}:
             title = item.get("title", "Unknown")
             artists = item.get("artists", [])
             artist_names = (
@@ -857,7 +869,8 @@ class SearchScreen(QWidget):
             card = AlbumCard(title=title, artist=artist_names, thumbnail_url=thumb_url)
             browse_id = item.get("browseId", "")
             if browse_id and self.on_navigate:
-                card.clicked.connect(partial(self.on_navigate, f"album?id={browse_id}"))
+                route = "podcast" if cat == "podcast" else "album"
+                card.clicked.connect(partial(self.on_navigate, f"{route}?id={browse_id}"))
             return card
 
         elif cat == "artist":

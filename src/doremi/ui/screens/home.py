@@ -18,6 +18,7 @@ from doremi.ui.widgets.ripple_button import RippleButton
 from doremi.ui.widgets.skeleton_loader import SkeletonListLoader
 from doremi.ui.widgets.horizontal_scroll import HorizontalScrollArea
 from doremi.utils.image_cache import ImageCache
+from doremi.ui.screens.home_data import browse_id_route
 
 _image_cache = ImageCache()
 
@@ -581,9 +582,9 @@ class HomeScreen(QWidget):
             logger.info("Loading YouTube home content...")
             await self._load_youtube_home()
         else:
-            logger.info("No yt client — loading genres view")
+            logger.info("No yt client — loading offline cache")
             self._clear_content()
-            await self._load_genres_view()
+            await self._load_offline_view()
         
         self._loaded = True
 
@@ -664,12 +665,14 @@ class HomeScreen(QWidget):
                     
                     on_explore = None
                     if playlist_id and self.on_navigate:
-                        on_explore = partial(self.on_navigate, f"playlist?id={playlist_id}")
+                        route = (
+                            browse_id_route(str(playlist_id))
+                            if str(playlist_id).startswith("MPSP")
+                            else f"playlist?id={playlist_id}"
+                        )
+                        on_explore = partial(self.on_navigate, route)
                     elif browse_id and self.on_navigate:
-                        if str(browse_id).startswith("UC"):
-                            on_explore = partial(self.on_navigate, f"artist?id={browse_id}")
-                        else:
-                            on_explore = partial(self.on_navigate, f"album?id={browse_id}")
+                        on_explore = partial(self.on_navigate, browse_id_route(str(browse_id)))
                     
                     banner = SpotlightBanner(str(title), f"De {artist_names}", thumb_url, on_play=on_explore, on_explore=on_explore)
                     self.content_layout.addWidget(banner)
@@ -720,16 +723,13 @@ class HomeScreen(QWidget):
                     await self._display_charts(charts_data)
                 else:
                     self._clear_content()
-                    await self._load_genres_view()
+                    await self._load_offline_view()
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Error loading YouTube home: {e}")
             self._clear_content()
-            self.content_layout.addWidget(ErrorStateWidget(
-                "No se pudo cargar el inicio",
-                retry_callback=lambda: asyncio.ensure_future(self.load()),
-            ))
+            await self._load_offline_view()
 
     def _render_quick_access_grid(self, sections, liked_ids):
         valid_items = []
@@ -882,7 +882,12 @@ class HomeScreen(QWidget):
                 is_downloaded=playlist_id in getattr(self, "downloaded_playlist_ids", set())
             )
             if self.on_navigate:
-                card.clicked.connect(partial(self.on_navigate, f"playlist?id={playlist_id}"))
+                route = (
+                    browse_id_route(str(playlist_id))
+                    if str(playlist_id).startswith("MPSP")
+                    else f"playlist?id={playlist_id}"
+                )
+                card.clicked.connect(partial(self.on_navigate, route))
             return card
         elif browse_id:
             if str(browse_id).startswith("UC"):
@@ -892,7 +897,7 @@ class HomeScreen(QWidget):
             else:
                 card = AlbumCard(title=str(title), artist=artist_names, thumbnail_url=thumbnail_url)
                 if self.on_navigate:
-                    card.clicked.connect(partial(self.on_navigate, f"album?id={browse_id}"))
+                    card.clicked.connect(partial(self.on_navigate, browse_id_route(str(browse_id))))
             return card
         return None
 
@@ -1105,42 +1110,53 @@ class HomeScreen(QWidget):
         self.content_layout.addStretch()
 
 
-    async def _load_genres_view(self):
-        title = QLabel("Explorar por género")
+    async def _load_offline_view(self):
+        from doremi.services.offline_cache import OfflineCacheManager
+        data = OfflineCacheManager.get_instance().load_home()
+        title = QLabel("Modo sin conexión")
         title.setProperty("textRole", "primary")
         title.setFont(AppFont.heading(22))
         title.setStyleSheet("background: transparent;")
         self.content_layout.addWidget(title)
 
-        genres_section = QWidget()
-        genres_layout = QGridLayout(genres_section)
-        genres_layout.setContentsMargins(0, 0, 0, 0)
-        genres_layout.setSpacing(16)
+        items: list[dict] = []
+        seen: set[str] = set()
+        for item in [*data.get("tiles", []), *data.get("songs", [])]:
+            if item.get("videoId") and item["videoId"] not in seen:
+                seen.add(item["videoId"])
+                items.append(item)
 
-        for i, (name, query) in enumerate(self._genres):
-            card = self._create_genre_card(name, query)
-            genres_layout.addWidget(card, i // 4, i % 4)
+        if not items:
+            hint = QLabel(
+                "Aún no hay música disponible. Conéctate una vez para que Doremi "
+                "prepare y rote tus recomendaciones."
+            )
+            hint.setWordWrap(True)
+            hint.setProperty("textRole", "secondary")
+            self.content_layout.addWidget(hint)
+            self.content_layout.addStretch()
+            return
 
-        self.content_layout.addWidget(genres_section)
-
-        section = QWidget()
-        section_layout = QVBoxLayout(section)
-        section_layout.setContentsMargins(0, 0, 0, 0)
-        section_layout.setSpacing(12)
-
-        header = QLabel("Sugerencias")
-        header.setProperty("textRole", "primary")
-        header.setFont(AppFont.heading(18))
-        header.setStyleSheet("background: transparent;")
-        section_layout.addWidget(header)
-
-        hint = QLabel("Haz clic en un genero para buscar")
-        hint.setProperty("textRole", "secondary")
-        hint.setStyleSheet(f" font-size: 14px; padding: 10px;")
-        section_layout.addWidget(hint)
-
-        self.content_layout.addWidget(section)
+        grid = QGridLayout()
+        grid.setSpacing(16)
+        for index, item in enumerate(items):
+            card = SongCard(
+                title=item.get("title", ""), artist=item.get("artist", ""),
+                duration=item.get("duration", ""),
+                thumbnail_url=item.get("thumbnail_url", ""),
+                on_play=partial(
+                    self._handle_play, item.get("videoId", ""),
+                    item.get("title", ""), item.get("artist", ""),
+                    item.get("thumbnail_url", ""), item.get("duration_ms", 0),
+                ),
+            )
+            grid.addWidget(card, index // 4, index % 4)
+        self.content_layout.addLayout(grid)
         self.content_layout.addStretch()
+
+    async def _load_genres_view(self):
+        """Compatibilidad interna: el fallback antiguo ahora usa la caché."""
+        await self._load_offline_view()
 
     def _show_search_prompt(self):
         self._clear_content()

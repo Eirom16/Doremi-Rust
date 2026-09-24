@@ -1,5 +1,6 @@
 {
     "Inicio": "Inicio",
+    "Añadido a la cola: {title}": "Añadido a la cola: {title}",
     "Biblioteca": "Biblioteca",
     "Historial": "Historial",
     "Descargas": "Descargas",
@@ -64,5 +65,18 @@
     "Restaurar": "Restaurar",
     "Restaurar copia": "Restaurar copia",
     "Usa el artwork como atmósfera del reproductor": "Usa el artwork como atmósfera del reproductor",
-    "Uso": "Uso"
+    "Uso": "Uso",
+    "No se pudo reproducir la pista.": "No se pudo reproducir la pista.",
+    "No se pudieron cargar los resultados": "No se pudieron cargar los resultados",
+    "No se pudo eliminar la descarga. Puedes reintentarlo.": "No se pudo eliminar la descarga. Puedes reintentarlo.",
+    "Se eliminó el audio, pero no se pudo borrar la letra.": "Se eliminó el audio, pero no se pudo borrar la letra.",
+    "No se pudieron eliminar todos los archivos. Puedes reintentarlo.": "No se pudieron eliminar todos los archivos. Puedes reintentarlo.",
+    "Audios eliminados: {count}. Fallos de borrado: {failed}.": "Audios eliminados: {count}. Fallos de borrado: {failed}.",
+    "Quitar de Favoritas": "Quitar de Favoritas",
+    "Añadir a Favoritas": "Añadir a Favoritas",
+    "No se pudo actualizar el favorito. Puedes reintentarlo.": "No se pudo actualizar el favorito. Puedes reintentarlo.",
+    "Favorito guardado localmente; no se pudo sincronizar con YouTube Music.": "Favorito guardado localmente; no se pudo sincronizar con YouTube Music.",
+    "No se pudo cargar el videoclip.": "No se pudo cargar el videoclip.",
+    "No se pudo reproducir el videoclip.": "No se pudo reproducir el videoclip.",
+    "Reintentar": "Reintentar"
 }

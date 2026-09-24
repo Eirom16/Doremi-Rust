@@ -660,6 +660,7 @@ class NotificationPanel(QWidget):
         self.anim.start()
 
     def _on_anim_step(self, value):
+        self.setMinimumWidth(int(value))
         win = self.window()
         if hasattr(win, "_position_mini_player"):
             win._position_mini_player()

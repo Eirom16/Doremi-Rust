@@ -851,6 +851,7 @@ class DownloadsScreen(QWidget):
 
     def _connect_manager(self):
         mgr = DownloadManager.get_instance()
+        mgr.tasks_changed.connect(lambda: asyncio.ensure_future(self.load()))
         mgr.download_queued.connect(self._on_download_queued)
         mgr.download_started.connect(self._on_download_started)
         mgr.download_progress.connect(self._on_download_progress)

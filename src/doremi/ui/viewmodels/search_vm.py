@@ -69,6 +69,10 @@ class SearchAlbumModel(QAbstractListModel):
     SubtitleRole = Qt.UserRole + 2
     ThumbnailRole = Qt.UserRole + 3
     NavigateRole = Qt.UserRole + 4
+    NameRole = Qt.UserRole + 5
+    ArtistRole = Qt.UserRole + 6
+    YearRole = Qt.UserRole + 7
+    IsDownloadedRole = Qt.UserRole + 8
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -81,22 +85,30 @@ class SearchAlbumModel(QAbstractListModel):
         if not index.isValid() or not 0 <= index.row() < len(self._items):
             return None
         item = self._items[index.row()]
-        if role == self.TitleRole:
+        if role in (self.TitleRole, self.NameRole):
             return item.get("title", "")
-        if role == self.SubtitleRole:
+        if role in (self.SubtitleRole, self.ArtistRole):
             return item.get("artist", "")
+        if role == self.YearRole:
+            return item.get("year", "")
         if role == self.ThumbnailRole:
             return item.get("thumbnail_url", "")
         if role == self.NavigateRole:
             return item.get("navigate", "")
+        if role == self.IsDownloadedRole:
+            return item.get("is_downloaded", False)
         return None
 
     def roleNames(self) -> dict[int, bytes]:
         return {
             self.TitleRole: b"title",
+            self.NameRole: b"name",
             self.SubtitleRole: b"subtitle",
+            self.ArtistRole: b"artist",
+            self.YearRole: b"year",
             self.ThumbnailRole: b"thumbnail",
             self.NavigateRole: b"navigate",
+            self.IsDownloadedRole: b"isDownloaded",
         }
 
     def set_items(self, items: list[dict]) -> None:
@@ -111,6 +123,9 @@ class SearchPlaylistModel(QAbstractListModel):
     ThumbnailRole = Qt.UserRole + 3
     IsDownloadedRole = Qt.UserRole + 4
     NavigateRole = Qt.UserRole + 5
+    NameRole = Qt.UserRole + 6
+    ArtistRole = Qt.UserRole + 7
+    YearRole = Qt.UserRole + 8
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -123,10 +138,12 @@ class SearchPlaylistModel(QAbstractListModel):
         if not index.isValid() or not 0 <= index.row() < len(self._items):
             return None
         item = self._items[index.row()]
-        if role == self.TitleRole:
+        if role in (self.TitleRole, self.NameRole):
             return item.get("title", "")
-        if role == self.SubtitleRole:
+        if role in (self.SubtitleRole, self.ArtistRole):
             return item.get("subtitle", "")
+        if role == self.YearRole:
+            return ""
         if role == self.ThumbnailRole:
             return item.get("thumbnail_url", "")
         if role == self.IsDownloadedRole:
@@ -138,7 +155,10 @@ class SearchPlaylistModel(QAbstractListModel):
     def roleNames(self) -> dict[int, bytes]:
         return {
             self.TitleRole: b"title",
+            self.NameRole: b"name",
             self.SubtitleRole: b"subtitle",
+            self.ArtistRole: b"artist",
+            self.YearRole: b"year",
             self.ThumbnailRole: b"thumbnail",
             self.IsDownloadedRole: b"isDownloaded",
             self.NavigateRole: b"navigate",
@@ -178,7 +198,7 @@ class SearchViewModel(QObject):
     navigate_requested = Signal(str)
     retry_requested = Signal()  # la isla pide re-fetch de la categoría activa
 
-    CATEGORIES = ("song", "album", "playlist")
+    CATEGORIES = ("song", "album", "podcast", "playlist")
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)

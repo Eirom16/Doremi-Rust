@@ -26,7 +26,7 @@ Item {
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingSm
-        anchors.bottomMargin: 112
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         contentWidth: width
         contentHeight: contentCol.height
         clip: true
@@ -253,14 +253,14 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            // ── Top canciones ─────────────────────────────────────────
+            // ── Canciones ─────────────────────────────────────────────
             ColumnLayout {
                 visible: !vm.loading && vm.found && vm.songs.rowCount() > 0
                 Layout.fillWidth: true
                 spacing: Theme.spacingXs
 
                 Label {
-                    text: "Top Canciones"
+                    text: "Canciones"
                     color: root.colors["text_primary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeHeading
@@ -360,25 +360,25 @@ Item {
                                 visible: songRow.duration !== ""
                             }
 
-                            Menu {
+                            ContextMenu {
                                 id: songMenu
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Reproducir siguiente"
                                     onTriggered: vm.song_action(songRow.index, "play_next")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a la cola"
                                     onTriggered: vm.song_action(songRow.index, "add_to_queue")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Me gusta"
                                     onTriggered: vm.song_action(songRow.index, "like")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a playlist"
                                     onTriggered: vm.song_action(songRow.index, "add_to_playlist")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Descargar"
                                     onTriggered: vm.song_action(songRow.index, "download")
                                 }

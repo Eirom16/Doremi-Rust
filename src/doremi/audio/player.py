@@ -1,6 +1,6 @@
 import asyncio
 from enum import Enum
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable
 from loguru import logger
 
@@ -64,6 +64,11 @@ class MusicPlayer:
         self._play_lock = asyncio.Lock()
         self._playback_ready: asyncio.Event = asyncio.Event()
 
+        self._generation = 0
+        self._released = False
+        self._accept_events = True
+        self._starting = False
+        self._paused_intent = False
         em = self._player.event_manager()
         em.event_attach(vlc_lib.EventType.MediaPlayerEndReached, self._on_ended)
         em.event_attach(vlc_lib.EventType.MediaPlayerEncounteredError, self._on_error)
@@ -73,82 +78,108 @@ class MusicPlayer:
 
     # ─── REPRODUCCIÓN ─────────────────────────────────────────────────
 
+    def _invalidate_start(self) -> None:
+        # Despertar al intento anterior antes de cambiar su evento.
+        self._generation += 1
+        self._playback_ready.set()
+        self._playback_ready = asyncio.Event()
+        self._starting = False
+        if self._poll_task:
+            self._poll_task.cancel()
+            self._poll_task = None
+
     async def play_url(self, stream_url: str, video_id: str) -> bool:
         async with self._play_lock:
-            self._playback_ready.clear()
+            if self._released:
+                return False
+            self._invalidate_start()
+            generation = self._generation
+            ready = self._playback_ready
+            self._accept_events = False
+            self._player.stop()
+            self._paused_intent = False
+            self.status.state = PlayerState.LOADING
+            self.status.error_msg = None
+            self.status.current_video_id = video_id
+            self.status.position_ms = self.status.duration_ms = 0
+            self._notify("state_changed", self.status)
+            self._starting = True
             try:
-                self.status.state = PlayerState.LOADING
-                self.status.current_video_id = video_id
-                self.status.position_ms = 0
-                self.status.duration_ms = 0
-                self._notify("state_changed", self.status)
-
-                self._player.stop()
-                
                 media = self._instance.media_new(stream_url)
-                media.add_option(
-                    ":http-user-agent=Mozilla/5.0 (X11; Linux x86_64) "
-                    "AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36"
-                )
+                media.add_option(":http-user-agent=Mozilla/5.0")
                 self._player.set_media(media)
-                self._player.play()
-                
-                # Wait for VLC to confirm playback started via event, with timeout
-                try:
-                    await asyncio.wait_for(self._playback_ready.wait(), timeout=10.0)
-                except asyncio.TimeoutError:
-                    logger.error(f"Timeout waiting for playback to start: {video_id}")
-                    self.status.state = PlayerState.ERROR
-                    self.status.error_msg = "Timeout al iniciar reproducción"
-                    self._notify("error", self.status)
-                    return False
-                
-                if self._poll_task and not self._poll_task.done():
-                    self._poll_task.cancel()
-                self._poll_task = asyncio.create_task(self._poll_position())
-                
-                return True
-            except Exception as e:
-                logger.error(f"play_url error: {e}")
+                self._accept_events = True
+                if self._player.play() == -1:
+                    self._on_error(None)
+            except Exception as exc:
+                self._starting = False
                 self.status.state = PlayerState.ERROR
-                self.status.error_msg = str(e)
+                self.status.error_msg = str(exc)
                 self._notify("error", self.status)
                 return False
 
+        # La espera no retiene el bloqueo: Stop/Pause pueden interrumpirla.
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=10.0)
+        except asyncio.CancelledError:
+            if generation == self._generation:
+                await self.stop()
+            raise
+        except asyncio.TimeoutError:
+            if generation != self._generation:
+                raise asyncio.CancelledError
+            self._accept_events = False
+            self._player.stop()
+            self.status.state = PlayerState.ERROR
+            self.status.error_msg = "Timeout al iniciar reproducción"
+            self._notify("error", self.status)
+            return False
+        finally:
+            if generation == self._generation:
+                self._starting = False
+
+        if generation != self._generation:
+            raise asyncio.CancelledError
+        if self.status.state != PlayerState.PLAYING:
+            return False
+        self._poll_task = asyncio.create_task(self._poll_position())
+        return True
+
     async def pause(self) -> None:
         async with self._play_lock:
-            logger.debug(f"pause() called, vlc_state={self._player.get_state()}, is_playing={self._player.is_playing()}")
-            self._player.set_pause(1)
-            # Immediately update state - don't wait for VLC event thread
+            loading = self._starting
+            self._invalidate_start()
+            self._paused_intent = True
+            if loading:
+                self._accept_events = False
+                self._player.stop()
+            else:
+                self._player.set_pause(1)
             self.status.state = PlayerState.PAUSED
             self._notify("state_changed", self.status)
-            logger.debug("pause() completed, state set to PAUSED")
 
     async def resume(self) -> None:
         async with self._play_lock:
+            self._paused_intent = False
+            self._accept_events = True
             state = self._player.get_state()
-            logger.debug(f"resume() called, vlc_state={state}")
             vlc_lib = get_vlc()
-            if state == vlc_lib.State.Paused:
-                self._player.set_pause(0)
-            elif state == vlc_lib.State.Ended or state == vlc_lib.State.Stopped:
+            if state in (vlc_lib.State.Ended, vlc_lib.State.Stopped):
                 self._player.play()
             else:
-                # Try unpause regardless
                 self._player.set_pause(0)
-            # Immediately update state
             self.status.state = PlayerState.PLAYING
             self._notify("state_changed", self.status)
-            logger.debug("resume() completed, state set to PLAYING")
+            if not self._poll_task or self._poll_task.done():
+                self._poll_task = asyncio.create_task(self._poll_position())
 
     async def stop(self) -> None:
         async with self._play_lock:
+            self._accept_events = False
+            self._invalidate_start()
             self._player.stop()
             self.status.state = PlayerState.IDLE
             self.status.position_ms = 0
-            self._playback_ready.clear()
-            if self._poll_task:
-                self._poll_task.cancel()
             self._notify("state_changed", self.status)
 
     async def seek(self, position_ms: int) -> None:
@@ -206,7 +237,7 @@ class MusicPlayer:
     def _notify(self, event: str, data=None) -> None:
         for cb in self._callbacks.get(event, []):
             try:
-                cb(data)
+                cb(replace(data) if isinstance(data, PlayerStatus) else data)
             except Exception as e:
                 logger.error(f"Player callback error [{event}]: {e}")
 
@@ -233,12 +264,18 @@ class MusicPlayer:
                     self._notify("state_changed", self.status)
 
     def _schedule(self, func, *args):
+        generation = self._generation
+        if self._released or not self._accept_events:
+            return
+        def deliver():
+            if not self._released and self._accept_events and generation == self._generation:
+                func(*args)
         try:
             if hasattr(self, '_loop') and self._loop and not self._loop.is_closed():
-                self._loop.call_soon_threadsafe(func, *args)
+                self._loop.call_soon_threadsafe(deliver)
             else:
                 loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(func, *args)
+                loop.call_soon_threadsafe(deliver)
         except Exception as e:
             logger.error(f"Failed to schedule callback: {e}")
 
@@ -271,7 +308,10 @@ class MusicPlayer:
             self._notify("position_changed", self.status)
             self.status.state = PlayerState.IDLE
             self._notify("state_changed", self.status)
-            self._playback_ready.clear()
+            if self._starting:
+                self._playback_ready.set()
+            else:
+                self._playback_ready.clear()
             self._notify("track_ended", self.status)
         self._schedule(_handle)
 
@@ -285,6 +325,9 @@ class MusicPlayer:
 
     def _on_playing(self, event):
         def _handle():
+            if self._paused_intent:
+                self._player.set_pause(1)
+                return
             self.status.state = PlayerState.PLAYING
             self._notify("state_changed", self.status)
             self._playback_ready.set()
@@ -297,11 +340,15 @@ class MusicPlayer:
         self._schedule(_handle)
 
     def _on_buffering(self, event):
+        cache = event.u.new_cache
         def _handle():
-            self._notify("buffering", event.u.new_cache)
+            self._notify("buffering", cache)
         self._schedule(_handle)
 
     def release(self) -> None:
+        self._released = True
+        self._accept_events = False
+        self._invalidate_start()
         if self._poll_task:
             self._poll_task.cancel()
         self._player.release()

@@ -67,6 +67,10 @@ class PlayQueue:
 
     def set_queue(self, items: list[QueueItem], start_index: int = 0) -> None:
         self._original = items.copy()
+        if not items:
+            self.clear()
+            return
+        start_index = max(0, min(start_index, len(items) - 1))
         if self.shuffle_enabled:
             shuffled = items.copy()
             current = shuffled.pop(start_index)
@@ -78,9 +82,14 @@ class PlayQueue:
             self._index = start_index
 
     def add_next(self, item: QueueItem) -> None:
+        current = self.current
         pos = self._index + 1
         self._queue.insert(pos, item)
-        self._original.insert(pos, item)
+        original_pos = next(
+            (i + 1 for i, entry in enumerate(self._original) if entry is current),
+            len(self._original),
+        )
+        self._original.insert(original_pos, item)
 
     def add_to_end(self, item: QueueItem) -> None:
         self._queue.append(item)
@@ -88,9 +97,16 @@ class PlayQueue:
 
     def remove_at(self, index: int) -> None:
         if 0 <= index < len(self._queue):
-            self._queue.pop(index)
+            removed = self._queue.pop(index)
+            # Quitar la misma ocurrencia, incluso si hay canciones repetidas.
+            for original_index, item in enumerate(self._original):
+                if item is removed:
+                    self._original.pop(original_index)
+                    break
             if index <= self._index and self._index > 0:
                 self._index -= 1
+            if not self._queue:
+                self._index = -1
 
     def move_item(self, from_index: int, to_index: int) -> None:
         if not (0 <= from_index < len(self._queue) and 0 <= to_index < len(self._queue)):
@@ -106,7 +122,7 @@ class PlayQueue:
             try:
                 self._index = next(
                     i for i, queue_item in enumerate(self._queue)
-                    if queue_item is current or queue_item.video_id == current.video_id
+                    if queue_item is current
                 )
             except StopIteration:
                 self._index = min(self._index, len(self._queue) - 1)
@@ -114,8 +130,8 @@ class PlayQueue:
         if not self.shuffle_enabled:
             self._original = self._queue.copy()
 
-    def advance(self) -> QueueItem | None:
-        if self.repeat_mode == RepeatMode.ONE:
+    def advance(self, *, ignore_repeat_one: bool = False) -> QueueItem | None:
+        if self.repeat_mode == RepeatMode.ONE and not ignore_repeat_one:
             # Repeat current track: return it without changing index
             # Caller should handle re-playing the same item
             return self.current
@@ -152,7 +168,7 @@ class PlayQueue:
                 try:
                     self._index = next(
                         i for i, item in enumerate(self._queue)
-                        if item.video_id == current.video_id
+                        if item is current
                     )
                 except StopIteration:
                     self._index = 0
@@ -190,6 +206,15 @@ class PlayQueue:
         try:
             queue._queue = [QueueItem(**item) for item in data.get("items", [])]
             queue._original = [QueueItem(**item) for item in data.get("original", [])]
+            # Ambos órdenes deben compartir objetos tras deserializar; cada
+            # ocurrencia se consume una sola vez para conservar los duplicados.
+            remaining = queue._queue.copy()
+            original = []
+            for saved in queue._original:
+                match = next((i for i, item in enumerate(remaining) if item == saved), None)
+                if match is not None:
+                    original.append(remaining.pop(match))
+            queue._original = original + remaining
             if not queue._original:
                 queue._original = queue._queue.copy()
             queue._index = int(data.get("index", -1))

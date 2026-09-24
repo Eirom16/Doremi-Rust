@@ -74,6 +74,10 @@ class PlaybackController:
 
         # Playback identity counter (only used by moved methods).
         self._current_play_id = 0
+        self._play_task = None
+        self._starting_media = False
+        self._recovering_id = None
+        self._failed_video_ids: set[str] = set()
 
     async def _play_song(
         self,
@@ -110,6 +114,8 @@ class PlaybackController:
         if hasattr(self, 'network_monitor') and not self.network_monitor.is_connected:
             return
 
+        expected_item = self.queue.current
+        play_id = self._current_play_id
         try:
             logger.info(f"Fetching automatic watch playlist for song {video_id}")
             watch = await self.yt.get_watch_playlist(video_id, limit=25)
@@ -117,7 +123,7 @@ class PlaybackController:
 
             # Verify the current track hasn't changed while we were fetching
             current_item = self.queue.current
-            if not current_item or current_item.video_id != video_id:
+            if not current_item or current_item is not expected_item or current_item.video_id != video_id or self._current_play_id != play_id:
                 logger.info("Song changed during auto queue fetch. Discarding results.")
                 return
 
@@ -199,10 +205,111 @@ class PlaybackController:
         except Exception as e:
             logger.warning(f"Failed to generate automatic queue: {e}")
 
-    async def _play_current(self, resume: bool = False) -> None:
+    async def _play_current(self, resume: bool = False, *, reset_failures: bool = True) -> None:
+        task = asyncio.current_task()
+        previous = getattr(self, "_play_task", None)
+        if previous and previous is not task and not previous.done():
+            previous.cancel()
+        self._play_task = task
+        if reset_failures:
+            self._failed_video_ids = set()
+        try:
+            await self._play_current_request(resume)
+        except asyncio.CancelledError:
+            # Una selección más reciente o el cierre invalida esta operación.
+            raise
+        finally:
+            if self._play_task is task:
+                self._play_task = None
+
+    async def _start_media(self, url: str, item: QueueItem) -> bool:
+        play_id = self._current_play_id
+        self._starting_media = True
+        try:
+            return await self.player.play_url(url, item.video_id)
+        finally:
+            if play_id == self._current_play_id:
+                self._starting_media = False
+
+    def on_player_error(self, status) -> None:
+        # Los errores de inicio pertenecen al await de _start_media.
+        if getattr(self, "_starting_media", False):
+            return
+        item = self.queue.current
+        play_id = self._current_play_id
+        if not item or status.current_video_id != item.video_id:
+            return
+        if getattr(self, "_recovering_id", None) == play_id:
+            return
+        self._recovering_id = play_id
+        self.run_async(self._recover_stream(item, play_id))
+
+    async def _recover_stream(self, item: QueueItem, play_id: int) -> None:
+        def current():
+            return self._current_play_id == play_id and self.queue.current is item
+        try:
+            if not current():
+                return
+            attempts = self.main_window._stream_recovery_attempts
+            if item.video_id not in attempts and not item.is_local and self.network_monitor.is_connected:
+                attempts.add(item.video_id)
+                url = await self.extractor.get_alternative_stream(item.video_id)
+                if not current():
+                    return
+                if url and await self._start_media(url, item):
+                    return
+            if current():
+                await self.handle_playback_failure(item, "No se pudo reproducir la pista.")
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning(f"Stream recovery failed: {exc}")
+            if current():
+                await self.handle_playback_failure(item, "No se pudo reproducir la pista.")
+        finally:
+            if self._recovering_id == play_id:
+                self._recovering_id = None
+
+    async def handle_playback_failure(self, item: QueueItem, message: str) -> None:
+        if self.queue.current is not item:
+            return
+        from doremi.ui.widgets.toast import ToastNotification
+        from doremi.utils.i18n import _
+        ToastNotification.show(self.main_window, _(message), "error")
+        failed = getattr(self, "_failed_video_ids", set())
+        failed.add(item.video_id)
+        self._failed_video_ids = failed
+        items = self.queue.items
+        # El salto por error no repite la pista fallida, ni genera autoplay.
+        for offset in range(1, len(items)):
+            index = self.queue.current_index + offset
+            if index >= len(items):
+                if self.queue.repeat_mode != RepeatMode.ALL:
+                    break
+                index %= len(items)
+            candidate = items[index]
+            if candidate.video_id not in failed:
+                self.queue.jump_to(index)
+                self._update_queue_panel()
+                await self._play_current(reset_failures=False)
+                return
+        await self.player.stop()
+
+    async def _play_current_request(self, resume: bool = False) -> None:
         item = self.queue.current
         if not item:
             return
+
+        # Registrar la solicitud antes del primer await: la consulta local
+        # también puede terminar después de que el usuario cambie de pista.
+        self._current_play_id += 1
+        play_id = self._current_play_id
+        self._starting_media = False
+        if hasattr(self, "crossfade_manager"):
+            self.crossfade_manager.cancel()
+
+        def is_current() -> bool:
+            return self._current_play_id == play_id and self.queue.current is item
 
         # Check if downloaded and play local instead of streaming
         try:
@@ -216,6 +323,20 @@ class PlaybackController:
                     item.local_path = download.file_path
         except Exception as e:
             logger.debug(f"Error checking download status in _play_current: {e}")
+
+        # La caché inteligente es independiente de las descargas visibles del usuario.
+        if not item.is_local:
+            try:
+                from doremi.services.offline_cache import OfflineCacheManager
+                cached_path = OfflineCacheManager.get_instance().local_path(item.video_id)
+                if cached_path:
+                    item.is_local = True
+                    item.local_path = cached_path
+            except Exception as e:
+                logger.debug(f"Error checking offline cache in _play_current: {e}")
+
+        if not is_current():
+            return
 
         self.mini_player.update_track_info(
             item.title, item.artist, item.thumbnail_url
@@ -232,13 +353,12 @@ class PlaybackController:
                 repo = SongRepository()
                 song = await repo.get_song(item.video_id)
                 liked = song.is_liked if song else False
-                self.now_playing_screen.set_liked_state(liked)
+                if is_current():
+                    self.now_playing_screen.set_liked_state(liked)
             except Exception as e:
                 logger.error(f"Error checking liked state in _play_current: {e}")
         self.run_async(_check_liked_state())
 
-        self._current_play_id += 1
-        play_id = self._current_play_id
         self.main_window._stream_recovery_attempts.discard(item.video_id)
         self.main_window._reset_lastfm_scrobble_state(item)
 
@@ -262,7 +382,7 @@ class PlaybackController:
             local_path_valid = False
             try:
                 import os
-                if os.path.exists(item.local_path) and os.path.getsize(item.local_path) > 0:
+                if item.local_path and os.path.isfile(item.local_path) and os.path.getsize(item.local_path) > 0:
                     # Check read permission
                     if os.access(item.local_path, os.R_OK):
                         local_path_valid = True
@@ -280,13 +400,17 @@ class PlaybackController:
                 item.local_path = None
             else:
                 if self.settings.player.crossfade_enabled and self.player.status.state == PlayerState.PLAYING:
-                    await self.crossfade_manager.fade_out(self.player, duration_sec=1.2)
+                    await self.crossfade_manager.fade_out(self.player, is_current=is_current)
 
-                success = await self.player.play_url(item.local_path, item.video_id)
+                if not is_current():
+                    return
+                success = await self._start_media(item.local_path, item)
+                if not is_current():
+                    return
                 if success:
                     self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
-                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, duration_sec=1.2))
+                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                     if self.scrobbler:
                         await self.scrobbler.update_now_playing(
                             item.artist, item.title, item.album
@@ -308,6 +432,12 @@ class PlaybackController:
                     item.local_path = None
                     # Don't return here, fall through to streaming logic below
 
+        # Un archivo local sin ID remoto válido no admite fallback online.
+        if not item.video_id or item.video_id == "local" or not self.network_monitor.is_connected:
+            if is_current():
+                await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista.")
+            return
+
         # Check if preloaded stream_url is already valid
         import time
         has_preloaded = False
@@ -318,23 +448,31 @@ class PlaybackController:
             logger.info(f"Playing preloaded: {item.title}")
             if item.stream_url:
                 if self.settings.player.crossfade_enabled and self.player.status.state == PlayerState.PLAYING:
-                    await self.crossfade_manager.fade_out(self.player, duration_sec=1.2)
+                    await self.crossfade_manager.fade_out(self.player, is_current=is_current)
 
-                success = await self.player.play_url(item.stream_url, item.video_id)
+                if not is_current():
+                    return
+                success = await self._start_media(item.stream_url, item)
+                if not is_current():
+                    return
                 if success:
                     self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
-                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, duration_sec=1.2))
+                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                     # Ensure queue panel shows correct duration (preloaded during _preload_next)
                     self._update_queue_panel()
                 else:
                     logger.error(f"Player failed for preloaded {item.title}, trying alternative format...")
                     alt_url = await self.extractor.get_alternative_stream(item.video_id)
+                    if not is_current():
+                        return
                     if alt_url:
                         logger.info(f"Retrying with alternative format")
-                        success = await self.player.play_url(alt_url, item.video_id)
+                        success = await self._start_media(alt_url, item)
+                        if not is_current():
+                            return
                         if success and self.settings.player.crossfade_enabled:
-                            self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, duration_sec=1.2))
+                            self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                     if not success:
                         await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista. Saltando a la siguiente.")
                         return
@@ -367,17 +505,20 @@ class PlaybackController:
             import asyncio
             extraction_task = asyncio.create_task(self.extractor.get_stream_info(item.video_id))
 
-            # Give immediate feedback by stopping or fading out the old song
-            if self.player.status.state == PlayerState.PLAYING:
-                if self.settings.player.crossfade_enabled:
-                    await self.crossfade_manager.fade_out(self.player, duration_sec=1.2)
-                else:
-                    await self.player.stop()
-
-            stream_info = await extraction_task
+            try:
+                if self.player.status.state == PlayerState.PLAYING:
+                    if self.settings.player.crossfade_enabled:
+                        await self.crossfade_manager.fade_out(self.player, is_current=is_current)
+                    else:
+                        await self.player.stop()
+                stream_info = await extraction_task
+            finally:
+                if not extraction_task.done():
+                    extraction_task.cancel()
+                    await asyncio.gather(extraction_task, return_exceptions=True)
 
             # Check if user clicked another song while we were extracting
-            if self.queue.current is not item:
+            if not is_current():
                 logger.info("Song changed during extraction. Aborting play.")
                 return
 
@@ -400,19 +541,25 @@ class PlaybackController:
             if item.stream_url:
                 logger.info(f"Playing: {item.title} - URL length: {len(item.stream_url)}, format: {stream_info.get('format', 'unknown')}")
 
-                success = await self.player.play_url(item.stream_url, item.video_id)
+                success = await self._start_media(item.stream_url, item)
+                if not is_current():
+                    return
                 if success:
                     self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
-                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, duration_sec=1.2))
+                        self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                 else:
                     logger.error(f"Player failed for {item.title}, trying alternative format...")
                     alt_url = await self.extractor.get_alternative_stream(item.video_id)
+                    if not is_current():
+                        return
                     if alt_url:
                         logger.info(f"Retrying with alternative format")
-                        success = await self.player.play_url(alt_url, item.video_id)
+                        success = await self._start_media(alt_url, item)
+                        if not is_current():
+                            return
                         if success and self.settings.player.crossfade_enabled:
-                            self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, duration_sec=1.2))
+                            self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                     if not success:
                         await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista. Saltando a la siguiente.")
                         return
@@ -440,7 +587,8 @@ class PlaybackController:
 
         except Exception as e:
             logger.error(f"Failed to play {item.video_id}: {e}")
-            await self.main_window._handle_playback_failure(item, "Error de reproduccion. Saltando a la siguiente.")
+            if is_current():
+                await self.main_window._handle_playback_failure(item, "Error de reproduccion. Saltando a la siguiente.")
 
     async def _load_lyrics(self, item: QueueItem, play_id: int) -> None:
         self.now_playing_screen.set_lyrics_loading()
@@ -580,16 +728,20 @@ class PlaybackController:
             except Exception as e:
                 logger.debug(f"Failed to preload next stream: {e}")
 
-    async def _advance_queue(self) -> None:
-        item = self.queue.advance()
+    async def _advance_queue(self, *, manual: bool = False) -> None:
+        item = self.queue.advance(ignore_repeat_one=manual)
         if item:
             self._update_queue_panel()
             await self._play_current()
         else:
             current = self.queue.current
-            if current:
+            if current and not current.is_local and self.network_monitor.is_connected:
+                queue = self.queue
+                play_id = self._current_play_id
                 try:
                     watch = await self.yt.get_watch_playlist(current.video_id)
+                    if self.queue is not queue or self.queue.current is not current or self._current_play_id != play_id:
+                        return
                     new_items = [
                         QueueItem(
                             video_id=t["videoId"],
@@ -678,13 +830,23 @@ class PlaybackController:
         except Exception as e:
             logger.debug(f"Could not query VLC playing state: {e}")
 
-        if self.player.status.state in (PlayerState.PLAYING, PlayerState.LOADING) or is_vlc_playing:
+        pending = getattr(self, "_play_task", None)
+        if (pending and not pending.done()) or self.player.status.state in (PlayerState.PLAYING, PlayerState.LOADING) or is_vlc_playing:
+            self._current_play_id += 1
+            if pending and not pending.done():
+                self._restart_after_pause = True
+                pending.cancel()
+            self.crossfade_manager.cancel()
             await self.player.pause()
         else:
-            await self.player.resume()
+            if getattr(self, "_restart_after_pause", False):
+                self._restart_after_pause = False
+                await self._play_current()
+            else:
+                await self.player.resume()
 
     def _on_next(self) -> None:
-        self.run_async(self._advance_queue())
+        self.run_async(self._advance_queue(manual=True))
 
     def _on_prev(self) -> None:
         self.run_async(self._go_prev())
@@ -742,6 +904,15 @@ class PlaybackController:
                 self.main_window.stack.setCurrentIndexAnimated(prev_index)
             else:
                 self.main_window.stack.setCurrentIndex(prev_index)
+            # _go_back evita NavigationController.set_stack_index; restaura el
+            # mini-player explícitamente sólo si ya había una pista activa.
+            mini_player = getattr(self.main_window, "mini_player", None)
+            if mini_player is not None and getattr(mini_player, "_is_visible", False):
+                mini_player.show()
+                from doremi.ui.theme_bridge import theme_bridge
+                theme_bridge().set_mini_player_visible(True)
+                self.main_window._position_mini_player()
+                mini_player.raise_()
             self._update_expand_icon()
         else:
             # Fallback to home

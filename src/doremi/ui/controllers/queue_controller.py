@@ -1,8 +1,11 @@
 import asyncio
 
 from loguru import logger
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QWidget
 
 from doremi.audio.queue import QueueItem
+from doremi.utils.i18n import _, _f
 
 
 class QueueController:
@@ -33,6 +36,7 @@ class QueueController:
         self.extractor = extractor
         self.run_async = run_async
         self._playlist_dialog = None
+        self._like_lock = asyncio.Lock()
 
     def on_play_next_requested(self, video_id, title, artist, thumb_url):
         self.run_async(self.add_to_queue_async(video_id, title, artist, thumb_url, add_next=True))
@@ -58,8 +62,8 @@ class QueueController:
             self.queue.add_next(item)
             self.main_window.statusBar().showMessage(f"Siguiente: {title}", 2000)
         else:
-            self.queue.add_next(item)
-            self.main_window.statusBar().showMessage(f"Siguiente en la cola: {title}", 2000)
+            self.queue.add_to_end(item)
+            self.main_window.statusBar().showMessage(_f("Añadido a la cola: {title}", title=title), 2000)
         self.main_window.playback_controller._update_queue_panel()
 
     def on_add_to_playlist_requested(self, video_id, title):
@@ -318,6 +322,14 @@ class QueueController:
         self.run_async(self.toggle_like_async(video_id, btn_like))
 
     async def toggle_like_async(self, video_id, btn_like):
+        async with self._like_lock:
+            try:
+                await self._toggle_like_locked(video_id, btn_like)
+            except Exception as exc:
+                logger.error(f"No se pudo actualizar favorito {video_id}: {exc}")
+                self.main_window.show_notification(_("No se pudo actualizar el favorito. Puedes reintentarlo."), "error")
+
+    async def _toggle_like_locked(self, video_id, btn_like):
         from doremi.db.repository import SongRepository, DownloadRepository
         repo = SongRepository()
 
@@ -337,11 +349,21 @@ class QueueController:
                 await repo.upsert_song(video_id=video_id, title="Unknown", artist="Unknown")
 
         liked = await repo.toggle_like(video_id)
+        current = self.queue.current
+        if current and current.video_id == video_id:
+            self.main_window.now_playing_screen.set_liked_state(liked)
+        search = getattr(self.main_window, "search_screen", None)
+        if search is not None and hasattr(search, "update_liked_state"):
+            search.update_liked_state(video_id, liked)
 
         # Sync with YouTube Music in the background if authenticated
         if self.main_window.yt.is_authenticated:
             rating = "LIKE" if liked else "INDIFFERENT"
-            self.run_async(self.main_window.yt.rate_song(video_id, rating))
+            try:
+                await self.main_window.yt.rate_song(video_id, rating)
+            except Exception as exc:
+                logger.warning(f"Favorito local guardado; sincronización pendiente: {exc}")
+                self.main_window.show_notification(_("Favorito guardado localmente; no se pudo sincronizar con YouTube Music."), "warning")
             self.main_window.library_screen.invalidate_songs_cache()
         else:
             self.main_window.library_screen.invalidate_songs_cache()
@@ -352,6 +374,9 @@ class QueueController:
                 "Añadido a Favoritas" if liked else "Eliminado de Favoritas", 2000
             )
             self.main_window.playback_controller._update_queue_panel()
+            library = self.main_window.library_screen
+            if getattr(library, "_qml_island", False) and library.isVisible():
+                await library.load()
             return
 
         # If the library screen is currently active and the "songs" tab is active:

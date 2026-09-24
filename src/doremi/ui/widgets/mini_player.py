@@ -90,6 +90,8 @@ class MiniPlayerWidget(QWidget):
 
     def _set_player_height(self, value: int):
         self.setFixedHeight(value)
+        from doremi.ui.theme_bridge import theme_bridge
+        theme_bridge().set_mini_player_visible(value > 0 and self.isVisible())
         positioner = getattr(self.window(), "_position_mini_player", None)
         if callable(positioner):
             positioner()
@@ -110,15 +112,14 @@ class MiniPlayerWidget(QWidget):
 
     def _build_ui(self):
         self.setObjectName("miniPlayer")
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setFixedHeight(0) # Initially hidden
         self._is_visible = False
 
-        self.setStyleSheet("""
-            #miniPlayer {
-                background: transparent;
-            }
+        self.setStyleSheet(f"""
+            #miniPlayer {{
+                background-color: {tokens.CURRENT.bg_base};
+            }}
         """)
 
         # Outer layout with margins so the player keeps its floating capsule shape.

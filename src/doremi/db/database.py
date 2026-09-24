@@ -82,13 +82,28 @@ from contextlib import asynccontextmanager
 
 @asynccontextmanager
 async def get_session():
-    import asyncio
     factory = await get_session_factory()
     session = factory()
     try:
         yield session
     finally:
         try:
-            await asyncio.shield(session.close())
+            loop = asyncio.get_running_loop()
+            if loop.is_running() and not loop.is_closed():
+                await session.close()
+        except RuntimeError:
+            pass
         except Exception as e:
             logger.warning(f"Error closing database session: {e}")
+
+
+async def close_db() -> None:
+    global _engine, _session_factory
+    if _engine is not None:
+        try:
+            await _engine.dispose()
+        except Exception as e:
+            logger.warning(f"Error disposing database engine: {e}")
+        finally:
+            _engine = None
+            _session_factory = None

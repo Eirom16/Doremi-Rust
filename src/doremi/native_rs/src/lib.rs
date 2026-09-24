@@ -9,12 +9,10 @@
 /// * **Image colour extraction & blob animation** — replaces
 ///   `native/fast_image.c`.
 ///
-/// # Fallback
+/// # Requirement
 ///
-/// The Python code imports this module opportunistically.  If the
-/// compiled `.so` is not available, Python transparently falls back
-/// to the original pure-Python (or C-ctypes) implementations.
-/// No functionality is lost.
+/// This module is a mandatory binary dependency of Doremi.
+/// Python code imports `doremi_native_rs` directly for performance.
 
 pub mod color;
 pub mod image;

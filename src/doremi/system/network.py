@@ -4,6 +4,8 @@ from loguru import logger
 
 class NetworkMonitor:
 
+    _current_connected: bool | None = None
+
     def __init__(self, on_connectivity_change):
         self.on_connectivity_change = on_connectivity_change
         self._is_connected = True
@@ -12,6 +14,9 @@ class NetworkMonitor:
         
     async def start(self):
         self._is_connected = await self.check_connectivity()
+        type(self)._current_connected = self._is_connected
+        if not self._is_connected and self.on_connectivity_change:
+            self.on_connectivity_change(False)
         self._task = asyncio.create_task(self._monitor())
         logger.info("Network monitor started")
 
@@ -59,6 +64,7 @@ class NetworkMonitor:
             await asyncio.sleep(30)
             was_connected = self._is_connected
             self._is_connected = await self.check_connectivity()
+            type(self)._current_connected = self._is_connected
             
             if was_connected != self._is_connected:
                 logger.info(f"Network connectivity changed: {self._is_connected}")
@@ -68,3 +74,8 @@ class NetworkMonitor:
     @property
     def is_connected(self) -> bool:
         return self._is_connected
+
+    @classmethod
+    def current_connectivity(cls) -> bool | None:
+        """Último estado comprobado; ``None`` mientras el monitor arranca."""
+        return cls._current_connected

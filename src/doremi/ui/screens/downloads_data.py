@@ -114,6 +114,27 @@ async def gather_download_groups(kind: str) -> list[dict]:
     return list(groups.values())
 
 
+def delete_audio_file(file_path: str) -> bool:
+    """Borra el audio o propaga el fallo; devuelve si también se borró la letra."""
+    if not file_path:
+        return True
+    path = Path(file_path)
+    path.unlink(missing_ok=True)
+    try:
+        path.with_suffix(".lrc").unlink(missing_ok=True)
+    except OSError as exc:
+        logger.warning(f"No se pudo borrar la letra de {file_path}: {exc}")
+        return False
+    return True
+
+
+class DownloadDeletionError(Exception):
+    def __init__(self, deleted: int, failed: int):
+        self.deleted = deleted
+        self.failed = failed
+        super().__init__(f"{deleted} deleted, {failed} failed")
+
+
 async def delete_download_files(video_ids: list[str]) -> int:
     """Borra archivos físicos + entradas del repo. Devuelve cuántos quedaron registrados para borrado."""
     from doremi.db.repository import DownloadRepository
@@ -122,21 +143,20 @@ async def delete_download_files(video_ids: list[str]) -> int:
     downloads = await repo.get_downloads()
     targets = [d for d in downloads if d.video_id in set(video_ids)]
 
+    deleted, failed = 0, 0
     for download in targets:
-        if not download.file_path:
-            continue
         try:
-            path = Path(download.file_path)
-            if path.exists():
-                path.unlink()
-            lrc_path = path.with_suffix(".lrc")
-            if lrc_path.exists():
-                lrc_path.unlink()
+            lyrics_deleted = delete_audio_file(download.file_path)
+            await repo.remove_download(download.video_id)
+            deleted += 1
+            if not lyrics_deleted:
+                failed += 1
         except Exception as e:
+            failed += 1
             logger.error(f"Error borrando archivo {download.file_path}: {e}")
-
-    await repo.remove_downloads([d.video_id for d in targets])
-    return len(targets)
+    if failed:
+        raise DownloadDeletionError(deleted, failed)
+    return deleted
 
 
 async def delete_group_downloads(playlist_ids: list[str]) -> int:

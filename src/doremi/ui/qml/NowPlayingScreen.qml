@@ -16,7 +16,11 @@ Item {
         return Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, a)
     }
 
-    // -- Fondo ambiental: artwork difuminado ------------------------------
+    // ── Fondo ambiental: artwork difuminado ──────────────────────────────
+    Rectangle {
+        anchors.fill: parent
+        color: root.colors ? root.colors["bg_base"] : "#11111b"
+    }
     Image {
         id: ambientImg
         anchors.fill: parent
@@ -24,7 +28,7 @@ Item {
         asynchronous: true
         cache: true
         fillMode: Image.PreserveAspectCrop
-        visible: false   // solo como fuente del blur
+        opacity: 0
     }
     FastBlur {
         anchors.fill: parent
@@ -35,8 +39,8 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        color: root.colors["bg_base"]
-        opacity: ambientImg.status === Image.Ready ? 0.55 : 1.0
+        color: root.colors ? root.colors["bg_base"] : "#11111b"
+        opacity: ambientImg.status === Image.Ready ? 0.4 : 0.0
     }
 
     ColumnLayout {
@@ -81,6 +85,64 @@ Item {
                     onClicked: vm.minimize()
                 }
             }
+            Rectangle {
+                Layout.leftMargin: 60
+                Layout.preferredWidth: 212
+                Layout.preferredHeight: 38
+                radius: Theme.radiusPill
+                color: root.colors["bg_elevated"]
+                border.width: 1
+                border.color: root.colors["border"]
+
+                Row {
+                    anchors.fill: parent
+                    anchors.margins: 3
+                    spacing: 3
+
+                    Repeater {
+                        model: [
+                            { key: "audio", label: "Audio", icon: "" },
+                            { key: "video", label: "Videoclip", icon: "" }
+                        ]
+                        delegate: Rectangle {
+                            required property var modelData
+                            width: 101
+                            height: parent.height
+                            radius: Theme.radiusPill
+                            color: vm.mediaMode === modelData.key
+                                   ? root.accentColor
+                                   : "transparent"
+                            Row {
+                                anchors.centerIn: parent
+                                spacing: Theme.spacingXxs
+                                Text {
+                                    text: modelData.icon
+                                    font.family: root.iconFont
+                                    font.pixelSize: 16
+                                    color: vm.mediaMode === modelData.key
+                                           ? root.colors["text_on_accent"]
+                                           : root.colors["text_secondary"]
+                                }
+                                Label {
+                                    text: modelData.label
+                                    font.family: Theme.fontFamily
+                                    font.pixelSize: Theme.typeCaption
+                                    font.weight: Font.DemiBold
+                                    color: vm.mediaMode === modelData.key
+                                           ? root.colors["text_on_accent"]
+                                           : root.colors["text_secondary"]
+                                }
+                            }
+                            MouseArea {
+                                anchors.fill: parent
+                                hoverEnabled: true
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: vm.set_media_mode(modelData.key)
+                            }
+                        }
+                    }
+                }
+            }
             Item { Layout.fillWidth: true }
         }
 
@@ -101,30 +163,104 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // Artwork
+                // Artwork / videoclip sincronizado con el audio principal
                 Rectangle {
+                    id: mediaFrame
+                    objectName: "mediaFrame"
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: 280
-                    Layout.preferredHeight: 280
+                    Layout.preferredWidth: vm.mediaMode === "video" ? 420 : 280
+                    Layout.preferredHeight: vm.mediaMode === "video" ? 236 : 280
                     radius: Theme.radiusLg
                     color: root.colors["bg_elevated"]
                     clip: true
 
-                    Image {
-                        anchors.fill: parent
-                        source: vm.artworkUrl
-                        fillMode: Image.PreserveAspectCrop
-                        asynchronous: true
-                        cache: true
-                        visible: status === Image.Ready
+                    Behavior on Layout.preferredWidth {
+                        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
                     }
-                    Text {
-                        anchors.centerIn: parent
-                        visible: parent.children[0].status !== Image.Ready
-                        text: "" // library_music
-                        font.family: root.iconFont
-                        font.pixelSize: 100
-                        color: root.colors["text_secondary"]
+                    Behavior on Layout.preferredHeight {
+                        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                    }
+
+                    Item {
+                        id: artworkLayer
+                        anchors.fill: parent
+                        opacity: vm.mediaMode === "audio" ? 1 : 0
+                        scale: vm.mediaMode === "audio" ? 1 : 0.985
+                        visible: opacity > 0
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on scale {
+                            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                        }
+
+                        Image {
+                            id: artworkImage
+                            anchors.fill: parent
+                            source: vm.artworkUrl
+                            fillMode: Image.PreserveAspectCrop
+                            asynchronous: true
+                            cache: true
+                            visible: status === Image.Ready
+                        }
+                        Text {
+                            anchors.centerIn: parent
+                            visible: artworkImage.status !== Image.Ready
+                            text: "" // library_music
+                            font.family: root.iconFont
+                            font.pixelSize: 100
+                            color: root.colors["text_secondary"]
+                        }
+                    }
+
+                    Item {
+                        id: videoLayer
+                        anchors.fill: parent
+                        opacity: vm.mediaMode === "video" ? 1 : 0
+                        scale: vm.mediaMode === "video" ? 1 : 1.015
+                        visible: opacity > 0
+
+                        Behavior on opacity {
+                            NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
+                        }
+                        Behavior on scale {
+                            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                        }
+
+                        BusyIndicator {
+                            anchors.centerIn: parent
+                            running: vm.videoLoading
+                            visible: running
+                        }
+
+                        Column {
+                            anchors.centerIn: parent
+                            width: Math.min(parent.width - Theme.spacingXl, 300)
+                            spacing: Theme.spacingSm
+                            visible: vm.videoError !== ""
+                            Text {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: "" // videocam_off
+                                font.family: root.iconFont
+                                font.pixelSize: 42
+                                color: root.colors["text_secondary"]
+                            }
+                            Label {
+                                width: parent.width
+                                text: vm.videoError
+                                horizontalAlignment: Text.AlignHCenter
+                                wrapMode: Text.WordWrap
+                                color: root.colors["text_secondary"]
+                                font.family: Theme.fontFamily
+                                font.pixelSize: Theme.typeLabel
+                            }
+                            Button {
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                text: vm.videoRetryText
+                                onClicked: vm.request_video_clip()
+                            }
+                        }
                     }
                 }
 
@@ -167,6 +303,19 @@ Item {
                     }
 
                     Rectangle {
+                        id: favoriteButton
+                        objectName: "nowPlayingFavoriteButton"
+                        activeFocusOnTab: enabled && visible
+                        Accessible.role: Accessible.Button
+                        Accessible.name: vm.favoriteActionText
+                        Accessible.checkable: true
+                        Accessible.checked: vm.liked
+                        Accessible.onPressAction: vm.toggle_like_current()
+                        Keys.onReturnPressed: if (!event.isAutoRepeat) vm.toggle_like_current()
+                        Keys.onEnterPressed: if (!event.isAutoRepeat) vm.toggle_like_current()
+                        Keys.onSpacePressed: if (!event.isAutoRepeat) vm.toggle_like_current()
+                        border.width: activeFocus ? 2 : 0
+                        border.color: root.accentColor
                         Layout.preferredWidth: 44
                         Layout.preferredHeight: 44
                         radius: 22
@@ -184,7 +333,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.toggle_like_current()
+                            onClicked: { favoriteButton.forceActiveFocus(); vm.toggle_like_current() }
                         }
                     }
                 }
@@ -505,17 +654,17 @@ Item {
                                     }
                                 }
 
-                                Menu {
+                                ContextMenu {
                                     id: qMenu
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Reproducir"
                                         onTriggered: vm.play_queue_index(qRow.index)
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Reproducir siguiente"
                                         onTriggered: vm.queue_action(qRow.index, "play_next")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Quitar de la cola"
                                         onTriggered: vm.queue_action(qRow.index, "delete_download")
                                     }
@@ -698,29 +847,29 @@ Item {
                                     }
                                 }
 
-                                Menu {
+                                ContextMenu {
                                     id: rMenu
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Reproducir siguiente"
                                         onTriggered: vm.related_action(rRow.index, "play_next")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Añadir a la cola"
                                         onTriggered: vm.related_action(rRow.index, "add_to_queue")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Me gusta"
                                         onTriggered: vm.related_action(rRow.index, "like")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Añadir a playlist"
                                         onTriggered: vm.related_action(rRow.index, "add_to_playlist")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Descargar"
                                         onTriggered: vm.related_action(rRow.index, "download")
                                     }
-                                    MenuItem {
+                                    ContextMenuItem {
                                         text: "Ir al artista"
                                         onTriggered: vm.related_action(rRow.index, "go_artist")
                                     }
@@ -769,14 +918,100 @@ Item {
     }
 
     // ── Menú de la pista actual ───────────────────────────────────────
-    Menu {
+    ContextMenu {
         id: currentMenu
-        MenuItem { text: "Reproducir siguiente"; onTriggered: vm.current_track_action("play_next") }
-        MenuItem { text: "Añadir a la cola"; onTriggered: vm.current_track_action("add_to_queue") }
-        MenuItem { text: "Añadir a playlist"; onTriggered: vm.current_track_action("add_to_playlist") }
-        MenuItem { text: "Ir al artista"; onTriggered: vm.current_track_action("go_artist") }
-        MenuItem { text: "Ir al álbum"; onTriggered: vm.current_track_action("go_album") }
-        MenuItem { text: "Descargar"; onTriggered: vm.current_track_action("download") }
-        MenuItem { text: "Copiar enlace"; onTriggered: vm.current_track_action("copy_link") }
+        ContextMenuItem { text: "Reproducir siguiente"; onTriggered: vm.current_track_action("play_next") }
+        ContextMenuItem { text: "Añadir a la cola"; onTriggered: vm.current_track_action("add_to_queue") }
+        ContextMenuItem { text: "Añadir a playlist"; onTriggered: vm.current_track_action("add_to_playlist") }
+        ContextMenuItem { text: "Ir al artista"; onTriggered: vm.current_track_action("go_artist") }
+        ContextMenuItem { text: "Ir al álbum"; onTriggered: vm.current_track_action("go_album") }
+        ContextMenuItem { text: "Descargar"; onTriggered: vm.current_track_action("download") }
+        ContextMenuItem { text: "Ver videoclip"; onTriggered: vm.request_video_clip() }
+        ContextMenuItem {
+            text: "Detalles y créditos"
+            onTriggered: {
+                trackDetailsDialog.open()
+                vm.request_track_details()
+            }
+        }
+        ContextMenuItem { text: "Copiar enlace"; onTriggered: vm.current_track_action("copy_link") }
     }
+
+    // ── Detalles publicados de la pista ──────────────────────────────
+    ModalDialog {
+        id: trackDetailsDialog
+        dialogTitle: "Detalles y créditos"
+        showCancel: false
+        confirmText: "Cerrar"
+
+        contentItemData: [
+            ColumnLayout {
+                width: 372
+                spacing: Theme.spacingSm
+
+                Label {
+                    Layout.fillWidth: true
+                    text: vm.trackTitle
+                    color: root.colors["text_primary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeBody
+                    font.weight: Font.DemiBold
+                    wrapMode: Text.WordWrap
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: vm.artistName
+                    color: root.colors["text_secondary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeLabel
+                    visible: text !== ""
+                }
+                BusyIndicator {
+                    Layout.alignment: Qt.AlignHCenter
+                    running: vm.detailsLoading
+                    visible: vm.detailsLoading
+                }
+                Label {
+                    Layout.fillWidth: true
+                    text: vm.detailsError
+                    color: root.colors["text_secondary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeLabel
+                    wrapMode: Text.WordWrap
+                    visible: text !== ""
+                }
+                Repeater {
+                    model: [
+                        { label: "Artista", value: vm.detailArtist },
+                        { label: "Álbum", value: vm.detailAlbum },
+                        { label: "Publicado por", value: vm.detailUploader },
+                        { label: "Fecha", value: vm.detailReleaseDate },
+                        { label: "Licencia", value: vm.detailLicense }
+                    ]
+                    delegate: RowLayout {
+                        required property var modelData
+                        Layout.fillWidth: true
+                        visible: modelData.value !== ""
+                        spacing: Theme.spacingMd
+                        Label {
+                            Layout.preferredWidth: 104
+                            text: modelData.label
+                            color: root.colors["text_secondary"]
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.typeLabel
+                        }
+                        Label {
+                            Layout.fillWidth: true
+                            text: modelData.value
+                            color: root.colors["text_primary"]
+                            font.family: Theme.fontFamily
+                            font.pixelSize: Theme.typeLabel
+                            wrapMode: Text.WordWrap
+                        }
+                    }
+                }
+            }
+        ]
+    }
+
 }

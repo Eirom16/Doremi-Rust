@@ -1,5 +1,6 @@
 {
     "Inicio": "Home",
+    "Añadido a la cola: {title}": "Added to queue: {title}",
     "Biblioteca": "Library",
     "Historial": "History",
     "Descargas": "Downloads",
@@ -64,5 +65,18 @@
     "Restaurar": "Restore",
     "Restaurar copia": "Restore copy",
     "Usa el artwork como atmósfera del reproductor": "Use artwork as player atmosphere",
-    "Uso": "Usage"
+    "Uso": "Usage",
+    "No se pudo reproducir la pista.": "The track could not be played.",
+    "No se pudieron cargar los resultados": "Could not load results",
+    "No se pudo eliminar la descarga. Puedes reintentarlo.": "Could not delete the download. You can try again.",
+    "Se eliminó el audio, pero no se pudo borrar la letra.": "Audio deleted, but lyrics could not be removed.",
+    "No se pudieron eliminar todos los archivos. Puedes reintentarlo.": "Some files could not be deleted. You can try again.",
+    "Audios eliminados: {count}. Fallos de borrado: {failed}.": "Audio files deleted: {count}. Deletion failures: {failed}.",
+    "Quitar de Favoritas": "Remove from favorites",
+    "Añadir a Favoritas": "Add to favorites",
+    "No se pudo actualizar el favorito. Puedes reintentarlo.": "Could not update the favorite. You can try again.",
+    "Favorito guardado localmente; no se pudo sincronizar con YouTube Music.": "Favorite saved locally; could not sync with YouTube Music.",
+    "No se pudo cargar el videoclip.": "The music video could not be loaded.",
+    "No se pudo reproducir el videoclip.": "The music video could not be played.",
+    "Reintentar": "Retry"
 }

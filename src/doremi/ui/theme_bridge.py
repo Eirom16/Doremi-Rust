@@ -28,11 +28,13 @@ class ThemeBridge(QObject):
     """
 
     changed = Signal()
+    mini_player_visibility_changed = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         from doremi.ui.design import tokens
         self._colors = self._to_map(tokens.CURRENT)
+        self._mini_player_visible = False
 
     @staticmethod
     def _to_map(scheme) -> dict:
@@ -49,6 +51,16 @@ class ThemeBridge(QObject):
     @Property("QVariantMap", notify=changed)
     def colors(self) -> dict:
         return self._colors
+
+    def set_mini_player_visible(self, visible: bool) -> None:
+        visible = bool(visible)
+        if self._mini_player_visible != visible:
+            self._mini_player_visible = visible
+            self.mini_player_visibility_changed.emit()
+
+    @Property(bool, notify=mini_player_visibility_changed)
+    def miniPlayerVisible(self) -> bool:
+        return self._mini_player_visible
 
 
 _instance: ThemeBridge | None = None

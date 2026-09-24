@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from doremi.utils.i18n import _
+
 import re
 
 from PySide6.QtCore import (
@@ -205,6 +207,9 @@ class NowPlayingViewModel(QObject):
     lyrics_style_changed = Signal()
     lyric_index_changed = Signal()
     tab_changed = Signal()
+    details_changed = Signal()
+    media_mode_changed = Signal()
+    video_changed = Signal()
 
     # Intenciones de la UI (el wrapper las enruta a MainWindow)
     toggle_play_requested = Signal()
@@ -218,6 +223,9 @@ class NowPlayingViewModel(QObject):
     queue_play_at = Signal(int)
     queue_move_requested = Signal(int, int)
     copy_link_requested = Signal(str)
+    details_requested = Signal(str)
+    video_requested = Signal(str)
+    video_closed_requested = Signal()
 
     # Mismas señales que NowPlayingScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -256,6 +264,17 @@ class NowPlayingViewModel(QObject):
         self._lyric_glow = True
         self._lyric_auto_scroll = True
         self._lyric_delay_ms = 0
+        self._details_loading = False
+        self._detail_artist = ""
+        self._detail_album = ""
+        self._detail_uploader = ""
+        self._detail_release_date = ""
+        self._detail_license = ""
+        self._details_error = ""
+        self._media_mode = "audio"
+        self._video_stream_url = ""
+        self._video_loading = False
+        self._video_error = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -345,6 +364,58 @@ class NowPlayingViewModel(QObject):
     def hasLyrics(self) -> bool:
         return self._lyrics.rowCount() > 0
 
+    @Property(bool, notify=details_changed)
+    def detailsLoading(self) -> bool:
+        return self._details_loading
+
+    @Property(str, notify=details_changed)
+    def detailArtist(self) -> str:
+        return self._detail_artist
+
+    @Property(str, notify=details_changed)
+    def detailAlbum(self) -> str:
+        return self._detail_album
+
+    @Property(str, notify=details_changed)
+    def detailUploader(self) -> str:
+        return self._detail_uploader
+
+    @Property(str, notify=details_changed)
+    def detailReleaseDate(self) -> str:
+        return self._detail_release_date
+
+    @Property(str, notify=details_changed)
+    def detailLicense(self) -> str:
+        return self._detail_license
+
+    @Property(str, notify=details_changed)
+    def detailsError(self) -> str:
+        return self._details_error
+
+    @Property(str, notify=media_mode_changed)
+    def mediaMode(self) -> str:
+        return self._media_mode
+
+    @Property(str, notify=video_changed)
+    def videoStreamUrl(self) -> str:
+        return self._video_stream_url
+
+    @Property(bool, notify=video_changed)
+    def videoLoading(self) -> bool:
+        return self._video_loading
+
+    @Property(str, notify=video_changed)
+    def videoError(self) -> str:
+        return self._video_error
+
+    @Property(str, constant=True)
+    def videoRetryText(self) -> str:
+        return _("Reintentar")
+
+    @Property(int, notify=position_changed)
+    def positionMs(self) -> int:
+        return self._position_ms
+
     # ── Mutators llamados por el wrapper (paridad con widgets) ────────────
 
     def set_track_info(self, title: str, artist: str, thumbnail_url: str,
@@ -355,6 +426,52 @@ class NowPlayingViewModel(QObject):
         self._album = album or ""
         self._video_id = video_id or ""
         self.track_changed.emit()
+
+    def set_artwork(self, artwork_url: str) -> None:
+        """Actualiza la carátula ya resuelta por la caché local."""
+        if self._artwork_url != artwork_url:
+            self._artwork_url = artwork_url
+            self.track_changed.emit()
+
+    def set_track_details(self, details: dict) -> None:
+        self._details_loading = False
+        self._detail_artist = str(details.get("artist", "") or "")
+        self._detail_album = str(details.get("album", "") or "")
+        self._detail_uploader = str(details.get("uploader", "") or "")
+        self._detail_release_date = str(details.get("release_date", "") or "")
+        self._detail_license = str(details.get("license", "") or "")
+        self._details_error = ""
+        self.details_changed.emit()
+
+    def set_details_error(self, message: str) -> None:
+        self._details_loading = False
+        self._details_error = message
+        self.details_changed.emit()
+
+    def begin_video_loading(self) -> None:
+        self._video_stream_url = ""
+        self._video_loading = True
+        self._video_error = ""
+        self.video_changed.emit()
+
+    def set_video_stream(self, stream_url: str) -> None:
+        self._video_stream_url = stream_url or ""
+        self._video_loading = False
+        self._video_error = "" if stream_url else _("No se pudo cargar el videoclip.")
+        self.video_changed.emit()
+
+    def set_video_error(self, message: str) -> None:
+        self._video_stream_url = ""
+        self._video_loading = False
+        self._video_error = message or _("No se pudo reproducir el videoclip.")
+        self.video_changed.emit()
+
+    def clear_video(self) -> None:
+        if self._video_stream_url or self._video_loading or self._video_error:
+            self._video_stream_url = ""
+            self._video_loading = False
+            self._video_error = ""
+            self.video_changed.emit()
 
     def set_playing(self, playing: bool) -> None:
         if self._playing != playing:
@@ -480,11 +597,14 @@ class NowPlayingViewModel(QObject):
             self._tab = tab
             self.tab_changed.emit()
 
+    @Property(str, notify=like_changed)
+    def favoriteActionText(self) -> str:
+        return _("Quitar de Favoritas") if self._liked else _("Añadir a Favoritas")
+
     @Slot()
     def toggle_like_current(self) -> None:
         if not self._video_id:
             return
-        self.set_liked(not self._liked)  # optimista (el controller re-sincroniza)
         self.like_requested.emit(self._video_id, None)
 
     @Slot(str)
@@ -506,6 +626,41 @@ class NowPlayingViewModel(QObject):
             self.album_clicked.emit(self._album)
         elif action == "copy_link":
             self.copy_link_requested.emit(vid)
+
+    @Slot()
+    def request_track_details(self) -> None:
+        if not self._video_id:
+            return
+        self._details_loading = True
+        self._details_error = ""
+        self.details_changed.emit()
+        self.details_requested.emit(self._video_id)
+
+    @Slot()
+    def request_video_clip(self) -> None:
+        """Solicita el stream visual asociado sin alterar la cola de audio."""
+        if not self._video_id:
+            return
+        if self._media_mode != "video":
+            self._media_mode = "video"
+            self.media_mode_changed.emit()
+        self.video_requested.emit(self._video_id)
+
+    @Slot(str)
+    def report_video_error(self, message: str) -> None:
+        if self._media_mode == "video":
+            self.set_video_error(message)
+
+    @Slot(str)
+    def set_media_mode(self, mode: str) -> None:
+        if mode not in ("audio", "video") or mode == self._media_mode:
+            return
+        self._media_mode = mode
+        self.media_mode_changed.emit()
+        if mode == "video":
+            self.request_video_clip()
+        else:
+            self.video_closed_requested.emit()
 
     @Slot(int, str)
     def queue_action(self, index: int, action: str) -> None:

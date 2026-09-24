@@ -46,6 +46,14 @@ HORIZONTAL = [
 ]
 
 
+def test_home_routes_podcasts_separately_from_albums():
+    from doremi.ui.screens.home_data import _extract_navigate
+
+    assert _extract_navigate({"browseId": "MPSPpodcast1"}) == "podcast?id=MPSPpodcast1"
+    assert _extract_navigate({"playlistId": "MPSPpodcast2"}) == "podcast?id=MPSPpodcast2"
+    assert _extract_navigate({"browseId": "MPREalbum1"}) == "album?id=MPREalbum1"
+
+
 class TestHomeViewModel:
     def test_models_and_roles(self, qapp):
         from doremi.ui.viewmodels.home_vm import HomeViewModel

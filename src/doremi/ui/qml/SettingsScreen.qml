@@ -107,7 +107,7 @@ Item {
                 anchors.leftMargin: Theme.spacingXl
                 anchors.rightMargin: Theme.spacingXl
                 anchors.topMargin: Theme.spacingLg
-                anchors.bottomMargin: 112
+                anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
                 contentWidth: width
                 contentHeight: pageCol.height
                 clip: true
@@ -213,7 +213,7 @@ Item {
 
                                         Rectangle {
                                             width: 20; height: 20; radius: 10
-                                            color: "#FFFFFF"
+                                            color: root.colors ? root.colors["bg_base"] : "#ffffff"
                                             x: rowDelegate.value ? parent.width - 23 : 3
                                             anchors.verticalCenter: parent.verticalCenter
                                             Behavior on x { NumberAnimation { duration: 140 } }

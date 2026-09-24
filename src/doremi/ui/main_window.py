@@ -48,12 +48,14 @@ class MainWindow(QMainWindow):
         "settings": 4,
         "playlist": 5,
         "album": 6,
+        "podcast": 6,
         "artist": 7,
         "now_playing": 8,
         "search": 9,
         "stats": 10,
     }
-    ONLINE_ROUTES = {"home", "library", "playlist", "album", "artist", "search"}
+    # Inicio dispone de un feed local propio; las demás rutas requieren red.
+    ONLINE_ROUTES = {"library", "playlist", "album", "podcast", "artist", "search"}
 
     def __init__(self, settings: AppSettings, event_loop=None):
         super().__init__()
@@ -284,8 +286,8 @@ class MainWindow(QMainWindow):
         h_layout.setSpacing(0)
 
         self.sidebar = NavSidebar(on_navigate=self._navigate_to)
-        self.sidebar.on_login_click.connect(self._show_login)
-        self.sidebar.auth_changed.connect(self._on_auth_changed)
+        self._profile_name = ""
+        self._profile_avatar = ""
         
         # Initialize Notification Service
         from doremi.services.notification_service import NotificationService
@@ -322,7 +324,8 @@ class MainWindow(QMainWindow):
                             avatar = data.get("avatar_url", "")
                     except Exception as e:
                         logger.debug(f"Could not read saved user profile: {e}")
-            self.sidebar.update_auth_state(True, name, avatar)
+            self._profile_name = name
+            self._profile_avatar = avatar
         h_layout.addWidget(self.sidebar)
 
         right_panel = QWidget()
@@ -333,6 +336,12 @@ class MainWindow(QMainWindow):
         from doremi.ui.widgets.global_search import GlobalSearchBar
         self.search_bar = GlobalSearchBar(self.yt, self._play_song_sync)
         self.search_bar.search_submitted.connect(self._on_search_submitted)
+        self.search_bar.profile_requested.connect(self._on_header_profile_clicked)
+        self.search_bar.update_profile(
+            self.yt.is_authenticated,
+            self._profile_name,
+            self._profile_avatar,
+        )
         
         self.notification_service.unread_changed.connect(self.search_bar.notif_btn.set_unread)
         self._run_async(self.notification_service.check_unread())
@@ -549,6 +558,13 @@ class MainWindow(QMainWindow):
             current_margins = self.stack.contentsMargins()
             if current_margins.bottom() != 0:
                 self.stack.setContentsMargins(0, 0, 0, 0)
+
+    def _on_header_profile_clicked(self) -> None:
+        """La cuenta se abre desde la cabecera, junto a notificaciones."""
+        if self.yt.is_authenticated:
+            self._navigate_to("settings")
+        else:
+            self._show_login()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -772,6 +788,8 @@ class MainWindow(QMainWindow):
         else:
             task = asyncio.ensure_future(coro)
         self._track_task(task)
+        if getattr(self, "_closing", False):
+            task.cancel()
         return task
 
     def _play_song_sync(
@@ -838,6 +856,7 @@ class MainWindow(QMainWindow):
         self.queue_controller.on_like_requested(video_id, btn_like)
 
     def _cleanup_on_close(self) -> None:
+        self._closing = True
         # Synchronous cleanup for immediate Qt resources
         for task in list(self._pending_tasks):
             if not task.done():
@@ -851,6 +870,9 @@ class MainWindow(QMainWindow):
 
     async def async_shutdown(self) -> None:
         """Async cleanup for graceful shutdown - call after event loop is still running."""
+        if getattr(self, "_shutdown_complete", False):
+            return
+        self._cleanup_on_close()
         # Wait for all pending tasks to complete/cancel
         if self._pending_tasks:
             try:
@@ -891,10 +913,24 @@ class MainWindow(QMainWindow):
         # Release player resources
         if hasattr(self, 'player') and self.player:
             self.player.release()
+        self._shutdown_complete = True
+
+    async def _finish_close(self) -> None:
+        # Mantener Qt y qasync vivos mientras se recogen los procesos y la DB.
+        try:
+            await self.async_shutdown()
+            from doremi.db.database import close_db
+            await close_db()
+        except Exception as exc:
+            logger.error(f"Error completing shutdown: {exc}")
+        finally:
+            self._shutdown_complete = True
+            self.close()
 
     # --- PlaybackSessionManager thin delegating wrappers ---
     async def _initialize(self) -> None:
-        return await self.session_manager.initialize()
+        await self.session_manager.initialize()
+        await self.navigation_controller.refresh_sidebar_playlists()
 
     def _save_playback_session(self) -> None:
         self.session_manager.save_playback_session()
@@ -1007,6 +1043,14 @@ class MainWindow(QMainWindow):
         self.close()
 
     def closeEvent(self, event) -> None:
+        if getattr(self, "_shutdown_complete", False):
+            if hasattr(self, "tray") and self.tray:
+                self.tray.hide()
+            event.accept()
+            return
+        if getattr(self, "_shutdown_task", None) is not None:
+            event.ignore()
+            return
         self._save_playback_session()
         self._save_window_state()
         if getattr(self.settings.player, "minimize_to_tray", True) and not getattr(self, "_force_close", False) and hasattr(self, "tray") and self.tray.isVisible():
@@ -1025,8 +1069,5 @@ class MainWindow(QMainWindow):
                 if result != QMessageBox.StandardButton.Yes:
                     event.ignore()
                     return
-            # Actual resource cleanup is done in async_shutdown() during app quit
-            # Just handle UI cleanup here
-            if hasattr(self, "tray") and self.tray:
-                self.tray.hide()
-            event.accept()
+            event.ignore()
+            self._shutdown_task = asyncio.create_task(self._finish_close())

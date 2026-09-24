@@ -144,7 +144,12 @@ async def check_for_updates() -> ReleaseInfo | None:
     except httpx.TimeoutException:
         logger.debug("Update check timed out")
     except httpx.HTTPStatusError as e:
-        logger.debug(f"Update check HTTP error: {e.response.status_code}")
+        if e.response.status_code == 404:
+            # El endpoint de "latest" devuelve 404 cuando el repo no tiene
+            # ningún release publicado (o es privado): no es un fallo real.
+            logger.debug("Update check: no hay releases publicados (404)")
+        else:
+            logger.debug(f"Update check HTTP error: {e.response.status_code}")
     except Exception as e:
         logger.debug(f"Update check failed: {e}")
 

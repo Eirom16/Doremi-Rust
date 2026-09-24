@@ -18,6 +18,7 @@ Item {
     readonly property var chipDefs: [
         { "key": "song", "label": "Canciones" },
         { "key": "album", "label": "Álbumes" },
+        { "key": "podcast", "label": "Podcasts" },
         { "key": "playlist", "label": "Playlists" }
     ]
 
@@ -31,7 +32,7 @@ Item {
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingMd
-        anchors.bottomMargin: 112 // espacio del mini-player (paridad con widgets)
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         spacing: Theme.spacingSm
 
         // ── Query header ──────────────────────────────────────────────
@@ -157,7 +158,8 @@ Item {
             Layout.fillHeight: true
             visible: !vm.loading && vm.errorText === "" && vm.query !== ""
                      && ((vm.category === "song" && !vm.hasTop)
-                         || (vm.category === "album" && vm.albums.rowCount() === 0)
+                         || ((vm.category === "album" || vm.category === "podcast")
+                             && vm.albums.rowCount() === 0)
                          || (vm.category === "playlist" && vm.playlists.rowCount() === 0))
             text: "No se encontraron resultados en esta categoría"
             color: root.colors["text_secondary"]
@@ -306,25 +308,25 @@ Item {
                                                 onClicked: topMenu.popup()
                                             }
 
-                                            Menu {
+                                            ContextMenu {
                                                 id: topMenu
-                                                MenuItem {
+                                                ContextMenuItem {
                                                     text: "Reproducir siguiente"
                                                     onTriggered: vm.top_action("play_next")
                                                 }
-                                                MenuItem {
+                                                ContextMenuItem {
                                                     text: "Añadir a la cola"
                                                     onTriggered: vm.top_action("add_to_queue")
                                                 }
-                                                MenuItem {
+                                                ContextMenuItem {
                                                     text: "Me gusta"
                                                     onTriggered: vm.top_action("like")
                                                 }
-                                                MenuItem {
+                                                ContextMenuItem {
                                                     text: "Añadir a playlist"
                                                     onTriggered: vm.top_action("add_to_playlist")
                                                 }
-                                                MenuItem {
+                                                ContextMenuItem {
                                                     text: "Descargar"
                                                     onTriggered: vm.top_action("download")
                                                 }
@@ -428,7 +430,8 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !vm.loading && vm.errorText === "" && vm.category !== "song"
-                     && ((vm.category === "album" && vm.albums.rowCount() > 0)
+                     && (((vm.category === "album" || vm.category === "podcast")
+                          && vm.albums.rowCount() > 0)
                          || (vm.category === "playlist" && vm.playlists.rowCount() > 0))
             clip: true
             cacheBuffer: 400
@@ -437,7 +440,8 @@ Item {
             cellWidth: width / cols
             cellHeight: 216
 
-            model: vm.category === "album" ? vm.albums : vm.playlists
+            model: (vm.category === "album" || vm.category === "podcast")
+                   ? vm.albums : vm.playlists
 
             delegate: Item {
                 id: gridCell
@@ -483,7 +487,8 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: parent.children[0].status !== Image.Ready
-                                text: vm.category === "album" ? "" : "" // album / queue_music
+                                text: vm.category === "podcast" ? ""
+                                      : (vm.category === "album" ? "" : "")
                                 font.family: root.iconFont
                                 font.pixelSize: 36
                                 color: root.colors["text_secondary"]
@@ -498,7 +503,7 @@ Item {
                                 width: dlBadge.implicitWidth + Theme.spacingSm
                                 height: 22
                                 radius: Theme.radiusPill
-                                color: "#CC000000"
+                                color: root.colors ? Qt.rgba(0, 0, 0, 0.7) : "#cc000000"
 
                                 Row {
                                     anchors.centerIn: parent
@@ -635,25 +640,25 @@ Item {
                     visible: songRow.duration !== ""
                 }
 
-                Menu {
+                ContextMenu {
                     id: songMenu
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Reproducir siguiente"
                         onTriggered: vm.featured_action(songRow.index, "play_next")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Añadir a la cola"
                         onTriggered: vm.featured_action(songRow.index, "add_to_queue")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Me gusta"
                         onTriggered: vm.featured_action(songRow.index, "like")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Añadir a playlist"
                         onTriggered: vm.featured_action(songRow.index, "add_to_playlist")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Descargar"
                         onTriggered: vm.featured_action(songRow.index, "download")
                     }
@@ -754,25 +759,25 @@ Item {
                     visible: restRow.duration !== ""
                 }
 
-                Menu {
+                ContextMenu {
                     id: restMenu
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Reproducir siguiente"
                         onTriggered: vm.rest_action(restRow.index, "play_next")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Añadir a la cola"
                         onTriggered: vm.rest_action(restRow.index, "add_to_queue")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Me gusta"
                         onTriggered: vm.rest_action(restRow.index, "like")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Añadir a playlist"
                         onTriggered: vm.rest_action(restRow.index, "add_to_playlist")
                     }
-                    MenuItem {
+                    ContextMenuItem {
                         text: "Descargar"
                         onTriggered: vm.rest_action(restRow.index, "download")
                     }

@@ -1,0 +1,22 @@
+{
+  "note": "Hashes al guardar evidencias; hubo cambios locales durante la sesi\u00f3n.",
+  "sha256": {
+    "src/doremi/audio/player.py": "cf007b7a569f60351cc99a50a7b6dc12aa911d1adcf5bfc904d1d289b5e25a83",
+    "src/doremi/audio/queue.py": "4a4f968c9bbb7a3f914c3cad6da783f4068cb976c79e417bbe46e862470bcf83",
+    "src/doremi/audio/crossfade.py": "03aaea594e4d35d3c9fd105d39c68ab0586aa3083c4cc3d4d6d7f6846b318b93",
+    "src/doremi/services/download_manager.py": "491bf0a3d69d91bdce8fe502623c34efbba8394e22a0ee6c5ea9f23373c67d0c",
+    "src/doremi/ui/controllers/playback_controller.py": "6ef5ff807ae868788657ebeaf64bc1a65dd01bc3c1513b423465dcdd169c4dbd",
+    "src/doremi/ui/controllers/integrations_controller.py": "da5ba7bc325229543b76be113173b5255679dd845ca19840dfe5cbff09a79b81",
+    "src/doremi/ui/controllers/download_controller.py": "8bea472e41da2e027418b23de21ba52a766a25d0dd74e88a0d6afce526648e1e",
+    "src/doremi/ui/controllers/session_manager.py": "5410d316274a1e7bc048d0c8cf678ea1d9fcafd8a99f29a802781d824684fe95",
+    "src/doremi/ui/main_window.py": "93c9029a2789b71a6db46f5138df2884bd541c3f2f798b7357a2968a1dd6646a",
+    "src/doremi/ui/screens/now_playing_qml.py": "091caef01867b5f70c140cf460b41e3587e6d8076e3dc1b47c82bd7bccb12e4d",
+    "src/doremi/ui/screens/search_data.py": "b4b71a5e817634c8aaa05d8cff6b442d62bf179b26814c5749070a6757c1f1cc",
+    "src/doremi/ui/screens/search_qml.py": "585d2bb0da04f71b011a18918d3b6db7ab4f0750c71fe1b38db8364857858a1c",
+    "src/doremi/ui/qml/Doremi/SongRow.qml": "2b5d7fb63834c340a592ebbf55a2ad5fa7cf2bd97d1210efe31cc16c8dd55c64",
+    "src/doremi/ui/qml/Doremi/HeaderButton.qml": "b73bdc7d35ba73344d8e2f554320f2cbfe601db8ce34bd12b29c620f4eeb09ed",
+    "src/doremi/ui/qml/Doremi/HeroButton.qml": "59b3472d3d615e89a9e6347c54913294dcc7d0f96bc48b2d7b3c337d2ea0e498",
+    "tests/test_queue_controller_regressions.py": "a42b7696babbe2fb65aeb924ded089327285c47793668207316504056715a569",
+    "tests/test_now_playing_qml.py": "a66eb184ab37760814669058fe9ddd09445e963019a76c19392e12e2c1185617"
+  }
+}

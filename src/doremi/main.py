@@ -1,5 +1,11 @@
 import sys
 import os
+import multiprocessing
+
+# Desviar hijos congelados antes de inicializar Qt o sus integraciones.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
 from loguru import logger
 
 # Desactivar GPU en QtWebEngine/Chromium en Linux de forma universal para evitar caídas catastróficas
@@ -165,19 +171,16 @@ async def main_async(app: QApplication, settings: AppSettings, loop: qasync.QEve
         except Exception as e:
             logger.error(f"Error during async shutdown: {e}")
         
-        from doremi.db.database import get_engine
+        from doremi.db.database import close_db
         try:
-            engine = get_engine()
-            if engine:
-                logger.info("Disposing database engine...")
-                await engine.dispose()
-                logger.info("Database engine successfully disposed.")
+            await close_db()
         except Exception as e:
             logger.warning(f"Error disposing database engine: {e}")
 
 
 
 def main() -> None:
+    multiprocessing.freeze_support()
     import os
     # En Linux congelado (AppImage), forzar xcb y renderizado por software
     # para evitar fallos de Wayland EGL y de GLX dentro del sandbox del AppImage
@@ -191,6 +194,11 @@ def main() -> None:
         os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 
     if sys.platform.startswith('linux'):
+        # VAAPI/libva puede terminar en SIGSEGV al mapear superficies GPU en el
+        # backend FFmpeg de Qt Multimedia (visor de videoclips de Now Playing).
+        # Lista vacía = decodificar siempre por software (variable privada, ver
+        # "Advanced FFmpeg Configuration" de la doc de Qt Multimedia).
+        os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",")
         # Añadir argumentos directamente a sys.argv antes de inicializar QApplication
         # Esto asegura que Chromium herede los flags correctos bajo cualquier circunstancia
         chromium_args = [
@@ -210,7 +218,13 @@ def main() -> None:
     app.setApplicationName("Doremi")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("doremi")
-    app.setDesktopFileName("doremi")
+    # En Flatpak el desktop file se instala como org.doremi.Doremi.desktop; en
+    # deb/arch/dev como doremi.desktop. El portal rechaza IDs sin desktop file
+    # registrado, así que el ID debe coincidir con el realmente instalado.
+    if sys.platform.startswith('linux') and (os.environ.get("FLATPAK_ID") or os.path.exists("/.flatpak-info")):
+        app.setDesktopFileName("org.doremi.Doremi")
+    else:
+        app.setDesktopFileName("doremi")
 
     setup_vlc_env()
     vlc_ok = check_vlc_available()

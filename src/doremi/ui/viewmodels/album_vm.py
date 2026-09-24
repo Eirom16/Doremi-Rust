@@ -185,7 +185,7 @@ class AlbumViewModel(QObject):
         elif state == self.DL_PARTIAL:
             text = f"Descargar restantes ({self._downloaded_count}/{self._track_count})"
         else:
-            text = "Descargar álbum"
+            text = "Descargar podcast" if self._type.lower() == "podcast" else "Descargar álbum"
         changed = (
             self._dl_state != state or self._dl_text != text or self._dl_percent != percent
         )

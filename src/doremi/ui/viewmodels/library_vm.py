@@ -71,30 +71,42 @@ class LibraryAlbumModel(_BaseModel):
     YearRole = Qt.UserRole + 3
     ThumbnailRole = Qt.UserRole + 4
     NavigateRole = Qt.UserRole + 5
+    NameRole = Qt.UserRole + 6
+    SubtitleRole = Qt.UserRole + 7
+    IsDownloadedRole = Qt.UserRole + 8
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self._items):
             return None
         item = self._items[index.row()]
-        if role == self.TitleRole:
+        if role in (self.TitleRole, self.NameRole):
             return item.get("title", "")
         if role == self.ArtistRole:
             return item.get("artist", "")
         if role == self.YearRole:
             return item.get("year", "")
+        if role == self.SubtitleRole:
+            artist = item.get("artist", "")
+            year = item.get("year", "")
+            return f"{artist} · {year}" if artist and year else (artist or year)
         if role == self.ThumbnailRole:
             return item.get("thumbnail_url", "")
         if role == self.NavigateRole:
             return item.get("navigate", "")
+        if role == self.IsDownloadedRole:
+            return item.get("is_downloaded", False)
         return None
 
     def roleNames(self) -> dict[int, bytes]:
         return {
             self.TitleRole: b"title",
+            self.NameRole: b"name",
             self.ArtistRole: b"artist",
             self.YearRole: b"year",
+            self.SubtitleRole: b"subtitle",
             self.ThumbnailRole: b"thumbnail",
             self.NavigateRole: b"navigate",
+            self.IsDownloadedRole: b"isDownloaded",
         }
 
 
@@ -102,24 +114,42 @@ class LibraryArtistModel(_BaseModel):
     NameRole = Qt.UserRole + 1
     ThumbnailRole = Qt.UserRole + 2
     NavigateRole = Qt.UserRole + 3
+    TitleRole = Qt.UserRole + 4
+    ArtistRole = Qt.UserRole + 5
+    YearRole = Qt.UserRole + 6
+    SubtitleRole = Qt.UserRole + 7
+    IsDownloadedRole = Qt.UserRole + 8
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self._items):
             return None
         item = self._items[index.row()]
-        if role == self.NameRole:
+        if role in (self.NameRole, self.TitleRole):
             return item.get("name", "")
+        if role == self.ArtistRole:
+            return ""
+        if role == self.YearRole:
+            return ""
+        if role == self.SubtitleRole:
+            return ""
         if role == self.ThumbnailRole:
             return item.get("thumbnail_url", "")
         if role == self.NavigateRole:
             return item.get("navigate", "")
+        if role == self.IsDownloadedRole:
+            return False
         return None
 
     def roleNames(self) -> dict[int, bytes]:
         return {
             self.NameRole: b"name",
+            self.TitleRole: b"title",
+            self.ArtistRole: b"artist",
+            self.YearRole: b"year",
+            self.SubtitleRole: b"subtitle",
             self.ThumbnailRole: b"thumbnail",
             self.NavigateRole: b"navigate",
+            self.IsDownloadedRole: b"isDownloaded",
         }
 
 
@@ -129,15 +159,22 @@ class LibraryPlaylistModel(_BaseModel):
     ThumbnailRole = Qt.UserRole + 3
     IsDownloadedRole = Qt.UserRole + 4
     NavigateRole = Qt.UserRole + 5
+    NameRole = Qt.UserRole + 6
+    ArtistRole = Qt.UserRole + 7
+    YearRole = Qt.UserRole + 8
 
     def data(self, index: QModelIndex, role: int = Qt.DisplayRole):
         if not index.isValid() or not 0 <= index.row() < len(self._items):
             return None
         item = self._items[index.row()]
-        if role == self.TitleRole:
+        if role in (self.TitleRole, self.NameRole):
             return item.get("title", "")
         if role == self.SubtitleRole:
             return item.get("subtitle", "")
+        if role == self.ArtistRole:
+            return item.get("subtitle", "")
+        if role == self.YearRole:
+            return ""
         if role == self.ThumbnailRole:
             return item.get("thumbnail_url", "")
         if role == self.IsDownloadedRole:
@@ -149,7 +186,10 @@ class LibraryPlaylistModel(_BaseModel):
     def roleNames(self) -> dict[int, bytes]:
         return {
             self.TitleRole: b"title",
+            self.NameRole: b"name",
             self.SubtitleRole: b"subtitle",
+            self.ArtistRole: b"artist",
+            self.YearRole: b"year",
             self.ThumbnailRole: b"thumbnail",
             self.IsDownloadedRole: b"isDownloaded",
             self.NavigateRole: b"navigate",

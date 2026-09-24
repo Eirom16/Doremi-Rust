@@ -23,9 +23,13 @@ class PlaybackSessionManager:
         self._resume_position_ms = 0
 
     async def initialize(self) -> None:
-        self.restore_playback_session()
         await self.main_window._navigate("home")
-        if self.main_window.settings.player.resume_on_startup and self.main_window.queue.current:
+        # No restaurar ni mostrar una pista anterior salvo que el usuario lo
+        # haya habilitado expresamente en Ajustes.
+        if not self.main_window.settings.player.resume_on_startup:
+            return
+        self.restore_playback_session()
+        if self.main_window.queue.current:
             self.main_window.playback_controller._update_queue_panel()
             item = self.main_window.queue.current
             self.main_window.mini_player.update_track_info(item.title, item.artist, item.thumbnail_url)
@@ -58,6 +62,18 @@ class PlaybackSessionManager:
             self.main_window.mpris.queue = self.main_window.queue
             self.main_window.mini_player.queue = self.main_window.queue
             self.main_window.now_playing_screen.queue = self.main_window.queue
+            # La restauración reemplaza la instancia de PlayQueue. Todos los
+            # controladores que la recibieron por inyección deben apuntar a la
+            # nueva instancia; de otro modo la UI muestra la sesión restaurada
+            # pero PlaybackController intenta reproducir la cola vacía vieja.
+            for controller_name in (
+                "playback_controller",
+                "queue_controller",
+                "integrations_controller",
+            ):
+                controller = getattr(self.main_window, controller_name, None)
+                if controller is not None:
+                    controller.queue = self.main_window.queue
             self.main_window.settings.last_video_id = (
                 data.get("last_video_id") or self.main_window.queue.current.video_id
             )

@@ -25,7 +25,7 @@ Item {
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingSm
-        anchors.bottomMargin: 112
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         contentWidth: width
         contentHeight: contentCol.height
         clip: true
@@ -330,29 +330,29 @@ Item {
                                 visible: row.duration !== ""
                             }
 
-                            Menu {
+                            ContextMenu {
                                 id: rowMenu
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Reproducir siguiente"
                                     onTriggered: vm.track_action(row.index, "play_next")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a la cola"
                                     onTriggered: vm.track_action(row.index, "add_to_queue")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Me gusta"
                                     onTriggered: vm.track_action(row.index, "like")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Añadir a playlist"
                                     onTriggered: vm.track_action(row.index, "add_to_playlist")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     text: "Descargar"
                                     onTriggered: vm.track_action(row.index, "download")
                                 }
-                                MenuItem {
+                                ContextMenuItem {
                                     visible: row.isDownloaded
                                     text: "Eliminar descarga"
                                     onTriggered: vm.track_action(row.index, "delete_download")

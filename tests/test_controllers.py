@@ -108,10 +108,42 @@ class TestNavigation:
         mw.album_screen.load.assert_called_with("XYZ")
 
     @pytest.mark.asyncio
+    async def test_navigate_podcast_loads_collection_screen(self):
+        nav, mw = self._nav()
+        await nav.navigate("podcast?id=MPSP123")
+        mw.album_screen.load.assert_called_with("MPSP123")
+
+    @pytest.mark.asyncio
     async def test_navigate_search_dispatches_query(self):
         nav, mw = self._nav()
         await nav.navigate("search?query=hello")
         mw.search_screen.search.assert_called_with("hello")
+
+    @pytest.mark.asyncio
+    async def test_navigate_library_playlist_tab_reuses_library_screen(self):
+        nav, mw = self._nav()
+        await nav.navigate("library?tab=playlists")
+        mw.library_screen.select_tab.assert_called_once_with("playlists")
+        mw.library_screen.load.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_refresh_sidebar_playlists_limits_to_four(self, monkeypatch):
+        nav, mw = self._nav()
+        mw.yt.is_authenticated = True
+
+        async def gather(_yt):
+            return [
+                {"title": f"Playlist {i}", "navigate": f"playlist?id={i}"}
+                for i in range(6)
+            ]
+
+        from doremi.ui.screens import library_data
+        monkeypatch.setattr(library_data, "gather_library_playlists", gather)
+        await nav.refresh_sidebar_playlists()
+        shown = mw.sidebar.set_playlists.call_args.args[0]
+        assert [item["title"] for item in shown] == [
+            "Playlist 0", "Playlist 1", "Playlist 2", "Playlist 3",
+        ]
 
     @pytest.mark.asyncio
     async def test_offline_route_shows_offline_state(self):
@@ -324,6 +356,19 @@ class TestSettings:
 
 class TestSession:
     @pytest.mark.asyncio
+    async def test_initialize_does_not_restore_a_track_by_default(self):
+        mw = _make_stub_mw()
+        mw._navigate = AsyncMock()
+        mw.settings.player.resume_on_startup = False
+        sm = PlaybackSessionManager(mw, real_run_async)
+        sm.restore_playback_session = MagicMock()
+
+        await sm.initialize()
+
+        mw._navigate.assert_awaited_once_with("home")
+        sm.restore_playback_session.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_restore_playback_session(self, tmp_path):
         mw = _make_stub_mw()
         sm = PlaybackSessionManager(mw, real_run_async)
@@ -351,6 +396,9 @@ class TestSession:
         assert mw.mini_player.queue is mw.queue
         assert mw.now_playing_screen.queue is mw.queue
         assert mw.mpris.queue is mw.queue
+        assert mw.playback_controller.queue is mw.queue
+        assert mw.queue_controller.queue is mw.queue
+        assert mw.integrations_controller.queue is mw.queue
 
 
 # ---------------------------------------------------------------------------

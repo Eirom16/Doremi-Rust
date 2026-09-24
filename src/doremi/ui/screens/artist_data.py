@@ -16,7 +16,7 @@ async def gather_artist(yt_client, channel_id: str) -> dict:
         "name": "",
         "subscribers": "",
         "thumbnail_url": "",
-        "songs": [],      # top 5
+        "songs": [],
         "albums": [],
         "related": [],
     }
@@ -43,7 +43,9 @@ async def gather_artist(yt_client, channel_id: str) -> dict:
     except Exception:
         liked_ids = set()
 
-    for track in data.get("songs", {}).get("results", [])[:5]:
+    # YouTube Music ya entrega el conjunto de canciones disponible para este
+    # artista. No truncarlo: la vista debe permitir descubrir su catálogo.
+    for track in data.get("songs", {}).get("results", []):
         vid = track.get("videoId", "")
         if not vid:
             continue

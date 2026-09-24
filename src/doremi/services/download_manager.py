@@ -1,10 +1,15 @@
 import asyncio
 import json
 import os
+import hashlib
+import multiprocessing
+import re
+import signal
+import shutil
 from pathlib import Path
 from PySide6.QtCore import QObject, Signal
 from loguru import logger
-import yt_dlp
+from doremi.services.download_worker import download_audio
 
 from doremi.config.paths import AppDirs
 from doremi.db.repository import DownloadRepository
@@ -23,6 +28,7 @@ class DownloadTask:
         self.speed = ""
         self._cancel_flag = False
         self._pause_flag = False
+        self._queued = False
 
     def cancel(self):
         self._cancel_flag = True
@@ -67,6 +73,7 @@ class DownloadManager(QObject):
     download_progress = Signal(str, float, str) # video_id, progress (0-100), speed
     download_completed = Signal(str, str) # video_id, filepath
     download_error = Signal(str, str) # video_id, error_msg
+    tasks_changed = Signal()
 
     _instance = None
 
@@ -85,6 +92,9 @@ class DownloadManager(QObject):
         self._repo = DownloadRepository()
         self._state_file = AppDirs.data / "download_tasks.json"
         self._restored_state = False
+        self._closing = False
+        self._processes = {}
+        self._process_stop_timeout = 0.5
 
     def start(self, max_concurrent: int = 3):
         if self._running:
@@ -92,75 +102,72 @@ class DownloadManager(QObject):
         if not self._restored_state:
             self._restore_incomplete_tasks()
             self._restored_state = True
+        self._closing = False
         self._running = True
         for _ in range(max_concurrent):
             worker = asyncio.ensure_future(self._worker())
             self._workers.append(worker)
 
     def stop(self):
+        self._closing = True
         self._running = False
         self._save_incomplete_tasks()
         for worker in self._workers:
             worker.cancel()
-        # Note: workers are awaited in async_stop() to avoid blocking
-        self._workers.clear()
 
     async def async_stop(self, timeout: float = 5.0) -> None:
-        """Gracefully stop all download workers and wait for them to finish."""
-        self._running = False
-        self._save_incomplete_tasks()
-        
-        # Cancel all pending tasks in queue
-        while not self._queue.empty():
-            try:
-                task = self._queue.get_nowait()
-                if not task._cancel_flag:
-                    task.cancel()
-                self._queue.task_done()
-            except asyncio.QueueEmpty:
-                break
-        
-        # Wait for workers to finish with timeout
-        if self._workers:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(*self._workers, return_exceptions=True),
-                    timeout=timeout
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Download workers did not finish within timeout")
-            except Exception as e:
-                logger.error(f"Error waiting for download workers: {e}")
-        
+        """Cancelar workers y esperar la terminación de sus procesos hijos."""
+        self._process_stop_timeout = min(0.5, max(0.0, timeout))
+        self.stop()
+        workers = list(self._workers)
+        if workers:
+            # Cada worker termina y recoge su proceso en finally.
+            await asyncio.gather(*workers, return_exceptions=True)
         self._workers.clear()
+        while not self._queue.empty():
+            task = self._queue.get_nowait()
+            task._queued = False
+            self._queue.task_done()
+        self._save_incomplete_tasks()
+        self._restored_state = False
+        self._tasks.clear()
 
     @property
     def active_count(self) -> int:
         return sum(
             1 for task in self._tasks.values()
-            if task.status in {"queued", "downloading"}
+            if task.status in {"queued", "downloading"} and not task._cancel_flag
         )
 
     def add_download(self, video_id: str, title: str, artist: str, thumbnail_url: str, parent_playlist_id: str = None, parent_playlist_title: str = None, parent_playlist_thumbnail_url: str = None) -> bool:
-        if video_id in self._tasks:
+        if self._closing or video_id in self._tasks:
             return False # already queued/downloading
         
         task = DownloadTask(video_id, title, artist, thumbnail_url, parent_playlist_id, parent_playlist_title, parent_playlist_thumbnail_url)
         self._tasks[video_id] = task
         self.download_queued.emit(task)
+        task._queued = True
         self._queue.put_nowait(task)
         self._save_incomplete_tasks()
         return True
 
     def cancel_download(self, video_id: str):
         if video_id in self._tasks:
-            self._tasks[video_id].cancel()
+            task = self._tasks[video_id]
+            task.cancel()
+            if task.status != "downloading":
+                self._tasks.pop(video_id, None)
             self._save_incomplete_tasks()
+            self.tasks_changed.emit()
 
     def pause_download(self, video_id: str):
         if video_id in self._tasks:
-            self._tasks[video_id].pause()
+            task = self._tasks[video_id]
+            task.pause()
+            if task.status == "queued":
+                task.status = "paused"
             self._save_incomplete_tasks()
+            self.tasks_changed.emit()
 
     def resume_download(self, video_id: str):
         if video_id in self._tasks:
@@ -170,7 +177,9 @@ class DownloadManager(QObject):
                 task._pause_flag = False
                 task._cancel_flag = False
                 self.download_queued.emit(task)
-                self._queue.put_nowait(task)
+                if not task._queued:
+                    task._queued = True
+                    self._queue.put_nowait(task)
                 self._save_incomplete_tasks()
 
     def retry_download(self, video_id: str):
@@ -185,8 +194,9 @@ class DownloadManager(QObject):
                 and not task._cancel_flag
             ]
             self._state_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(self._state_file, "w", encoding="utf-8") as f:
-                json.dump(tasks, f, ensure_ascii=False, indent=2)
+            temporary = self._state_file.with_suffix(".tmp")
+            temporary.write_text(json.dumps(tasks, ensure_ascii=False, indent=2), encoding="utf-8")
+            temporary.replace(self._state_file)
         except Exception as e:
             logger.debug(f"Failed to persist download tasks: {e}")
 
@@ -206,6 +216,7 @@ class DownloadManager(QObject):
                 if task.status in {"queued", "downloading"}:
                     task.status = "queued"
                     self.download_queued.emit(task)
+                    task._queued = True
                     self._queue.put_nowait(task)
             self._save_incomplete_tasks()
         except Exception as e:
@@ -213,155 +224,169 @@ class DownloadManager(QObject):
 
     async def _worker(self):
         while self._running:
+            task = None
             try:
                 task = await self._queue.get()
-                if task._cancel_flag:
-                    self._queue.task_done()
+                task._queued = False
+                if task._cancel_flag or task._pause_flag:
                     continue
-                
                 await self._process_download(task)
-                self._queue.task_done()
             except asyncio.CancelledError:
                 break
-            except Exception as e:
-                logger.error(f"Download worker error: {e}")
+            except Exception as exc:
+                logger.error(f"Download worker error: {exc}")
+            finally:
+                if task is not None:
+                    self._queue.task_done()
+                    if task._cancel_flag and self._tasks.get(task.video_id) is task:
+                        del self._tasks[task.video_id]
+                    self._save_incomplete_tasks()
+                    if not self._closing:
+                        self.tasks_changed.emit()
+
+    @staticmethod
+    def _safe_component(value: str, fallback: str) -> str:
+        value = re.sub(r'[\x00-\x1f\x7f/\\<>:"|?*%]', '_', value).strip(' .')
+        # Limitar bytes, no sólo caracteres, para nombres Unicode.
+        return value.encode('utf-8')[:100].decode('utf-8', errors='ignore') or fallback
+
+    def _output_template(self, task: DownloadTask) -> str:
+        root = AppDirs.downloads.resolve()
+        directory = root
+        if task.parent_playlist_title:
+            name = self._safe_component(task.parent_playlist_title, 'playlist')
+            identity = task.parent_playlist_id or task.parent_playlist_title
+            suffix = hashlib.sha256(identity.encode()).hexdigest()[:12]
+            directory = root / f"{name} [{suffix}]"
+        if not directory.resolve().is_relative_to(root):
+            raise ValueError("Download directory escapes configured root")
+        directory.mkdir(parents=True, exist_ok=True)
+        artist = self._safe_component(task.artist, 'artist')
+        title = self._safe_component(task.title, 'track')
+        identity = hashlib.sha256(task.video_id.encode()).hexdigest()[:16]
+        stem = f"{artist} - {title} [{identity}]"
+        for existing in directory.iterdir():
+            if existing.name.startswith(stem + '.') and existing.is_symlink():
+                raise ValueError("Refusing symlink in download destination")
+        return str(directory / (stem + '.%(ext)s'))
+
+    async def _finish_process(self, process) -> None:
+        # El proceso conserva su PID hasta join; su grupo no se puede reutilizar.
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        if process.is_alive():
+            process.terminate()
+        deadline = asyncio.get_running_loop().time() + self._process_stop_timeout
+        while process.is_alive() and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.01)
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+        if process.is_alive():
+            process.kill()
+        while process.is_alive():
+            await asyncio.sleep(0.01)
+        process.join()
+        process.close()
+
+    async def _run_download(self, task: DownloadTask, options: dict, convert: bool) -> str:
+        ctx = multiprocessing.get_context("spawn")
+        receiver, sender = ctx.Pipe(duplex=False)
+        process = ctx.Process(target=download_audio, args=(
+            sender, f"https://www.youtube.com/watch?v={task.video_id}", options, convert,
+        ))
+        try:
+            process.start()
+        except BaseException:
+            receiver.close()
+            sender.close()
+            process.close()
+            raise
+        sender.close()
+        self._processes[task.video_id] = process
+        try:
+            while True:
+                if self._closing or task._cancel_flag or task._pause_flag:
+                    raise asyncio.CancelledError
+                if receiver.poll():
+                    try:
+                        message = receiver.recv()
+                    except EOFError:
+                        raise RuntimeError("Download process ended without a result") from None
+                    if message[0] == "completed":
+                        return message[1]
+                    if message[0] == "error":
+                        raise RuntimeError(message[1])
+                    task.progress, task.speed = message[1:]
+                    self.download_progress.emit(task.video_id, task.progress, task.speed)
+                elif not process.is_alive():
+                    raise RuntimeError("Download process ended without a result")
+                await asyncio.sleep(0.02)
+        finally:
+            await self._finish_process(process)
+            receiver.close()
+            self._processes.pop(task.video_id, None)
 
     async def _process_download(self, task: DownloadTask):
         task.status = "downloading"
         self._save_incomplete_tasks()
         self.download_started.emit(task.video_id)
-        
-        loop = asyncio.get_event_loop()
-        
-        def progress_hook(d):
-            if task._cancel_flag:
-                raise Exception("CANCELLED")
-            if task._pause_flag:
-                task.status = "paused"
-                raise Exception("PAUSED")
-                
-            if d['status'] == 'downloading':
-                try:
-                    percent_str = d.get('_percent_str', '0%').replace('%', '').replace('\x1b[0;94m', '').replace('\x1b[0m', '').strip()
-                    percent = float(percent_str) if percent_str else 0.0
-                    speed = d.get('_speed_str', '')
-                    
-                    task.progress = percent
-                    task.speed = speed
-                    # emit in main thread
-                    loop.call_soon_threadsafe(self.download_progress.emit, task.video_id, percent, speed)
-                except ValueError:
-                    pass
-
-        url = f"https://www.youtube.com/watch?v={task.video_id}"
-        out_dir = AppDirs.downloads
-        
-        # Determine path structure
-        if task.parent_playlist_title:
-            out_dir = out_dir / task.parent_playlist_title
-            
-        out_dir.mkdir(parents=True, exist_ok=True)
-        
-        out_tmpl = str(out_dir / f"{task.artist} - {task.title}.%(ext)s")
-        
-        import shutil
-        has_ffmpeg = shutil.which('ffmpeg') is not None
-        
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': out_tmpl,
-            'progress_hooks': [progress_hook],
-            'quiet': True,
-            'no_warnings': True,
-            'continuedl': True,
-            'nopart': False,
-        }
-        
-        if has_ffmpeg:
-            ydl_opts['postprocessors'] = [{
-                'key': 'FFmpegExtractAudio',
-                'preferredcodec': 'mp3',
-                'preferredquality': '192',
-            }]
-            ext = 'mp3'
-        else:
-            # No ffmpeg — download audio directly without conversion
-            ydl_opts['format'] = 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio'
-            ext = None  # Will be determined by yt-dlp
-        
         try:
-            def _download():
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(url, download=True)
-                    # Get actual filepath — use the real extension
-                    base = ydl.prepare_filename(info).rsplit('.', 1)[0]
-                    if has_ffmpeg:
-                        return base + '.mp3'
-                    # Without ffmpeg, find whatever file was downloaded
-                    import glob
-                    matches = glob.glob(base + '.*')
-                    return matches[0] if matches else base
-            
-            filepath = await loop.run_in_executor(None, _download)
-            
-            if task._cancel_flag:
-                if os.path.exists(filepath):
-                    os.remove(filepath)
-                self._save_incomplete_tasks()
-                return
-                
-            task.status = "completed"
-            self._save_incomplete_tasks()
-            
-            # Fetch and save offline lyrics (.lrc format next to audio file)
-            try:
-                from doremi.api.lyrics import LyricsClient
-                lyrics_client = LyricsClient()
-                lyrics_text = await lyrics_client.get_plain_lyrics(task.title, task.artist)
-                if lyrics_text:
-                    lrc_filepath = os.path.splitext(filepath)[0] + ".lrc"
-                    with open(lrc_filepath, "w", encoding="utf-8") as f:
-                        f.write(lyrics_text)
-                    logger.info(f"Downloaded offline lyrics saved to: {lrc_filepath}")
-            except Exception as le:
-                logger.error(f"Failed to download offline lyrics: {le}")
-            
-            # Save to DB
+            convert = shutil.which('ffmpeg') is not None
+            options = {
+                'format': 'bestaudio/best' if convert else 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio',
+                'outtmpl': self._output_template(task),
+                'quiet': True, 'no_warnings': True, 'continuedl': True, 'nopart': False,
+                'socket_timeout': 10, 'retries': 2, 'fragment_retries': 2,
+                'noplaylist': True,
+            }
+            if convert:
+                options['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '192',
+                }]
+            filepath = await self._run_download(task, options, convert)
+            path = Path(filepath).resolve()
+            if not path.is_relative_to(AppDirs.downloads.resolve()) or not path.is_file():
+                raise ValueError("Invalid downloaded file")
+            if self._closing or task._cancel_flag or task._pause_flag:
+                raise asyncio.CancelledError
+            # Registrar el audio antes de buscar letras; completed significa persistido.
             await self._repo.add_download(
-                video_id=task.video_id,
-                title=task.title,
-                artist=task.artist,
-                album="",
-                file_path=filepath,
-                thumbnail_url=task.thumbnail_url,
-                duration_ms=0,
+                video_id=task.video_id, title=task.title, artist=task.artist, album="",
+                file_path=str(path), thumbnail_url=task.thumbnail_url, duration_ms=0,
                 parent_playlist_id=task.parent_playlist_id,
                 parent_playlist_title=task.parent_playlist_title,
-                parent_playlist_thumbnail_url=task.parent_playlist_thumbnail_url
+                parent_playlist_thumbnail_url=task.parent_playlist_thumbnail_url,
             )
-            
-            self.download_completed.emit(task.video_id, filepath)
-            
-        except Exception as e:
-            if str(e) == "PAUSED":
-                task.status = "paused"
-                self._save_incomplete_tasks()
-                logger.info(f"Download paused: {task.title}")
-                # Do NOT delete from self._tasks so it can be resumed
-                return
-            elif str(e) == "CANCELLED":
-                logger.info(f"Download cancelled: {task.title}")
-            else:
-                logger.error(f"Download failed for {task.video_id}: {e}")
-                task.status = "error"
-                self._save_incomplete_tasks()
-                # Do NOT delete from self._tasks so it can be retried
-                self.download_error.emit(task.video_id, str(e))
-                return
+            task.status = "completed"
+            self._save_incomplete_tasks()
+            self.download_completed.emit(task.video_id, str(path))
+            try:
+                from doremi.api.lyrics import LyricsClient
+                lyrics = await asyncio.wait_for(
+                    LyricsClient().get_plain_lyrics(task.title, task.artist), timeout=10,
+                )
+                if lyrics:
+                    path.with_suffix('.lrc').write_text(lyrics, encoding='utf-8')
+            except Exception as exc:
+                logger.debug(f"Optional download lyrics unavailable: {exc}")
+        except asyncio.CancelledError:
+            if task.status != "completed":
+                task.status = "paused" if task._pause_flag else "queued"
+            if self._closing or not (task._cancel_flag or task._pause_flag):
+                raise
+        except Exception as exc:
+            task.status = "error"
+            self.download_error.emit(task.video_id, str(exc))
+            logger.error(f"Download failed for {task.video_id}: {exc}")
         finally:
-            # We want to keep paused and error tasks in _tasks so they can be resumed/retried.
-            if task.video_id in self._tasks and task.status in ["completed", "queued"]:
-                del self._tasks[task.video_id]
-            elif task.video_id in self._tasks and task._cancel_flag:
+            if (task.status == "completed" or task._cancel_flag) and self._tasks.get(task.video_id) is task:
                 del self._tasks[task.video_id]
             self._save_incomplete_tasks()
+            if not self._closing:
+                self.tasks_changed.emit()

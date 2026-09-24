@@ -133,6 +133,10 @@ class DownloadsScreenQml(QWidget):
             await self.load()
         except Exception as e:
             logger.error(f"Error en borrado batch (QML Downloads): {e}")
+            from doremi.ui.widgets.toast import ToastNotification
+            from doremi.utils.i18n import _
+            ToastNotification.show(self, _("No se pudieron eliminar todos los archivos. Puedes reintentarlo."), "error")
+            await self.load()
 
     # ── Carga ──────────────────────────────────────────────────────────────
 
@@ -166,6 +170,7 @@ class DownloadsScreenQml(QWidget):
 
     def _connect_manager(self) -> None:
         mgr = DownloadManager.get_instance()
+        mgr.tasks_changed.connect(self._schedule_load)
         mgr.download_queued.connect(self._on_download_queued)
         mgr.download_started.connect(self._on_download_started)
         mgr.download_progress.connect(self._on_download_progress)

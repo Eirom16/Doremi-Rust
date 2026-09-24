@@ -8,11 +8,19 @@ Rectangle {
     id: btn
 
     signal clicked()
+    activeFocusOnTab: enabled && visible
+    Accessible.role: Accessible.Button
+    Accessible.name: text
+    Accessible.onPressAction: if (enabled) clicked()
+    Keys.onReturnPressed: if (enabled && !event.isAutoRepeat) clicked()
+    Keys.onEnterPressed: if (enabled && !event.isAutoRepeat) clicked()
+    Keys.onSpacePressed: if (enabled && !event.isAutoRepeat) clicked()
 
     property string text: ""
     property bool active: false
     property bool danger: false
 
+    readonly property color errorColor: themeBridge.colors["error"]
     readonly property color accentColor: themeBridge.colors["accent"]
 
     width: lbl.implicitWidth + Theme.spacingLg * 1.5
@@ -20,15 +28,16 @@ Rectangle {
     radius: Theme.radiusPill
     color: {
         if (danger)
-            return ma.containsMouse ? Qt.rgba(244, 63, 94, 0.2) : Qt.rgba(244, 63, 94, 0.1)
+            return ma.containsMouse ? Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.2) : Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.1)
         if (active)
             return Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.15)
         return ma.containsMouse ? themeBridge.colors["bg_elevated"] : themeBridge.colors["bg_surface"]
     }
-    border.width: 1
+    border.width: activeFocus ? 2 : 1
     border.color: {
+        if (activeFocus) return accentColor
         if (danger)
-            return Qt.rgba(244, 63, 94, 0.3)
+            return Qt.rgba(errorColor.r, errorColor.g, errorColor.b, 0.3)
         if (active)
             return Qt.rgba(accentColor.r, accentColor.g, accentColor.b, 0.3)
         return themeBridge.colors["border"]
@@ -50,6 +59,6 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onClicked: btn.clicked()
+        onClicked: { btn.forceActiveFocus(); btn.clicked() }
     }
 }

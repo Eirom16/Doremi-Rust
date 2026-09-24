@@ -124,3 +124,34 @@ class TestAlbumScreenQml:
         assert args[4] == 258000            # duration_ms
         assert len(args[6]) == 3            # queue_items
         assert args[7] == 2                 # queue_index
+
+
+@pytest.mark.asyncio
+async def test_gather_album_normalizes_podcast_episodes():
+    from doremi.ui.screens.album_data import gather_album
+
+    class PodcastClient:
+        async def get_podcast(self, playlist_id):
+            assert playlist_id == "MPSPpodcast1"
+            return {
+                "title": "Charlas",
+                "author": {"name": "Radio Doremi"},
+                "thumbnails": [{"url": "https://x/podcast.jpg"}],
+                "episodes": [{
+                    "videoId": "episode1",
+                    "title": "Primer episodio",
+                    "duration": "25:00",
+                    "thumbnails": [{"url": "https://x/episode.jpg"}],
+                }],
+            }
+
+        async def get_album(self, _browse_id):
+            raise AssertionError("un podcast no debe pasar por get_album")
+
+    data = await gather_album(PodcastClient(), "MPSPpodcast1")
+
+    assert data["type"] == "PODCAST"
+    assert data["title"] == "Charlas"
+    assert data["meta"] == "Radio Doremi • 1 episodios"
+    assert data["tracks"][0]["artist"] == "Radio Doremi"
+    assert data["tracks"][0]["videoId"] == "episode1"

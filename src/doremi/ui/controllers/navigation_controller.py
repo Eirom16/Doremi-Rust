@@ -122,6 +122,9 @@ class NavigationController:
         elif route == "album" and "id=" in query:
             album_id = query.split("=", 1)[1]
             await self.main_window.album_screen.load(album_id)
+        elif route == "podcast" and "id=" in query:
+            podcast_id = query.split("=", 1)[1]
+            await self.main_window.album_screen.load(podcast_id)
         elif route == "artist" and "id=" in query:
             artist_id = query.split("=", 1)[1]
             await self.main_window.artist_screen.load(artist_id)
@@ -131,6 +134,9 @@ class NavigationController:
             self.main_window.search_bar.input.setText(query_param)
             self.main_window.search_bar.input.blockSignals(False)
             await self.main_window.search_screen.search(query_param)
+        elif route == "library" and query.startswith("tab="):
+            tab = query.split("=", 1)[1]
+            self.main_window.library_screen.select_tab(tab)
         else:
             await self.load_screen(route)
 
@@ -186,7 +192,8 @@ class NavigationController:
                     except Exception as e:
                         logger.debug(f"Could not read saved user profile after login: {e}")
 
-            self.main_window.sidebar.update_auth_state(True, name, avatar_url)
+            self.main_window.search_bar.update_profile(True, name, avatar_url)
+            self.run_async(self.refresh_sidebar_playlists())
             logger.info(f"Post-login: yt client propagated, name={name}, avatar={avatar_url}")
 
             # Auto-refresh home and library if we just logged in
@@ -204,12 +211,23 @@ class NavigationController:
 
             self.main_window.yt = YouTubeMusicClient(self.main_window.settings)
             self.update_screens_yt_client()
-            self.main_window.sidebar.update_auth_state(False, "", "")
+            self.main_window.search_bar.update_profile(False)
+            self.main_window.sidebar.set_playlists([])
             logger.info("Auth changed (logout): yt client reset and sidebar updated")
 
             # Auto-refresh home and library for unauthenticated session
             self.main_window.home_screen.force_reload()
             self.run_async(self.main_window.library_screen.load())
+
+    async def refresh_sidebar_playlists(self) -> None:
+        """Carga las playlists recientes para los accesos rápidos del lateral."""
+        if not self.main_window.yt or not self.main_window.yt.is_authenticated:
+            self.main_window.sidebar.set_playlists([])
+            return
+        from doremi.ui.screens.library_data import gather_library_playlists
+
+        playlists = await gather_library_playlists(self.main_window.yt)
+        self.main_window.sidebar.set_playlists(playlists[:4])
 
     def update_screens_yt_client(self) -> None:
         """Propagate the current yt client reference to all screens that use it."""
@@ -251,7 +269,19 @@ class NavigationController:
         mp = getattr(self.main_window, "mini_player", None)
         if mp is not None:
             np_index = self.main_window.ROUTES.get("now_playing", -1)
-            mp.setVisible(index != np_index)
+            is_now_playing = (index == np_index)
+            if is_now_playing:
+                mp.hide()
+                from doremi.ui.theme_bridge import theme_bridge
+                theme_bridge().set_mini_player_visible(False)
+            else:
+                if getattr(mp, "_is_visible", True):
+                    mp.show()
+                    from doremi.ui.theme_bridge import theme_bridge
+                    theme_bridge().set_mini_player_visible(True)
+                    self.main_window._position_mini_player()
+                    mp.raise_()
+                    mp.update()
         # Update mini player expand icon based on whether we're on now_playing
         self.main_window.playback_controller._update_expand_icon()
 

@@ -46,7 +46,7 @@ Item {
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingMd
-        anchors.bottomMargin: 112 // espacio del mini-player (paridad con widgets)
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         spacing: Theme.spacingSm
 
         // ── Header ────────────────────────────────────────────────────
@@ -341,29 +341,29 @@ Item {
                         visible: songRow.duration !== ""
                     }
 
-                    Menu {
+                    ContextMenu {
                         id: songMenu
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Reproducir siguiente"
                             onTriggered: vm.song_action(songRow.index, "play_next")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Añadir a la cola"
                             onTriggered: vm.song_action(songRow.index, "add_to_queue")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Quitar de Favoritas"
                             onTriggered: vm.song_action(songRow.index, "like")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Añadir a playlist"
                             onTriggered: vm.song_action(songRow.index, "add_to_playlist")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Descargar"
                             onTriggered: vm.song_action(songRow.index, "download")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Ir al artista"
                             onTriggered: vm.song_action(songRow.index, "go_artist")
                         }
@@ -472,7 +472,7 @@ Item {
                                 width: dlBadge.implicitWidth + Theme.spacingSm
                                 height: 22
                                 radius: Theme.radiusPill
-                                color: "#CC000000"
+                                color: root.colors ? Qt.rgba(0, 0, 0, 0.7) : "#cc000000"
 
                                 Row {
                                     anchors.centerIn: parent
@@ -540,7 +540,7 @@ Item {
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: Theme.spacingLg
-        anchors.bottomMargin: 112 + Theme.spacingMd
+        anchors.bottomMargin: (themeBridge.miniPlayerVisible ? 112 : 0) + Theme.spacingMd
         width: 56
         height: 56
         radius: 28

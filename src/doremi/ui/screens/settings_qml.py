@@ -213,9 +213,12 @@ class SettingsScreenQml(QWidget):
     # — Storage —
 
     def _clear_cache(self) -> None:
+        import shutil
         for f in AppDirs.cache.glob("*"):
-            if f.is_file():
+            if f.is_symlink() or f.is_file():
                 f.unlink()
+            elif f.is_dir():
+                shutil.rmtree(f)
         self._show_toast("Caché limpiada con éxito", "success")
         self._vm.refresh()
 

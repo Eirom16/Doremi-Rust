@@ -13,6 +13,7 @@ async def repo(monkeypatch):
     monkeypatch.setattr(db, "_session_factory", None)
     await db.init_db()
     yield SongRepository()
+    await db.close_db()
 
 
 @pytest.mark.asyncio

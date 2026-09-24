@@ -169,3 +169,58 @@ def test_from_dict_handles_unknown_video_id_gracefully():
     restored = PlayQueue.from_dict({"items": [{"video_id": "v1"}]})
     # QueueItem requires all fields; missing fields should fall back to empty
     assert restored.current is None or restored.current.video_id == "v1"
+
+
+def test_removed_item_does_not_return_after_shuffle_roundtrip():
+    q = _queue(3)
+    q.remove_at(1)
+    q.toggle_shuffle()
+    q.toggle_shuffle()
+    assert [item.video_id for item in q.items] == ["v0", "v2"]
+
+
+def test_move_preserves_current_occurrence_of_duplicate_song():
+    first, second, other = _item("same"), _item("same"), _item("other")
+    q = PlayQueue()
+    q.set_queue([first, second, other], 1)
+    q.move_item(2, 0)
+    assert q.current is second
+
+
+def test_shuffle_restores_current_occurrence_of_duplicate_song():
+    first, second = _item("same"), _item("same")
+    q = PlayQueue()
+    q.set_queue([first, second], 1)
+    q.toggle_shuffle()
+    q.toggle_shuffle()
+    assert q.current is second
+
+
+def test_empty_queue_can_be_set_while_shuffle_enabled():
+    q = _queue()
+    q.toggle_shuffle()
+    q.set_queue([])
+    assert q.current is None
+    assert q.current_index == -1
+
+
+def test_restored_shuffle_can_remove_track_without_resurrecting_it():
+    q = _queue(3)
+    q.toggle_shuffle()
+    restored = PlayQueue.from_dict(q.to_dict())
+    removed = restored.items[1].video_id
+    current = restored.current
+    restored.remove_at(1)
+    restored.toggle_shuffle()
+    assert removed not in [item.video_id for item in restored.items]
+    assert restored.current is current
+
+
+def test_add_next_in_shuffle_is_next_in_original_order_too():
+    q = _queue(3)
+    q.jump_to(2)
+    q.toggle_shuffle()
+    q.add_next(_item("new"))
+    q.toggle_shuffle()
+    assert q.current.video_id == "v2"
+    assert q.next_item.video_id == "new"

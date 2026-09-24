@@ -73,6 +73,9 @@ class TestNowPlayingViewModel:
         assert vm.artworkUrl == "https://x/a.jpg"
         assert vm.videoId == "v1"
 
+        vm.set_artwork("file:///tmp/midnight-city.jpg")
+        assert vm.artworkUrl == "file:///tmp/midnight-city.jpg"
+
         vm.set_position(65000, 200000)
         assert abs(vm.progress - 0.325) < 0.001
         assert vm.timeCurrent == "1:05"
@@ -113,9 +116,13 @@ class TestNowPlayingViewModel:
         likes: list[tuple] = []
         vm.like_requested.connect(lambda *a: likes.append(a))
         vm.toggle_like_current()
-        assert vm.liked is True
+        assert vm.liked is False  # Espera la confirmación del repositorio.
         assert likes == [("v9", None)]
+        vm.set_liked(True)
         vm.toggle_like_current()
+        assert vm.liked is True
+        assert likes == [("v9", None), ("v9", None)]
+        vm.set_liked(False)
         assert vm.liked is False
 
     def test_current_track_action(self, qapp):
@@ -165,6 +172,81 @@ class TestNowPlayingViewModel:
         vm.seek(0.5)
         vm.seek(9.9)   # clamp a 1.0
         assert seeks == [100000, 200000]
+
+    def test_track_details_only_expose_source_metadata(self, qapp):
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        vm.set_track_info("T", "A", "", "", "v1")
+        requests: list[str] = []
+        vm.details_requested.connect(requests.append)
+        vm.request_track_details()
+        assert vm.detailsLoading is True
+        assert requests == ["v1"]
+
+        vm.set_track_details({"artist": "Autor publicado", "album": "Álbum", "uploader": "Canal"})
+        assert vm.detailsLoading is False
+        assert vm.detailArtist == "Autor publicado"
+        assert vm.detailAlbum == "Álbum"
+        assert vm.detailUploader == "Canal"
+        assert vm.detailLicense == ""
+
+    def test_video_clip_request_uses_the_current_video_id(self, qapp):
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        requested: list[str] = []
+        vm.video_requested.connect(requested.append)
+        vm.request_video_clip()  # sin pista: no abre ningún visor
+        vm.set_track_info("T", "A", "", "", "video-123")
+        vm.request_video_clip()
+        assert requested == ["video-123"]
+
+    def test_audio_video_pill_closes_the_clip_when_returning_to_audio(self, qapp):
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        vm.set_track_info("T", "A", "", "", "video-123")
+        requested: list[str] = []
+        closed: list[bool] = []
+        vm.video_requested.connect(requested.append)
+        vm.video_closed_requested.connect(lambda: closed.append(True))
+
+        vm.set_media_mode("video")
+        assert vm.mediaMode == "video"
+        assert requested == ["video-123"]
+        vm.set_media_mode("audio")
+        assert vm.mediaMode == "audio"
+        assert closed == [True]
+
+    def test_video_state_exposes_loading_stream_and_error(self, qapp):
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        vm.set_track_info("T", "A", "", "", "video-123")
+        vm.set_position(42000, 180000)
+
+        vm.begin_video_loading()
+        assert vm.videoLoading is True
+        assert vm.videoStreamUrl == ""
+        assert vm.positionMs == 42000
+
+        vm.set_video_stream("https://cdn.example/video.mp4")
+        assert vm.videoLoading is False
+        assert vm.videoStreamUrl.endswith("video.mp4")
+        assert vm.videoError == ""
+
+        vm.report_video_error("Decoder no disponible")
+        assert vm.videoStreamUrl.endswith("video.mp4")
+        assert vm.videoError == ""  # aún está en modo audio
+
+        vm.request_video_clip()
+        assert vm.mediaMode == "video"
+        vm.report_video_error("Decoder no disponible")
+        assert vm.videoError == "Decoder no disponible"
+        vm.set_media_mode("audio")
+        vm.clear_video()
+        assert vm.videoError == ""
 
 
 class TestNowPlayingScreenQml:
@@ -225,3 +307,77 @@ class TestNowPlayingScreenQml:
         screen.queue_tab.queue_move_requested.connect(lambda a, b: calls.append((a, b)))
         screen._vm.move_queue_item(1, "up")
         assert calls == [(1, 0)]
+
+    @pytest.mark.asyncio
+    async def test_thumbnail_cache_updates_current_track_only(self, qapp, monkeypatch, tmp_path):
+        """La descarga asíncrona no debe fallar ni pisar una pista posterior."""
+        from doremi.ui.screens import now_playing_qml
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+
+        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
+                                     lambda i: None, AppSettings(), lambda: None)
+        image_path = tmp_path / "cover.jpg"
+        image_path.touch()
+
+        async def download(url):
+            return image_path
+
+        monkeypatch.setattr(type(now_playing_qml._image_cache), "download", lambda self, url: download(url))
+        screen._vm.set_track_info("T", "A", "https://img/current.jpg")
+        await screen._load_thumbnail("https://img/current.jpg")
+        assert screen._vm.artworkUrl.endswith("cover.jpg")
+
+        screen._vm.set_track_info("Nueva", "B", "https://img/new.jpg")
+        await screen._load_thumbnail("https://img/current.jpg")
+        assert screen._vm.artworkUrl == "https://img/new.jpg"
+
+    @pytest.mark.asyncio
+    async def test_video_stream_result_is_applied_only_to_current_track(self, qapp):
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+
+        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
+                                     lambda i: None, AppSettings(), lambda: None)
+
+        class Extractor:
+            async def get_video_stream_info(self, video_id):
+                return {"url": f"https://cdn.example/{video_id}.mp4"}
+
+        screen._vm.set_track_info("T", "A", "", "", "v1")
+        screen._vm.set_media_mode("video")
+        generation = screen._video_request_generation
+        await screen._load_video_stream("v1", Extractor(), generation)
+        assert screen._vm.videoStreamUrl.endswith("v1.mp4")
+
+        screen._cancel_video_request()
+        screen._vm.set_track_info("Nueva", "B", "", "", "v2")
+        screen._vm.begin_video_loading()
+        await screen._load_video_stream("v1", Extractor(), generation)
+        assert screen._vm.videoStreamUrl == ""
+        assert screen._vm.videoLoading is True
+
+    def test_video_position_sync_uses_qt_methods(self, qapp):
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+
+        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
+                                     lambda i: None, AppSettings(), lambda: None)
+        screen._vm.set_track_info("T", "A", "", "", "v1")
+        screen._vm.set_media_mode("video")
+        screen._vm.set_position(42000, 180000)
+
+        class FakeVideoPlayer:
+            def __init__(self):
+                self.seeked_to = None
+
+            def duration(self):
+                return 180000
+
+            def position(self):
+                return 0
+
+            def setPosition(self, position):
+                self.seeked_to = position
+
+        player = FakeVideoPlayer()
+        screen._video_player = player
+        screen._sync_video_position()
+        assert player.seeked_to == 42000

@@ -33,7 +33,7 @@ Item {
     ColumnLayout {
         anchors.fill: parent
         anchors.margins: Theme.spacingLg
-        anchors.bottomMargin: 112 // espacio del mini-player (paridad con versión widgets)
+        anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
         spacing: Theme.spacingSm
 
         // ── Header ────────────────────────────────────────────────────
@@ -173,33 +173,33 @@ Item {
                             rowMenu.popup()
                     }
 
-                    Menu {
+                    ContextMenu {
                         id: rowMenu
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Reproducir"
                             onTriggered: vm.play_at(row.index)
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Reproducir siguiente"
                             onTriggered: vm.action_at(row.index, "play_next")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Añadir a la cola"
                             onTriggered: vm.action_at(row.index, "add_to_queue")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Me gusta"
                             onTriggered: vm.action_at(row.index, "like")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Añadir a playlist"
                             onTriggered: vm.action_at(row.index, "add_to_playlist")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Descargar"
                             onTriggered: vm.action_at(row.index, "download")
                         }
-                        MenuItem {
+                        ContextMenuItem {
                             text: "Ir al artista"
                             onTriggered: vm.action_at(row.index, "go_artist")
                         }
@@ -267,7 +267,7 @@ Item {
         anchors.margins: Theme.spacingSm
         width: fpsLabel.implicitWidth + Theme.spacingMd
         height: fpsLabel.implicitHeight + Theme.spacingXs
-        color: "#000000"
+        color: root.colors ? root.colors["bg_base"] : "#11111b"
         opacity: 0.8
         radius: Theme.radiusSm
         z: 100

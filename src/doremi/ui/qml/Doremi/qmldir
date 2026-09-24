@@ -2,3 +2,10 @@ module Doremi
 singleton Theme 1.0 Theme.qml
 HeaderButton 1.0 HeaderButton.qml
 HeroButton 1.0 HeroButton.qml
+SkeletonLoader 1.0 SkeletonLoader.qml
+EmptyStateView 1.0 EmptyStateView.qml
+ModalDialog 1.0 ModalDialog.qml
+MediaCard 1.0 MediaCard.qml
+SongRow 1.0 SongRow.qml
+ContextMenu 1.0 ContextMenu.qml
+ContextMenuItem 1.0 ContextMenuItem.qml

@@ -28,6 +28,37 @@ DATA = {
 }
 
 
+@pytest.mark.asyncio
+async def test_gather_artist_keeps_the_full_song_catalog(monkeypatch):
+    """La lista de artista no debe volver a recortarse a cinco canciones."""
+    from doremi.db import repository
+    from doremi.ui.screens.artist_data import gather_artist
+
+    class FakeClient:
+        async def get_artist(self, _channel_id):
+            return {
+                "name": "Daft Punk",
+                "songs": {
+                    "results": [
+                        {"videoId": f"song-{index}", "title": f"Song {index}"}
+                        for index in range(8)
+                    ]
+                },
+            }
+
+    class FakeSongRepository:
+        async def get_liked_video_ids(self):
+            return set()
+
+    monkeypatch.setattr(repository, "SongRepository", FakeSongRepository)
+
+    artist = await gather_artist(FakeClient(), "artist-id")
+
+    assert [song["videoId"] for song in artist["songs"]] == [
+        f"song-{index}" for index in range(8)
+    ]
+
+
 class TestArtistViewModel:
     def test_header_and_models(self, qapp):
         from doremi.ui.viewmodels.artist_vm import ArtistViewModel

@@ -65,9 +65,12 @@ class StorageSettingsScreen(QWidget):
         return f"{total / (1024 * 1024):.1f} MB"
 
     def _clear_cache(self) -> None:
+        import shutil
         for file in AppDirs.cache.glob("*"):
-            if file.is_file():
+            if file.is_symlink() or file.is_file():
                 file.unlink()
+            elif file.is_dir():
+                shutil.rmtree(file)
         from doremi.ui.widgets.toast import ToastNotification
         ToastNotification.show(self, _("Caché limpiada con éxito"), "success")
 
@@ -134,4 +137,3 @@ class StorageSettingsScreen(QWidget):
                 finally:
                     self._in_style_change = False
         super().changeEvent(event)
-

@@ -19,7 +19,7 @@ class PlayerSettings(BaseModel):
     skip_silence: bool = False
     crossfade_enabled: bool = True
     crossfade_duration_sec: int = 5
-    resume_on_startup: bool = True
+    resume_on_startup: bool = False
     gapless_playback: bool = True
     stop_on_close: bool = False
     sleep_timer_minutes: int = 0
@@ -37,6 +37,10 @@ class NetworkSettings(BaseModel):
     proxy_url: str | None = None
     stream_quality: str = "best"
     preload_next: bool = True
+
+class OfflineSettings(BaseModel):
+    enabled: bool = True
+    song_limit: int = Field(default=25, ge=5, le=100)
 
 class IntegrationsSettings(BaseModel):
     lastfm_enabled: bool = False
@@ -64,6 +68,7 @@ class AppSettings(BaseModel):
     player: PlayerSettings = Field(default_factory=PlayerSettings)
     equalizer: EqualizerSettings = Field(default_factory=EqualizerSettings)
     network: NetworkSettings = Field(default_factory=NetworkSettings)
+    offline: OfflineSettings = Field(default_factory=OfflineSettings)
     integrations: IntegrationsSettings = Field(default_factory=IntegrationsSettings)
     subtitles: SubtitleSettings = Field(default_factory=SubtitleSettings)
     language: str = "es"

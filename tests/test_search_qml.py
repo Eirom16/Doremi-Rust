@@ -26,6 +26,9 @@ ALBUMS = [{"title": "Álbum X", "artist": "Artista A", "thumbnail_url": "",
 PLAYLISTS = [{"title": "PL X", "subtitle": "5 canciones", "thumbnail_url": "",
               "is_downloaded": True, "navigate": "playlist?id=P1"}]
 
+PODCASTS = [{"title": "Podcast X", "artist": "Podcast", "thumbnail_url": "",
+             "navigate": "podcast?id=MPSPX"}]
+
 
 class TestSearchViewModel:
     def test_split_top_featured_rest(self, qapp):
@@ -61,9 +64,10 @@ class TestSearchViewModel:
         vm.category_changed.connect(lambda: fired.append(vm.category))
         vm.set_category("album")
         vm.set_category("album")    # misma: no re-emite
+        vm.set_category("podcast")
         vm.set_category("artist")   # no soportada: ignora
-        assert vm.category == "album"
-        assert fired == ["album"]
+        assert vm.category == "podcast"
+        assert fired == ["album", "podcast"]
 
     def test_play_and_actions(self, qapp):
         from doremi.ui.viewmodels.search_vm import SearchViewModel
@@ -105,6 +109,21 @@ class TestSearchViewModel:
         assert vm.albums.rowCount() == 1
         assert vm.albums.data(vm.albums.index(0, 0), vm.albums.SubtitleRole) == "Artista A"
         assert vm.playlists.data(vm.playlists.index(0, 0), vm.playlists.IsDownloadedRole) is True
+
+    @pytest.mark.asyncio
+    async def test_podcast_search_uses_own_route(self, qapp):
+        from doremi.ui.screens.search_data import gather_search
+
+        class SearchClient:
+            async def search(self, query, filter=None, limit=40):
+                assert filter == "podcasts"
+                return [
+                    {"title": "Podcast X", "browseId": "MPSPX", "thumbnails": []},
+                    {"title": "Álbum infiltrado", "browseId": "MPREA", "thumbnails": []},
+                ]
+
+        items = await gather_search(SearchClient(), "podcast", "podcast")
+        assert items == PODCASTS
 
     def test_error_and_retry(self, qapp):
         from doremi.ui.viewmodels.search_vm import SearchViewModel

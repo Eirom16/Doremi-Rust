@@ -21,6 +21,8 @@ class YouTubeMusicClient:
         self._playlist_time = {}
         self._album_cache = {}
         self._album_time = {}
+        self._podcast_cache = {}
+        self._podcast_time = {}
         self._artist_cache = {}
         self._artist_time = {}
         self._ytmusicapi = None          # authenticated instance (for library)
@@ -132,7 +134,11 @@ class YouTubeMusicClient:
         last_exc = None
         for attempt in range(retries):
             try:
-                return await asyncio.to_thread(func)
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    loop = asyncio.get_event_loop()
+                return await loop.run_in_executor(self._executor, func)
             except Exception as exc:
                 last_exc = exc
                 if attempt >= retries - 1 or not self._is_retryable_error(exc):
@@ -178,6 +184,11 @@ class YouTubeMusicClient:
                     return results
             except Exception as e:
                 logger.warning(f"ytmusicapi search failed: {e}")
+
+        # yt-dlp sólo puede reconstruir resultados de canciones/vídeos; usarlo
+        # para colecciones produciría tarjetas sin browseId y tipos incorrectos.
+        if filter not in (None, "songs", "videos"):
+            return []
 
         # Fallback to yt-dlp
         def _ytdlp_search():
@@ -434,6 +445,31 @@ class YouTubeMusicClient:
             return res
         except Exception as e:
             logger.error(f"get_album error: {e}")
+            return {}
+
+    async def get_podcast(self, playlist_id: str) -> dict:
+        """Obtiene los metadatos y episodios de un podcast público."""
+        if not playlist_id:
+            return {}
+
+        if playlist_id in self._podcast_cache:
+            age = time.time() - self._podcast_time.get(playlist_id, 0)
+            if age < 300:
+                logger.debug(f"Using cached podcast for '{playlist_id}'")
+                return self._podcast_cache[playlist_id]
+
+        client = self._public
+        if not client:
+            return {}
+
+        try:
+            result = await self._run(lambda: client.get_podcast(playlist_id))
+            if result and (result.get("episodes") or "title" in result):
+                self._podcast_cache[playlist_id] = result
+                self._podcast_time[playlist_id] = time.time()
+            return result
+        except Exception as e:
+            logger.error(f"get_podcast error: {e}")
             return {}
 
     async def get_artist(self, channel_id: str) -> dict:

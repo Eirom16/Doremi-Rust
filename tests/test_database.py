@@ -1,5 +1,13 @@
 import pytest
+import pytest_asyncio
 from sqlalchemy import text
+
+
+@pytest_asyncio.fixture(autouse=True)
+async def close_test_database(monkeypatch):
+    yield
+    from doremi.db.database import close_db
+    await close_db()
 
 @pytest.mark.asyncio
 async def test_database_initialization(monkeypatch):

@@ -4,8 +4,9 @@ import asyncio
 from pathlib import Path
 
 from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt, QUrl, Signal
+from PySide6.QtGui import QColor
 from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.audio.player import PlayerState
@@ -31,7 +32,7 @@ class _ExpandButtonShim:
         self._vm.set_expand_less(glyph == Icon.get("expand_less"))
 
 
-class MiniPlayerQml(QWidget):
+class MiniPlayerQml(QQuickWidget):
     """Isla QML del mini-player. API pública idéntica a MiniPlayerWidget:
     mismas señales (on_expand/on_prev/on_play_pause/on_next/on_seek,
     artist_clicked) y métodos (update_track_info, update_state,
@@ -60,32 +61,27 @@ class MiniPlayerQml(QWidget):
         self._is_visible = False
         self.setFixedHeight(0)
 
-        # Paridad con MiniPlayerWidget: fondo transparente detrás de la cápsula.
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        # La isla es el propio QQuickWidget: envolverla y recortar el wrapper con
+        # setMask() crea una región nativa que algunos compositores interpretan
+        # como un agujero en la ventana principal.
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
+        self.setResizeMode(QQuickWidget.SizeRootObjectToView)
+        self.setClearColor(QColor(0, 0, 0, 0))
 
         self._vm = MiniPlayerViewModel(QApplication.instance())
         self.btn_expand = _ExpandButtonShim(self._vm)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))  # transparente tras la cápsula
-        self._quick.engine().addImportPath(str(QML_DIR))
-        ctx = self._quick.rootContext()
+        self.engine().addImportPath(str(QML_DIR))
+        ctx = self.rootContext()
         ctx.setContextProperty("themeBridge", theme_bridge())
         ctx.setContextProperty("vm", self._vm)
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "MiniPlayer.qml")))
+        self.setSource(QUrl.fromLocalFile(str(QML_DIR / "MiniPlayer.qml")))
 
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
+        self._load_ok = self.status() == QQuickWidget.Status.Ready
         if not self._load_ok:
-            for err in self._quick.errors():
+            for err in self.errors():
                 logger.error(f"QML MiniPlayer: {err.toString()}")
-
-        layout.addWidget(self._quick)
 
         self._vm.prev_requested.connect(self.on_prev)
         self._vm.play_pause_requested.connect(self.on_play_pause)
@@ -105,6 +101,7 @@ class MiniPlayerQml(QWidget):
 
     def _set_player_height(self, value: int) -> None:
         self.setFixedHeight(value)
+        theme_bridge().set_mini_player_visible(value > 0 and self.isVisible())
         positioner = getattr(self.window(), "_position_mini_player", None)
         if callable(positioner):
             positioner()
@@ -155,5 +152,12 @@ class MiniPlayerQml(QWidget):
         self._vm.set_position_text(format_duration_short(position_ms))
         self._vm.set_duration_text(format_duration_short(duration_ms))
 
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.update()
+        positioner = getattr(self.window(), "_position_mini_player", None)
+        if callable(positioner):
+            positioner()
+
     def _update_mini_player_styles(self) -> None:
-        """No-op: QML se rebindea solo vía themeBridge."""
+        self.setClearColor(QColor(0, 0, 0, 0))
