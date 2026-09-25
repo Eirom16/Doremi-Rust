@@ -245,6 +245,8 @@ class NowPlayingViewModel(QObject):
         self._queue_model = NowPlayingQueueModel(self)
         self._lyrics = LyricsModel(self)
         self._related = RelatedModel(self)
+        self._video_player = None
+        self._video_sink = None
 
         self._title = "No hay canción"
         self._artist_name = ""
@@ -400,6 +402,10 @@ class NowPlayingViewModel(QObject):
     def videoStreamUrl(self) -> str:
         return self._video_stream_url
 
+    @Property(QObject, notify=video_changed)
+    def videoPlayer(self):
+        return self._video_player
+
     @Property(bool, notify=video_changed)
     def videoLoading(self) -> bool:
         return self._video_loading
@@ -411,6 +417,18 @@ class NowPlayingViewModel(QObject):
     @Property(str, constant=True)
     def videoRetryText(self) -> str:
         return _("Reintentar")
+
+    def set_video_player(self, player) -> None:
+        self._video_player = player
+        if self._video_sink is not None:
+            player.setVideoSink(self._video_sink)
+        self.video_changed.emit()
+
+    @Slot(QObject)
+    def setVideoSink(self, sink) -> None:
+        self._video_sink = sink
+        if self._video_player is not None:
+            self._video_player.setVideoSink(sink)
 
     @Property(int, notify=position_changed)
     def positionMs(self) -> int:

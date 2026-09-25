@@ -101,10 +101,10 @@ class PlaybackSessionManager:
     async def check_updates(self) -> None:
         """Comprueba actualizaciones silenciosamente al arrancar."""
         from doremi.utils.updater import check_for_updates
-        from doremi.ui.widgets.update_dialog import UpdateDialog
+        from doremi.ui.widgets.update_dialog_qml import UpdateDialogQml
 
         release = await check_for_updates()
         if release:
             # Mostrar el diálogo de actualización (no bloquea la UI)
-            dlg = UpdateDialog(release, parent=self.main_window)
+            dlg = UpdateDialogQml(release, parent=self.main_window)
             dlg.show()

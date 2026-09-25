@@ -253,9 +253,7 @@ class ThemeManager(QObject):
         mw = self._mw
 
         for attr, method_name in (
-            ("sidebar", "_update_sidebar_styles"),
             ("search_bar", "_update_search_bar_styles"),
-            ("offline_banner", "_apply_style"),
             ("mini_player", "_update_mini_player_styles"),
             ("now_playing_screen", "_update_styles"),
             ("settings_screen", "_apply_sidebar_styles"),

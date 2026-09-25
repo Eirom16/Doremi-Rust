@@ -3,19 +3,17 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.services.download_manager import DownloadManager
-from doremi.ui.theme_bridge import theme_bridge
 from doremi.ui.viewmodels.playlist_vm import PlaylistViewModel
 
 QML_DIR = Path(__file__).resolve().parent.parent / "qml"
 
 
-class PlaylistScreenQml(QWidget):
+class PlaylistScreenQml(QObject):
     """Isla QML: Playlist como QQuickWidget.
 
     Drop-in replacement de PlaylistScreen (QtWidgets): mismas señales,
@@ -41,34 +39,11 @@ class PlaylistScreenQml(QWidget):
         self.on_back = on_back
         self._playlist_id: str | None = None  # leído por download_controller (paridad widgets)
         self._load_task: asyncio.Task | None = None
-        self.setAutoFillBackground(False)
 
         self._vm = PlaylistViewModel(QApplication.instance())
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self._quick.setAutoFillBackground(False)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))
-
-        engine = self._quick.engine()
-        engine.addImportPath(str(QML_DIR))
-
-        ctx = self._quick.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "PlaylistScreen.qml")))
-
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self._quick.errors():
-                logger.error(f"QML PlaylistScreen: {err.toString()}")
-
-        layout.addWidget(self._quick)
+        self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "PlaylistScreen.qml"))
+        self._load_ok = True
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)

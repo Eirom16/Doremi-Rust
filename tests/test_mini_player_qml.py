@@ -94,52 +94,30 @@ class TestExpandButtonShim:
 
 
 def test_mini_player_stays_hidden_before_the_first_track(qapp):
-    """Sin una pista activa no se muestra el reproductor flotante."""
+    """Sin una pista activa el presentador no activa el shell."""
     from doremi.ui.widgets.mini_player_qml import MiniPlayerQml
-    from PySide6.QtQuickWidgets import QQuickWidget
+    from doremi.ui.theme_bridge import theme_bridge
 
+    theme_bridge().set_mini_player_visible(False)
     player = type("Player", (), {"status": type("Status", (), {"duration_ms": 0})()})()
     widget = MiniPlayerQml(player, None, lambda: None, lambda: None, lambda: None,
                            lambda: None, lambda _position: None)
 
     assert widget.is_ok
-    assert widget.height() == 0
-    from PySide6.QtCore import Qt
-    assert isinstance(widget, QQuickWidget)
-    assert not widget.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-    assert widget.testAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop)
-
-    widget.setFixedSize(900, 88)
-    qapp.processEvents()
-    assert widget.mask().isEmpty()
+    assert not theme_bridge().miniPlayerVisible
+    widget.show_animated()
+    assert theme_bridge().miniPlayerVisible
+    widget.hide()
+    assert not theme_bridge().miniPlayerVisible
 
 
-def test_mini_player_transparent_margin_composites_with_its_parent(qapp):
-    """La cápsula revela Doremi debajo sin perforar la ventana con setMask()."""
-    from PySide6.QtGui import QColor, QPalette
-    from PySide6.QtTest import QTest
-    from PySide6.QtWidgets import QWidget
+def test_mini_player_is_a_non_visual_qml_presenter(qapp):
+    """La cápsula se dibuja exclusivamente en MainShell.qml."""
+    from PySide6.QtCore import QObject
     from doremi.ui.widgets.mini_player_qml import MiniPlayerQml
-
-    parent = QWidget()
-    parent.setAutoFillBackground(True)
-    palette = parent.palette()
-    parent_color = QColor("#12A4D9")
-    palette.setColor(QPalette.ColorRole.Window, parent_color)
-    parent.setPalette(palette)
-    parent.resize(960, 180)
 
     player = type("Player", (), {"status": type("Status", (), {"duration_ms": 0})()})()
     widget = MiniPlayerQml(player, None, lambda: None, lambda: None, lambda: None,
-                           lambda: None, lambda _position: None, parent)
-    widget.setFixedSize(900, 88)
-    widget.move(30, 40)
-    parent.show()
-    widget.show()
-    QTest.qWait(100)
-
-    image = parent.grab().toImage()
-    assert image.pixelColor(30, 40) == parent_color
-    assert image.pixelColor(480, 84) != parent_color
-
-    parent.close()
+                           lambda: None, lambda _position: None)
+    assert isinstance(widget, QObject)
+    assert not hasattr(widget, "setFixedSize")

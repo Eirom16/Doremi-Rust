@@ -6,6 +6,8 @@ import Doremi 1.0
 
 Item {
     id: root
+    // Compatibilidad con la isla actual; MainShell inyectará esta propiedad.
+    property var playerController: null
     readonly property var colors: themeBridge.colors
 
     // Iconos Material Symbols (familia ya registrada por load_fonts())
@@ -61,11 +63,11 @@ Item {
                     Image {
                         id: artworkImg
                         anchors.fill: parent
-                        source: vm.artwork
+                        source: playerController.artwork
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
-                        visible: vm.artwork !== ""
+                        visible: playerController.artwork !== ""
 
                         Behavior on opacity { NumberAnimation { duration: 250; easing.type: Easing.OutCubic } }
                     }
@@ -73,7 +75,7 @@ Item {
                     // Placeholder: icono de música
                     Text {
                         anchors.centerIn: parent
-                        visible: vm.artwork === ""
+                        visible: playerController.artwork === ""
                         text: "\ue405" // library_music aprox en Material Symbols
                         font.family: root.iconFont
                         font.pixelSize: 28
@@ -83,11 +85,11 @@ Item {
                     // Overlay de carga
                     Rectangle {
                         anchors.fill: parent
-                        visible: vm.loading
+                        visible: playerController.loading
                         color: Qt.rgba(0, 0, 0, 0.55)
                         BusyIndicator {
                             anchors.centerIn: parent
-                            running: vm.loading
+                            running: playerController.loading
                             implicitWidth: 32
                             implicitHeight: 32
                         }
@@ -103,7 +105,7 @@ Item {
                 spacing: 2
 
                 Label {
-                    text: vm.title
+                    text: playerController.title
                     color: root.colors["text_primary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: 13
@@ -113,7 +115,7 @@ Item {
                     Layout.fillWidth: true
                 }
                 Label {
-                    text: vm.artist
+                    text: playerController.artist
                     color: artistMa.containsMouse ? root.colors["accent"] : root.colors["text_secondary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeCaption
@@ -125,7 +127,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.emit_artist_clicked(vm.artist)
+                        onClicked: playerController.emit_artist_clicked(playerController.artist)
                     }
                 }
             }
@@ -136,7 +138,7 @@ Item {
                 spacing: Theme.spacingXs + 2
 
                 Label {
-                    text: vm.positionText
+                    text: playerController.positionText
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontMono
                     font.pixelSize: Theme.typeCaption
@@ -162,7 +164,7 @@ Item {
                         Behavior on height { NumberAnimation { duration: 120 } }
 
                         Rectangle {
-                            width: parent.width * Math.max(0, Math.min(1, vm.progress))
+                            width: parent.width * Math.max(0, Math.min(1, playerController.progress))
                             height: parent.height
                             radius: parent.radius
                             color: progressMa.pressed ? root.colors["accent_bright"] : root.colors["accent"]
@@ -180,15 +182,15 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onPressed: (mouse) => vm.emit_seek(mouse.x / width)
+                        onPressed: (mouse) => playerController.emit_seek(mouse.x / width)
                         onPositionChanged: (mouse) => {
-                            if (pressed) vm.emit_seek(mouse.x / width)
+                            if (pressed) playerController.emit_seek(mouse.x / width)
                         }
                     }
                 }
 
                 Label {
-                    text: vm.durationText
+                    text: playerController.durationText
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontMono
                     font.pixelSize: Theme.typeCaption
@@ -214,7 +216,7 @@ Item {
                     MouseArea {
                         id: prevMa; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.emit_prev()
+                        onClicked: playerController.emit_prev()
                     }
                 }
 
@@ -227,8 +229,8 @@ Item {
 
                     Text {
                         anchors.centerIn: parent
-                        anchors.horizontalCenterOffset: vm.playing ? 0 : 2
-                        text: vm.playing ? "\ue034" : "\ue037" // pause / play_arrow
+                        anchors.horizontalCenterOffset: playerController.playing ? 0 : 2
+                        text: playerController.playing ? "\ue034" : "\ue037" // pause / play_arrow
                         font.family: root.iconFont
                         font.pixelSize: 36
                         color: root.colors["text_on_accent"]
@@ -236,7 +238,7 @@ Item {
                     MouseArea {
                         id: playMa; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.emit_play_pause()
+                        onClicked: playerController.emit_play_pause()
                     }
                 }
 
@@ -254,7 +256,7 @@ Item {
                     MouseArea {
                         id: nextMa; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.emit_next()
+                        onClicked: playerController.emit_next()
                     }
                 }
 
@@ -264,7 +266,7 @@ Item {
                     color: expandMa.containsMouse ? root.colors["bg_high"] : "transparent"
                     Text {
                         anchors.centerIn: parent
-                        text: vm.expandLess ? "\ue5ce" : "\ue5cf" // expand_less / expand_more
+                        text: playerController.expandLess ? "\ue5ce" : "\ue5cf" // expand_less / expand_more
                         font.family: root.iconFont
                         font.pixelSize: 24
                         color: root.colors["text_secondary"]
@@ -272,7 +274,7 @@ Item {
                     MouseArea {
                         id: expandMa; anchors.fill: parent; hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.emit_expand()
+                        onClicked: playerController.emit_expand()
                     }
                 }
             }

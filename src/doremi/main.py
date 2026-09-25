@@ -235,7 +235,8 @@ def main() -> None:
     
     from PySide6.QtGui import QIcon, QPixmapCache
     QPixmapCache.setCacheLimit(524288)  # 512 MB cache for covers
-    icon_path = AppDirs.root / "assets" / "icon.png"
+    # La variante con fondo es legible en la barra de tareas de todos los SO.
+    icon_path = AppDirs.root / "assets" / "Doremi.png"
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
     

@@ -7,6 +7,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (ArtistViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -67,7 +69,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: vm.go_back()
+                    onClicked: screenVm.go_back()
                 }
             }
 
@@ -75,19 +77,19 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: vm.loading
+                visible: screenVm.loading
                 spacing: Theme.spacingMd
                 Item { Layout.preferredHeight: 120 }
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    running: vm.loading
+                    running: screenVm.loading
                 }
                 Item { Layout.fillHeight: true }
             }
 
             // ── No encontrado ─────────────────────────────────────────
             Label {
-                visible: !vm.loading && !vm.found
+                visible: !screenVm.loading && !screenVm.found
                 text: "Artista no encontrado"
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -98,7 +100,7 @@ Item {
 
             // ── Hero ──────────────────────────────────────────────────
             RowLayout {
-                visible: !vm.loading && vm.found
+                visible: !screenVm.loading && screenVm.found
                 Layout.fillWidth: true
                 spacing: Theme.spacingXl
 
@@ -115,7 +117,7 @@ Item {
                         Image {
                             id: coverImg
                             anchors.fill: parent
-                            source: vm.thumbnail
+                            source: screenVm.thumbnail
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: true
@@ -153,7 +155,7 @@ Item {
                         font.letterSpacing: 1.5
                     }
                     Label {
-                        text: vm.artistName
+                        text: screenVm.artistName
                         color: root.colors["text_primary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeDisplay
@@ -162,8 +164,8 @@ Item {
                         Layout.fillWidth: true
                     }
                     Label {
-                        visible: vm.subscribers !== ""
-                        text: vm.subscribers
+                        visible: screenVm.subscribers !== ""
+                        text: screenVm.subscribers
                         color: root.colors["text_secondary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeBody
@@ -178,7 +180,7 @@ Item {
                             width: playLbl.implicitWidth + Theme.spacingLg * 2
                             height: 44
                             radius: Theme.radiusPill
-                            enabled: vm.hasSongs
+                            enabled: screenVm.hasSongs
                             color: enabled ? (ma1.containsMouse ? root.colors["accent_bright"] : root.accentColor)
                                            : root.colors["bg_high"]
 
@@ -205,8 +207,8 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                enabled: vm.hasSongs
-                                onClicked: vm.play_all()
+                                enabled: screenVm.hasSongs
+                                onClicked: screenVm.play_all()
                             }
                         }
 
@@ -215,7 +217,7 @@ Item {
                             width: shufLbl.implicitWidth + Theme.spacingLg * 2
                             height: 44
                             radius: Theme.radiusPill
-                            enabled: vm.hasSongs
+                            enabled: screenVm.hasSongs
                             color: ma2.containsMouse && enabled ? root.colors["bg_high"] : root.colors["bg_elevated"]
                             border.width: 1
                             border.color: ma2.containsMouse ? root.accentColor : root.colors["border"]
@@ -243,8 +245,8 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                enabled: vm.hasSongs
-                                onClicked: vm.play_shuffle()
+                                enabled: screenVm.hasSongs
+                                onClicked: screenVm.play_shuffle()
                             }
                         }
                     }
@@ -255,7 +257,7 @@ Item {
 
             // ── Canciones ─────────────────────────────────────────────
             ColumnLayout {
-                visible: !vm.loading && vm.found && vm.songs.rowCount() > 0
+                visible: !screenVm.loading && screenVm.found && screenVm.songs.rowCount() > 0
                 Layout.fillWidth: true
                 spacing: Theme.spacingXs
 
@@ -269,7 +271,7 @@ Item {
                 }
 
                 Repeater {
-                    model: vm.songs
+                    model: screenVm.songs
 
                     delegate: Rectangle {
                         id: songRow
@@ -293,7 +295,7 @@ Item {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             onClicked: (mouse) => {
                                 if (mouse.button === Qt.LeftButton)
-                                    vm.play_at(songRow.index)
+                                    screenVm.play_at(songRow.index)
                                 else
                                     songMenu.popup()
                             }
@@ -364,23 +366,23 @@ Item {
                                 id: songMenu
                                 ContextMenuItem {
                                     text: "Reproducir siguiente"
-                                    onTriggered: vm.song_action(songRow.index, "play_next")
+                                    onTriggered: screenVm.song_action(songRow.index, "play_next")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a la cola"
-                                    onTriggered: vm.song_action(songRow.index, "add_to_queue")
+                                    onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
                                 }
                                 ContextMenuItem {
                                     text: "Me gusta"
-                                    onTriggered: vm.song_action(songRow.index, "like")
+                                    onTriggered: screenVm.song_action(songRow.index, "like")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a playlist"
-                                    onTriggered: vm.song_action(songRow.index, "add_to_playlist")
+                                    onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
                                 }
                                 ContextMenuItem {
                                     text: "Descargar"
-                                    onTriggered: vm.song_action(songRow.index, "download")
+                                    onTriggered: screenVm.song_action(songRow.index, "download")
                                 }
                             }
                         }
@@ -390,7 +392,7 @@ Item {
 
             // ── Álbumes ───────────────────────────────────────────────
             ColumnLayout {
-                visible: !vm.loading && vm.found && vm.albums.rowCount() > 0
+                visible: !screenVm.loading && screenVm.found && screenVm.albums.rowCount() > 0
                 Layout.fillWidth: true
                 spacing: Theme.spacingSm
 
@@ -409,7 +411,7 @@ Item {
                     columnSpacing: Theme.spacingMd
 
                     Repeater {
-                        model: vm.albums
+                        model: screenVm.albums
 
                         delegate: Rectangle {
                             id: albumCard
@@ -483,7 +485,7 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (albumCard.navigate)
-                                        vm.navigate(albumCard.navigate)
+                                        screenVm.navigate(albumCard.navigate)
                                 }
                             }
                         }
@@ -493,7 +495,7 @@ Item {
 
             // ── Artistas similares ────────────────────────────────────
             ColumnLayout {
-                visible: !vm.loading && vm.found && vm.related.rowCount() > 0
+                visible: !screenVm.loading && screenVm.found && screenVm.related.rowCount() > 0
                 Layout.fillWidth: true
                 spacing: Theme.spacingSm
 
@@ -511,7 +513,7 @@ Item {
                     orientation: ListView.Horizontal
                     spacing: Theme.spacingMd
                     clip: true
-                    model: vm.related
+                    model: screenVm.related
 
                     delegate: ColumnLayout {
                         id: relCard
@@ -572,7 +574,7 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     if (relCard.navigate)
-                                        vm.navigate(relCard.navigate)
+                                        screenVm.navigate(relCard.navigate)
                                 }
                             }
                         }

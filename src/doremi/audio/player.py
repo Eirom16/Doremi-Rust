@@ -41,16 +41,7 @@ class MusicPlayer:
             self._loop = asyncio.get_event_loop()
         except RuntimeError:
             self._loop = None
-            
-        vlc_lib = get_vlc()
-        self._instance = vlc_lib.Instance(
-            "--no-video",
-            "--quiet",
-            "--audio-resampler=soxr",
-            "--network-caching=3000",
-            "--live-caching=3000",
-        )
-        self._player = self._instance.media_player_new()
+
         self._eq = None
         self.status = PlayerStatus()
         self._callbacks: dict[str, list[Callable]] = {
@@ -69,12 +60,43 @@ class MusicPlayer:
         self._accept_events = True
         self._starting = False
         self._paused_intent = False
-        em = self._player.event_manager()
-        em.event_attach(vlc_lib.EventType.MediaPlayerEndReached, self._on_ended)
-        em.event_attach(vlc_lib.EventType.MediaPlayerEncounteredError, self._on_error)
-        em.event_attach(vlc_lib.EventType.MediaPlayerPlaying, self._on_playing)
-        em.event_attach(vlc_lib.EventType.MediaPlayerPaused, self._on_paused)
-        em.event_attach(vlc_lib.EventType.MediaPlayerBuffering, self._on_buffering)
+        self._instance = None
+        self._player = None
+        self._available = False
+        self._unavailable_reason = "VLC no esta disponible. Instala libvlc para reproducir musica."
+
+        try:
+            vlc_lib = get_vlc()
+            self._instance = vlc_lib.Instance(
+                "--no-video",
+                "--quiet",
+                "--audio-resampler=soxr",
+                "--network-caching=3000",
+                "--live-caching=3000",
+            )
+            self._player = self._instance.media_player_new()
+            em = self._player.event_manager()
+            em.event_attach(vlc_lib.EventType.MediaPlayerEndReached, self._on_ended)
+            em.event_attach(vlc_lib.EventType.MediaPlayerEncounteredError, self._on_error)
+            em.event_attach(vlc_lib.EventType.MediaPlayerPlaying, self._on_playing)
+            em.event_attach(vlc_lib.EventType.MediaPlayerPaused, self._on_paused)
+            em.event_attach(vlc_lib.EventType.MediaPlayerBuffering, self._on_buffering)
+            self._available = True
+        except Exception as exc:
+            self._unavailable_reason = f"VLC no esta disponible: {exc}"
+            self._instance = None
+            self._player = None
+            logger.warning(self._unavailable_reason)
+
+    @property
+    def is_available(self) -> bool:
+        return self._available
+
+    def _report_unavailable(self) -> None:
+        self.status.state = PlayerState.ERROR
+        self.status.error_msg = self._unavailable_reason
+        self._notify("state_changed", self.status)
+        self._notify("error", self.status)
 
     # ─── REPRODUCCIÓN ─────────────────────────────────────────────────
 
@@ -89,6 +111,9 @@ class MusicPlayer:
             self._poll_task = None
 
     async def play_url(self, stream_url: str, video_id: str) -> bool:
+        if not self._available:
+            self._report_unavailable()
+            return False
         async with self._play_lock:
             if self._released:
                 return False
@@ -146,6 +171,9 @@ class MusicPlayer:
         return True
 
     async def pause(self) -> None:
+        if not self._available:
+            self._report_unavailable()
+            return
         async with self._play_lock:
             loading = self._starting
             self._invalidate_start()
@@ -159,6 +187,9 @@ class MusicPlayer:
             self._notify("state_changed", self.status)
 
     async def resume(self) -> None:
+        if not self._available:
+            self._report_unavailable()
+            return
         async with self._play_lock:
             self._paused_intent = False
             self._accept_events = True
@@ -177,12 +208,15 @@ class MusicPlayer:
         async with self._play_lock:
             self._accept_events = False
             self._invalidate_start()
-            self._player.stop()
+            if self._player is not None:
+                self._player.stop()
             self.status.state = PlayerState.IDLE
             self.status.position_ms = 0
             self._notify("state_changed", self.status)
 
     async def seek(self, position_ms: int) -> None:
+        if not self._available:
+            return
         async with self._play_lock:
             if self._player.get_length() > 0:
                 self._player.set_time(max(0, position_ms))
@@ -191,17 +225,22 @@ class MusicPlayer:
 
     def set_volume(self, volume: int) -> None:
         clamped = max(0, min(200, volume))
-        self._player.audio_set_volume(clamped)
+        if self._player is not None:
+            self._player.audio_set_volume(clamped)
         self.status.volume = clamped
 
     def set_muted(self, muted: bool) -> None:
-        self._player.audio_set_mute(muted)
+        if self._player is not None:
+            self._player.audio_set_mute(muted)
 
     def set_speed(self, speed: float) -> None:
-        self._player.set_rate(max(0.25, min(4.0, speed)))
+        if self._player is not None:
+            self._player.set_rate(max(0.25, min(4.0, speed)))
         self.status.speed = speed
 
     def apply_equalizer(self, preamp: float, bands: list[float]) -> None:
+        if not self._available:
+            return
         try:
             vlc_lib = get_vlc()
             eq = vlc_lib.libvlc_audio_equalizer_new()
@@ -215,6 +254,8 @@ class MusicPlayer:
             logger.warning(f"Equalizer not available: {e}")
 
     def reset_equalizer(self) -> None:
+        if not self._available:
+            return
         try:
             self._player.set_equalizer(None)
             self._eq = None
@@ -242,6 +283,8 @@ class MusicPlayer:
                 logger.error(f"Player callback error [{event}]: {e}")
 
     async def _poll_position(self) -> None:
+        if not self._available:
+            return
         vlc_lib = get_vlc()
         while True:
             await asyncio.sleep(0.5)
@@ -351,5 +394,7 @@ class MusicPlayer:
         self._invalidate_start()
         if self._poll_task:
             self._poll_task.cancel()
-        self._player.release()
-        self._instance.release()
+        if self._player is not None:
+            self._player.release()
+        if self._instance is not None:
+            self._instance.release()

@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (LibraryViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -30,10 +32,10 @@ Item {
     })
 
     function currentModel() {
-        if (vm.tab === "songs") return vm.songs
-        if (vm.tab === "albums") return vm.albums
-        if (vm.tab === "artists") return vm.artists
-        return vm.playlists
+        if (screenVm.tab === "songs") return screenVm.songs
+        if (screenVm.tab === "albums") return screenVm.albums
+        if (screenVm.tab === "artists") return screenVm.artists
+        return screenVm.playlists
     }
 
     Rectangle {
@@ -71,7 +73,7 @@ Item {
                 delegate: Rectangle {
                     id: tabPill
                     required property var modelData
-                    readonly property bool active: vm.tab === modelData.key
+                    readonly property bool active: screenVm.tab === modelData.key
 
                     Layout.preferredWidth: tabLabel.implicitWidth + Theme.spacingLg * 1.5
                     Layout.preferredHeight: 36
@@ -95,7 +97,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.set_tab(tabPill.modelData.key)
+                        onClicked: screenVm.set_tab(tabPill.modelData.key)
                     }
                 }
             }
@@ -107,7 +109,7 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSm
-            visible: !vm.authRequired
+            visible: !screenVm.authRequired
 
             TextField {
                 id: filterField
@@ -126,7 +128,7 @@ Item {
                     border.width: 1
                     border.color: filterField.activeFocus ? root.accentColor : root.colors["border"]
                 }
-                onTextChanged: vm.set_filter(text)
+                onTextChanged: screenVm.set_filter(text)
             }
 
             ComboBox {
@@ -140,7 +142,7 @@ Item {
                 ]
                 textRole: "text"
                 valueRole: "value"
-                onActivated: vm.set_sort(currentValue)
+                onActivated: screenVm.set_sort(currentValue)
 
                 contentItem: Label {
                     leftPadding: Theme.spacingSm
@@ -197,12 +199,12 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vm.loading
+            visible: screenVm.loading
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: vm.loading
+                running: screenVm.loading
             }
             Label {
                 text: "Cargando biblioteca…"
@@ -217,7 +219,7 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.authRequired
+            visible: !screenVm.loading && screenVm.authRequired
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             Label {
@@ -234,11 +236,11 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && !vm.authRequired && root.currentModel().rowCount() === 0
+            visible: !screenVm.loading && !screenVm.authRequired && root.currentModel().rowCount() === 0
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             Label {
-                text: root.emptyTexts[vm.tab] || ""
+                text: root.emptyTexts[screenVm.tab] || ""
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeTitle
@@ -246,7 +248,7 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
             }
             Label {
-                visible: vm.tab === "songs"
+                visible: screenVm.tab === "songs"
                 text: "Las canciones que marques como favoritas aparecerán aquí"
                 color: root.colors["text_secondary"]
                 font.pixelSize: Theme.typeBody
@@ -260,8 +262,8 @@ Item {
             id: songsList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && !vm.authRequired && vm.tab === "songs" && vm.songs.rowCount() > 0
-            model: vm.songs
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.tab === "songs" && screenVm.songs.rowCount() > 0
+            model: screenVm.songs
             clip: true
             spacing: Theme.spacingXxs
             cacheBuffer: 600
@@ -345,27 +347,27 @@ Item {
                         id: songMenu
                         ContextMenuItem {
                             text: "Reproducir siguiente"
-                            onTriggered: vm.song_action(songRow.index, "play_next")
+                            onTriggered: screenVm.song_action(songRow.index, "play_next")
                         }
                         ContextMenuItem {
                             text: "Añadir a la cola"
-                            onTriggered: vm.song_action(songRow.index, "add_to_queue")
+                            onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
                         }
                         ContextMenuItem {
                             text: "Quitar de Favoritas"
-                            onTriggered: vm.song_action(songRow.index, "like")
+                            onTriggered: screenVm.song_action(songRow.index, "like")
                         }
                         ContextMenuItem {
                             text: "Añadir a playlist"
-                            onTriggered: vm.song_action(songRow.index, "add_to_playlist")
+                            onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
                         }
                         ContextMenuItem {
                             text: "Descargar"
-                            onTriggered: vm.song_action(songRow.index, "download")
+                            onTriggered: screenVm.song_action(songRow.index, "download")
                         }
                         ContextMenuItem {
                             text: "Ir al artista"
-                            onTriggered: vm.song_action(songRow.index, "go_artist")
+                            onTriggered: screenVm.song_action(songRow.index, "go_artist")
                         }
                     }
                 }
@@ -378,7 +380,7 @@ Item {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
                         if (mouse.button === Qt.LeftButton)
-                            vm.play_at(songRow.index)
+                            screenVm.play_at(songRow.index)
                         else
                             songMenu.popup()
                     }
@@ -395,7 +397,7 @@ Item {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && !vm.authRequired && vm.tab !== "songs"
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.tab !== "songs"
                      && root.currentModel().rowCount() > 0
             clip: true
             cacheBuffer: 400
@@ -415,12 +417,12 @@ Item {
                 required property string thumbnail
                 required property string navigate
                 // cover fields según tab
-                property string cardTitle: vm.tab === "artists"
+                property string cardTitle: screenVm.tab === "artists"
                     ? (typeof name !== "undefined" ? name : "")
                     : (typeof title !== "undefined" ? title : "")
-                property string cardSubtitle: vm.tab === "artists"
+                property string cardSubtitle: screenVm.tab === "artists"
                     ? ""
-                    : (vm.tab === "albums"
+                    : (screenVm.tab === "albums"
                         ? ((typeof artist !== "undefined" ? artist : "")
                            + (typeof year !== "undefined" && year !== "" ? " · " + year : ""))
                         : (typeof subtitle !== "undefined" ? subtitle : ""))
@@ -457,7 +459,7 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: parent.children[0].status !== Image.Ready
-                                text: vm.tab === "artists" ? "" : "" // person / library_music
+                                text: screenVm.tab === "artists" ? "" : "" // person / library_music
                                 font.family: root.iconFont
                                 font.pixelSize: 36
                                 color: root.colors["text_secondary"]
@@ -521,7 +523,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (gridCell.navigate)
-                                vm.navigate(gridCell.navigate)
+                                screenVm.navigate(gridCell.navigate)
                         }
                     }
                 }
@@ -536,7 +538,7 @@ Item {
     // ── FAB crear playlist ────────────────────────────────────────────
     Rectangle {
         id: fab
-        visible: vm.tab === "playlists" && !vm.loading && !vm.authRequired
+        visible: screenVm.tab === "playlists" && !screenVm.loading && !screenVm.authRequired
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: Theme.spacingLg
@@ -703,7 +705,7 @@ Item {
 
         function acceptIfValid() {
             if (plTitle.text.trim() !== "") {
-                vm.create_playlist(plTitle.text, plDesc.text)
+                screenVm.create_playlist(plTitle.text, plDesc.text)
                 createDialog.close()
             }
         }

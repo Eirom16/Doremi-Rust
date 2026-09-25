@@ -75,8 +75,8 @@ LAUNCHER
     # Integración escritorio
     install -Dm644 packaging/doremi.desktop \
         "$pkgdir/usr/share/applications/$pkgname.desktop"
-    install -Dm644 assets/icon.png \
+    install -Dm644 assets/Doremi.png \
         "$pkgdir/usr/share/pixmaps/$pkgname.png"
-    install -Dm644 assets/icon.png \
+    install -Dm644 assets/Doremi.png \
         "$pkgdir/usr/share/icons/hicolor/256x256/apps/$pkgname.png"
 }

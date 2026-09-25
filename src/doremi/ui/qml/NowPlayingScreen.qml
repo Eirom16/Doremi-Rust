@@ -1,11 +1,14 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
+import QtMultimedia
 import Qt5Compat.GraphicalEffects
 import Doremi 1.0
 
 Item {
     id: root
+
+    property var screenVm: null
 
     // themeBridge (ThemeBridge) y vm (NowPlayingViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
@@ -24,7 +27,7 @@ Item {
     Image {
         id: ambientImg
         anchors.fill: parent
-        source: vm.artworkUrl
+        source: screenVm.artworkUrl
         asynchronous: true
         cache: true
         fillMode: Image.PreserveAspectCrop
@@ -82,7 +85,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: vm.minimize()
+                    onClicked: screenVm.minimize()
                 }
             }
             Rectangle {
@@ -109,7 +112,7 @@ Item {
                             width: 101
                             height: parent.height
                             radius: Theme.radiusPill
-                            color: vm.mediaMode === modelData.key
+                            color: screenVm.mediaMode === modelData.key
                                    ? root.accentColor
                                    : "transparent"
                             Row {
@@ -119,7 +122,7 @@ Item {
                                     text: modelData.icon
                                     font.family: root.iconFont
                                     font.pixelSize: 16
-                                    color: vm.mediaMode === modelData.key
+                                    color: screenVm.mediaMode === modelData.key
                                            ? root.colors["text_on_accent"]
                                            : root.colors["text_secondary"]
                                 }
@@ -128,7 +131,7 @@ Item {
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.typeCaption
                                     font.weight: Font.DemiBold
-                                    color: vm.mediaMode === modelData.key
+                                    color: screenVm.mediaMode === modelData.key
                                            ? root.colors["text_on_accent"]
                                            : root.colors["text_secondary"]
                                 }
@@ -137,7 +140,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: vm.set_media_mode(modelData.key)
+                                onClicked: screenVm.set_media_mode(modelData.key)
                             }
                         }
                     }
@@ -168,8 +171,8 @@ Item {
                     id: mediaFrame
                     objectName: "mediaFrame"
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: vm.mediaMode === "video" ? 420 : 280
-                    Layout.preferredHeight: vm.mediaMode === "video" ? 236 : 280
+                    Layout.preferredWidth: screenVm.mediaMode === "video" ? 420 : 280
+                    Layout.preferredHeight: screenVm.mediaMode === "video" ? 236 : 280
                     radius: Theme.radiusLg
                     color: root.colors["bg_elevated"]
                     clip: true
@@ -184,8 +187,8 @@ Item {
                     Item {
                         id: artworkLayer
                         anchors.fill: parent
-                        opacity: vm.mediaMode === "audio" ? 1 : 0
-                        scale: vm.mediaMode === "audio" ? 1 : 0.985
+                        opacity: screenVm.mediaMode === "audio" ? 1 : 0
+                        scale: screenVm.mediaMode === "audio" ? 1 : 0.985
                         visible: opacity > 0
 
                         Behavior on opacity {
@@ -198,7 +201,7 @@ Item {
                         Image {
                             id: artworkImage
                             anchors.fill: parent
-                            source: vm.artworkUrl
+                            source: screenVm.artworkUrl
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: true
@@ -217,8 +220,8 @@ Item {
                     Item {
                         id: videoLayer
                         anchors.fill: parent
-                        opacity: vm.mediaMode === "video" ? 1 : 0
-                        scale: vm.mediaMode === "video" ? 1 : 1.015
+                        opacity: screenVm.mediaMode === "video" ? 1 : 0
+                        scale: screenVm.mediaMode === "video" ? 1 : 1.015
                         visible: opacity > 0
 
                         Behavior on opacity {
@@ -228,9 +231,17 @@ Item {
                             NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
                         }
 
+                        VideoOutput {
+                            id: videoOutput
+                            anchors.fill: parent
+                            fillMode: VideoOutput.PreserveAspectCrop
+                            visible: screenVm.videoStreamUrl !== "" && screenVm.videoError === ""
+                            Component.onCompleted: screenVm.setVideoSink(videoOutput.videoSink)
+                        }
+
                         BusyIndicator {
                             anchors.centerIn: parent
-                            running: vm.videoLoading
+                            running: screenVm.videoLoading
                             visible: running
                         }
 
@@ -238,7 +249,7 @@ Item {
                             anchors.centerIn: parent
                             width: Math.min(parent.width - Theme.spacingXl, 300)
                             spacing: Theme.spacingSm
-                            visible: vm.videoError !== ""
+                            visible: screenVm.videoError !== ""
                             Text {
                                 anchors.horizontalCenter: parent.horizontalCenter
                                 text: "" // videocam_off
@@ -248,7 +259,7 @@ Item {
                             }
                             Label {
                                 width: parent.width
-                                text: vm.videoError
+                                text: screenVm.videoError
                                 horizontalAlignment: Text.AlignHCenter
                                 wrapMode: Text.WordWrap
                                 color: root.colors["text_secondary"]
@@ -257,8 +268,8 @@ Item {
                             }
                             Button {
                                 anchors.horizontalCenter: parent.horizontalCenter
-                                text: vm.videoRetryText
-                                onClicked: vm.request_video_clip()
+                                text: screenVm.videoRetryText
+                                onClicked: screenVm.request_video_clip()
                             }
                         }
                     }
@@ -275,7 +286,7 @@ Item {
                         Layout.fillWidth: true
                         spacing: 2
                         Label {
-                            text: vm.trackTitle
+                            text: screenVm.trackTitle
                             color: root.colors["text_primary"]
                             font.family: Theme.fontFamily
                             font.pixelSize: 20
@@ -285,7 +296,7 @@ Item {
                         }
                         Label {
                             id: artistLbl
-                            text: vm.artistName
+                            text: screenVm.artistName
                             color: artistMa.containsMouse ? root.accentColor : root.colors["text_secondary"]
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.typeBody
@@ -297,7 +308,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: vm.press_artist()
+                                onClicked: screenVm.press_artist()
                             }
                         }
                     }
@@ -307,13 +318,13 @@ Item {
                         objectName: "nowPlayingFavoriteButton"
                         activeFocusOnTab: enabled && visible
                         Accessible.role: Accessible.Button
-                        Accessible.name: vm.favoriteActionText
+                        Accessible.name: screenVm.favoriteActionText
                         Accessible.checkable: true
-                        Accessible.checked: vm.liked
-                        Accessible.onPressAction: vm.toggle_like_current()
-                        Keys.onReturnPressed: if (!event.isAutoRepeat) vm.toggle_like_current()
-                        Keys.onEnterPressed: if (!event.isAutoRepeat) vm.toggle_like_current()
-                        Keys.onSpacePressed: if (!event.isAutoRepeat) vm.toggle_like_current()
+                        Accessible.checked: screenVm.liked
+                        Accessible.onPressAction: screenVm.toggle_like_current()
+                        Keys.onReturnPressed: if (!event.isAutoRepeat) screenVm.toggle_like_current()
+                        Keys.onEnterPressed: if (!event.isAutoRepeat) screenVm.toggle_like_current()
+                        Keys.onSpacePressed: if (!event.isAutoRepeat) screenVm.toggle_like_current()
                         border.width: activeFocus ? 2 : 0
                         border.color: root.accentColor
                         Layout.preferredWidth: 44
@@ -326,14 +337,14 @@ Item {
                             text: "" // favorite
                             font.family: root.iconFont
                             font.pixelSize: 24
-                            color: vm.liked ? root.colors["like_color"] : root.colors["text_secondary"]
+                            color: screenVm.liked ? root.colors["like_color"] : root.colors["text_secondary"]
                         }
                         MouseArea {
                             id: likeMa
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: { favoriteButton.forceActiveFocus(); vm.toggle_like_current() }
+                            onClicked: { favoriteButton.forceActiveFocus(); screenVm.toggle_like_current() }
                         }
                     }
                 }
@@ -343,7 +354,7 @@ Item {
                     Layout.fillWidth: true
                     spacing: Theme.spacingSm
                     Label {
-                        text: vm.timeCurrent
+                        text: screenVm.timeCurrent
                         color: root.colors["text_secondary"]
                         font.family: Theme.fontMono
                         font.pixelSize: Theme.typeCaption
@@ -352,7 +363,7 @@ Item {
                         id: seekSlider
                         Layout.fillWidth: true
                         from: 0; to: 1
-                        enabled: vm.videoId !== ""
+                        enabled: screenVm.videoId !== ""
 
                         background: Rectangle {
                             x: seekSlider.leftPadding
@@ -376,18 +387,18 @@ Item {
                             color: root.accentColor
                         }
 
-                        onMoved: vm.seek(value)
+                        onMoved: screenVm.seek(value)
                         // El valor viene de fuera salvo drag del usuario
                         Binding {
                             target: seekSlider
                             property: "value"
-                            value: vm.progress
+                            value: screenVm.progress
                             when: !seekSlider.pressed
                             restoreMode: Binding.RestoreBindingOrValue
                         }
                     }
                     Label {
-                        text: vm.timeTotal
+                        text: screenVm.timeTotal
                         color: root.colors["text_secondary"]
                         font.family: Theme.fontMono
                         font.pixelSize: Theme.typeCaption
@@ -402,13 +413,13 @@ Item {
 
                     ControlButton {
                         iconCode: "" // shuffle
-                        active: vm.shuffle
-                        onClicked: vm.toggle_shuffle()
+                        active: screenVm.shuffle
+                        onClicked: screenVm.toggle_shuffle()
                     }
                     ControlButton {
                         iconCode: "" // skip_previous
                         big: true
-                        onClicked: vm.prev()
+                        onClicked: screenVm.prev()
                     }
 
                     Rectangle {
@@ -419,7 +430,7 @@ Item {
 
                         Text {
                             anchors.centerIn: parent
-                            text: vm.playing ? "" /*pause*/ : "" /*play*/
+                            text: screenVm.playing ? "" /*pause*/ : "" /*play*/
                             font.family: root.iconFont
                             font.pixelSize: 34
                             color: root.colors["text_on_accent"]
@@ -429,20 +440,20 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.toggle_play()
+                            onClicked: screenVm.toggle_play()
                         }
                     }
 
                     ControlButton {
                         iconCode: "" // skip_next
                         big: true
-                        onClicked: vm.next()
+                        onClicked: screenVm.next()
                     }
                     ControlButton {
                         iconCode: "" // repeat (repeatOne lo sobreescribe)
-                        active: vm.repeatMode !== "off"
-                        onClicked: vm.cycle_repeat()
-                        repeatOne: vm.repeatMode === "one"
+                        active: screenVm.repeatMode !== "off"
+                        onClicked: screenVm.cycle_repeat()
+                        repeatOne: screenVm.repeatMode === "one"
                     }
 
                     // Menú de la pista actual
@@ -478,7 +489,7 @@ Item {
                             delegate: Rectangle {
                                 id: tabBtn
                                 required property var modelData
-                                readonly property bool active: vm.tab === modelData.key
+                                readonly property bool active: screenVm.tab === modelData.key
 
                                 Layout.preferredWidth: tabLbl.implicitWidth + Theme.spacingMd * 2
                                 Layout.preferredHeight: 34
@@ -500,7 +511,7 @@ Item {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: vm.set_tab(tabBtn.modelData.key)
+                                    onClicked: screenVm.set_tab(tabBtn.modelData.key)
                                 }
                             }
                         }
@@ -509,16 +520,16 @@ Item {
 
                     // ── Cola ──────────────────────────────────────────
                     ListView {
-                        visible: vm.tab === "queue"
+                        visible: screenVm.tab === "queue"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         spacing: Theme.spacingXs
                         cacheBuffer: 400
-                        model: vm.queueModel
+                        model: screenVm.queueModel
 
                         Label {
-                            visible: vm.queueModel.rowCount() === 0
+                            visible: screenVm.queueModel.rowCount() === 0
                             anchors.centerIn: parent
                             text: "La cola está vacía"
                             color: root.colors["text_secondary"]
@@ -552,7 +563,7 @@ Item {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: (mouse) => {
                                     if (mouse.button === Qt.LeftButton)
-                                        vm.play_queue_index(qRow.index)
+                                        screenVm.play_queue_index(qRow.index)
                                     else
                                         qMenu.popup()
                                 }
@@ -634,7 +645,7 @@ Item {
                                             anchors.fill: parent
                                             hoverEnabled: qRow.index > 0
                                             cursorShape: qRow.index > 0 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: if (qRow.index > 0) vm.move_queue_item(qRow.index, "up")
+                                            onClicked: if (qRow.index > 0) screenVm.move_queue_item(qRow.index, "up")
                                         }
                                     }
                                     Text {
@@ -642,14 +653,14 @@ Item {
                                         font.family: root.iconFont
                                         font.pixelSize: 14
                                         color: downMa.containsMouse ? root.accentColor : root.colors["text_secondary"]
-                                        opacity: qRow.index < vm.queueModel.rowCount() - 1 ? 1.0 : 0.3
+                                        opacity: qRow.index < screenVm.queueModel.rowCount() - 1 ? 1.0 : 0.3
                                         Layout.alignment: Qt.AlignHCenter
                                         MouseArea {
                                             id: downMa
                                             anchors.fill: parent
-                                            hoverEnabled: qRow.index < vm.queueModel.rowCount() - 1
-                                            cursorShape: qRow.index < vm.queueModel.rowCount() - 1 ? Qt.PointingHandCursor : Qt.ArrowCursor
-                                            onClicked: if (qRow.index < vm.queueModel.rowCount() - 1) vm.move_queue_item(qRow.index, "down")
+                                            hoverEnabled: qRow.index < screenVm.queueModel.rowCount() - 1
+                                            cursorShape: qRow.index < screenVm.queueModel.rowCount() - 1 ? Qt.PointingHandCursor : Qt.ArrowCursor
+                                            onClicked: if (qRow.index < screenVm.queueModel.rowCount() - 1) screenVm.move_queue_item(qRow.index, "down")
                                         }
                                     }
                                 }
@@ -658,15 +669,15 @@ Item {
                                     id: qMenu
                                     ContextMenuItem {
                                         text: "Reproducir"
-                                        onTriggered: vm.play_queue_index(qRow.index)
+                                        onTriggered: screenVm.play_queue_index(qRow.index)
                                     }
                                     ContextMenuItem {
                                         text: "Reproducir siguiente"
-                                        onTriggered: vm.queue_action(qRow.index, "play_next")
+                                        onTriggered: screenVm.queue_action(qRow.index, "play_next")
                                     }
                                     ContextMenuItem {
                                         text: "Quitar de la cola"
-                                        onTriggered: vm.queue_action(qRow.index, "delete_download")
+                                        onTriggered: screenVm.queue_action(qRow.index, "delete_download")
                                     }
                                 }
                             }
@@ -677,13 +688,13 @@ Item {
 
                     // ── Letra ─────────────────────────────────────────
                     Item {
-                        visible: vm.tab === "lyrics"
+                        visible: screenVm.tab === "lyrics"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
 
                         Label {
                             anchors.centerIn: parent
-                            visible: !vm.hasLyrics
+                            visible: !screenVm.hasLyrics
                             text: "No hay letras disponibles"
                             color: root.colors["text_secondary"]
                             font.family: Theme.fontFamily
@@ -693,11 +704,11 @@ Item {
                         ListView {
                             id: lyricsView
                             anchors.fill: parent
-                            visible: vm.hasLyrics
+                            visible: screenVm.hasLyrics
                             clip: true
                             spacing: 0
                             cacheBuffer: 600
-                            model: vm.lyrics
+                            model: screenVm.lyrics
 
                             delegate: Text {
                                 id: lyricLine
@@ -707,8 +718,8 @@ Item {
 
                                 width: lyricsView.width
                                 horizontalAlignment: {
-                                    if (vm.lyricAlign === "left") return Text.AlignLeft
-                                    if (vm.lyricAlign === "right") return Text.AlignRight
+                                    if (screenVm.lyricAlign === "left") return Text.AlignLeft
+                                    if (screenVm.lyricAlign === "right") return Text.AlignRight
                                     return Text.AlignHCenter
                                 }
                                 wrapMode: Text.WordWrap
@@ -719,21 +730,21 @@ Item {
                                        ? root.colors["text_primary"]
                                        : root.accentWithAlpha(0.55)
                                 font.family: Theme.fontFamily
-                                font.pixelSize: active ? vm.lyricFontSize : vm.lyricFontSize - 4
+                                font.pixelSize: active ? screenVm.lyricFontSize : screenVm.lyricFontSize - 4
                                 font.weight: active ? Font.Bold : Font.Medium
                                 topPadding: Theme.spacingXs
                                 bottomPadding: Theme.spacingXs
 
-                                scale: active && vm.lyricGlow ? 1.03 : 1.0
+                                scale: active && screenVm.lyricGlow ? 1.03 : 1.0
                                 Behavior on scale { NumberAnimation { duration: 200; easing.type: Easing.OutCubic } }
                                 Behavior on font.pixelSize { NumberAnimation { duration: 200 } }
                             }
 
                             // Auto-scroll al lyric activo
                             Connections {
-                                target: vm
+                                target: screenVm
                                 function onLyric_index_changed() {
-                                    if (vm.lyricAutoScroll && lyricsView.visible) {
+                                    if (screenVm.lyricAutoScroll && lyricsView.visible) {
                                         var idx = 0
                                         for (var i = 0; i < lyricsView.count; i++) {
                                             if (lyricsView.itemAtIndex(i) && lyricsView.itemAtIndex(i).active) {
@@ -750,16 +761,16 @@ Item {
 
                     // ── Similares ─────────────────────────────────────
                     ListView {
-                        visible: vm.tab === "related"
+                        visible: screenVm.tab === "related"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
                         clip: true
                         spacing: Theme.spacingXs
                         cacheBuffer: 400
-                        model: vm.related
+                        model: screenVm.related
 
                         Label {
-                            visible: vm.related.rowCount() === 0
+                            visible: screenVm.related.rowCount() === 0
                             anchors.centerIn: parent
                             text: "No hay canciones similares"
                             color: root.colors["text_secondary"]
@@ -788,7 +799,7 @@ Item {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: (mouse) => {
                                     if (mouse.button === Qt.LeftButton)
-                                        vm.related_action(rRow.index, "play")
+                                        screenVm.related_action(rRow.index, "play")
                                     else
                                         rMenu.popup()
                                 }
@@ -851,27 +862,27 @@ Item {
                                     id: rMenu
                                     ContextMenuItem {
                                         text: "Reproducir siguiente"
-                                        onTriggered: vm.related_action(rRow.index, "play_next")
+                                        onTriggered: screenVm.related_action(rRow.index, "play_next")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a la cola"
-                                        onTriggered: vm.related_action(rRow.index, "add_to_queue")
+                                        onTriggered: screenVm.related_action(rRow.index, "add_to_queue")
                                     }
                                     ContextMenuItem {
                                         text: "Me gusta"
-                                        onTriggered: vm.related_action(rRow.index, "like")
+                                        onTriggered: screenVm.related_action(rRow.index, "like")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a playlist"
-                                        onTriggered: vm.related_action(rRow.index, "add_to_playlist")
+                                        onTriggered: screenVm.related_action(rRow.index, "add_to_playlist")
                                     }
                                     ContextMenuItem {
                                         text: "Descargar"
-                                        onTriggered: vm.related_action(rRow.index, "download")
+                                        onTriggered: screenVm.related_action(rRow.index, "download")
                                     }
                                     ContextMenuItem {
                                         text: "Ir al artista"
-                                        onTriggered: vm.related_action(rRow.index, "go_artist")
+                                        onTriggered: screenVm.related_action(rRow.index, "go_artist")
                                     }
                                 }
                             }
@@ -920,21 +931,21 @@ Item {
     // ── Menú de la pista actual ───────────────────────────────────────
     ContextMenu {
         id: currentMenu
-        ContextMenuItem { text: "Reproducir siguiente"; onTriggered: vm.current_track_action("play_next") }
-        ContextMenuItem { text: "Añadir a la cola"; onTriggered: vm.current_track_action("add_to_queue") }
-        ContextMenuItem { text: "Añadir a playlist"; onTriggered: vm.current_track_action("add_to_playlist") }
-        ContextMenuItem { text: "Ir al artista"; onTriggered: vm.current_track_action("go_artist") }
-        ContextMenuItem { text: "Ir al álbum"; onTriggered: vm.current_track_action("go_album") }
-        ContextMenuItem { text: "Descargar"; onTriggered: vm.current_track_action("download") }
-        ContextMenuItem { text: "Ver videoclip"; onTriggered: vm.request_video_clip() }
+        ContextMenuItem { text: "Reproducir siguiente"; onTriggered: screenVm.current_track_action("play_next") }
+        ContextMenuItem { text: "Añadir a la cola"; onTriggered: screenVm.current_track_action("add_to_queue") }
+        ContextMenuItem { text: "Añadir a playlist"; onTriggered: screenVm.current_track_action("add_to_playlist") }
+        ContextMenuItem { text: "Ir al artista"; onTriggered: screenVm.current_track_action("go_artist") }
+        ContextMenuItem { text: "Ir al álbum"; onTriggered: screenVm.current_track_action("go_album") }
+        ContextMenuItem { text: "Descargar"; onTriggered: screenVm.current_track_action("download") }
+        ContextMenuItem { text: "Ver videoclip"; onTriggered: screenVm.request_video_clip() }
         ContextMenuItem {
             text: "Detalles y créditos"
             onTriggered: {
                 trackDetailsDialog.open()
-                vm.request_track_details()
+                screenVm.request_track_details()
             }
         }
-        ContextMenuItem { text: "Copiar enlace"; onTriggered: vm.current_track_action("copy_link") }
+        ContextMenuItem { text: "Copiar enlace"; onTriggered: screenVm.current_track_action("copy_link") }
     }
 
     // ── Detalles publicados de la pista ──────────────────────────────
@@ -951,7 +962,7 @@ Item {
 
                 Label {
                     Layout.fillWidth: true
-                    text: vm.trackTitle
+                    text: screenVm.trackTitle
                     color: root.colors["text_primary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeBody
@@ -960,7 +971,7 @@ Item {
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: vm.artistName
+                    text: screenVm.artistName
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeLabel
@@ -968,12 +979,12 @@ Item {
                 }
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    running: vm.detailsLoading
-                    visible: vm.detailsLoading
+                    running: screenVm.detailsLoading
+                    visible: screenVm.detailsLoading
                 }
                 Label {
                     Layout.fillWidth: true
-                    text: vm.detailsError
+                    text: screenVm.detailsError
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeLabel
@@ -982,11 +993,11 @@ Item {
                 }
                 Repeater {
                     model: [
-                        { label: "Artista", value: vm.detailArtist },
-                        { label: "Álbum", value: vm.detailAlbum },
-                        { label: "Publicado por", value: vm.detailUploader },
-                        { label: "Fecha", value: vm.detailReleaseDate },
-                        { label: "Licencia", value: vm.detailLicense }
+                        { label: "Artista", value: screenVm.detailArtist },
+                        { label: "Álbum", value: screenVm.detailAlbum },
+                        { label: "Publicado por", value: screenVm.detailUploader },
+                        { label: "Fecha", value: screenVm.detailReleaseDate },
+                        { label: "Licencia", value: screenVm.detailLicense }
                     ]
                     delegate: RowLayout {
                         required property var modelData

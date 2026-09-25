@@ -132,9 +132,9 @@ jobs:
           # Integración escritorio
           cp packaging/doremi.desktop \
             "$PKG_DIR/usr/share/applications/${APP_NAME}.desktop"
-          cp assets/icon.png \
+          cp assets/Doremi.png \
             "$PKG_DIR/usr/share/pixmaps/${APP_NAME}.png"
-          cp assets/icon.png \
+          cp assets/Doremi.png \
             "$PKG_DIR/usr/share/icons/hicolor/256x256/apps/${APP_NAME}.png"
 
           # Tamaño instalado

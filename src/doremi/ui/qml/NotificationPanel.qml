@@ -6,7 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
-    // themeBridge (ThemeBridge) y vm (NotificationViewModel) llegan por contexto.
+    // Compatibilidad con la isla actual; MainShell inyectará esta propiedad.
+    property var notificationController: null
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
     readonly property color accentColor: root.colors["accent"]
@@ -47,7 +48,7 @@ Item {
                 Layout.fillWidth: true
             }
             Label {
-                visible: vm.hasHistory
+                visible: notificationController.hasHistory
                 text: "Limpiar"
                 color: clearMa.containsMouse ? root.accentColor : root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -58,7 +59,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: vm.clear_all()
+                    onClicked: notificationController.clear_all()
                 }
             }
         }
@@ -70,15 +71,15 @@ Item {
         }
 
         BusyIndicator {
-            visible: vm.loading
-            running: vm.loading
+            visible: notificationController.loading
+            running: notificationController.loading
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Theme.spacingMd
         }
 
         // Empty state
         ColumnLayout {
-            visible: !vm.loading && vm.isEmpty
+            visible: !notificationController.loading && notificationController.isEmpty
             Layout.fillWidth: true
             Layout.fillHeight: true
             spacing: Theme.spacingSm
@@ -102,7 +103,7 @@ Item {
         }
 
         Flickable {
-            visible: !vm.loading && !vm.isEmpty
+            visible: !notificationController.loading && !notificationController.isEmpty
             Layout.fillWidth: true
             Layout.fillHeight: true
             contentWidth: width
@@ -117,7 +118,7 @@ Item {
 
                 // ── Descargas en curso ────────────────────────────────
                 Label {
-                    visible: vm.hasActive
+                    visible: notificationController.hasActive
                     text: "Descargas en curso"
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontFamily
@@ -128,7 +129,7 @@ Item {
                 }
 
                 Repeater {
-                    model: vm.active
+                    model: notificationController.active
 
                     delegate: Rectangle {
                         id: dlRow
@@ -199,7 +200,7 @@ Item {
                                         anchors.fill: parent
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: vm.cancel_download(dlRow.videoId)
+                                        onClicked: notificationController.cancel_download(dlRow.videoId)
                                     }
                                 }
                             }
@@ -209,7 +210,7 @@ Item {
 
                 // ── Nuevos lanzamientos ───────────────────────────────
                 Label {
-                    visible: vm.hasReleases
+                    visible: notificationController.hasReleases
                     text: "Nuevos lanzamientos"
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontFamily
@@ -220,7 +221,7 @@ Item {
                 }
 
                 Repeater {
-                    model: vm.releases
+                    model: notificationController.releases
 
                     delegate: Rectangle {
                         id: relRow
@@ -293,7 +294,7 @@ Item {
                                         enabled: relRow.artistId !== ""
                                         hoverEnabled: true
                                         cursorShape: Qt.PointingHandCursor
-                                        onClicked: vm.open_artist(relRow.artist, relRow.artistId)
+                                        onClicked: notificationController.open_artist(relRow.artist, relRow.artistId)
                                     }
                                 }
                             }
@@ -304,14 +305,14 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail)
+                            onClicked: notificationController.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail)
                         }
                     }
                 }
 
                 // ── Historial ─────────────────────────────────────────
                 Label {
-                    visible: vm.hasHistory
+                    visible: notificationController.hasHistory
                     text: "Historial"
                     color: root.colors["text_secondary"]
                     font.family: Theme.fontFamily
@@ -322,7 +323,7 @@ Item {
                 }
 
                 Repeater {
-                    model: vm.history
+                    model: notificationController.history
 
                     delegate: Rectangle {
                         id: hRow

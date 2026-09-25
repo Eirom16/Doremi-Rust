@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (SettingsViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -48,13 +50,13 @@ Item {
                 }
 
                 Repeater {
-                    model: vm.categories
+                    model: screenVm.categories
 
                     delegate: Rectangle {
                         id: catBtn
                         required property int index
                         required property var modelData
-                        readonly property bool active: vm.categoryIndex === index
+                        readonly property bool active: screenVm.categoryIndex === index
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 40
@@ -87,7 +89,7 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.set_category(catBtn.index)
+                            onClicked: screenVm.set_category(catBtn.index)
                         }
                     }
                 }
@@ -119,7 +121,7 @@ Item {
                     spacing: Theme.spacingXs
 
                     Label {
-                        text: vm.currentTitle
+                        text: screenVm.currentTitle
                         color: root.colors["text_primary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeHeading
@@ -128,7 +130,7 @@ Item {
                     }
 
                     Repeater {
-                        model: vm.rows
+                        model: screenVm.rows
 
                         delegate: ColumnLayout {
                             id: rowDelegate
@@ -221,7 +223,7 @@ Item {
                                         MouseArea {
                                             anchors.fill: parent
                                             cursorShape: Qt.PointingHandCursor
-                                            onClicked: vm.set_value(rowDelegate.rowId, !rowDelegate.value)
+                                            onClicked: screenVm.set_value(rowDelegate.rowId, !rowDelegate.value)
                                         }
                                     }
 
@@ -243,7 +245,7 @@ Item {
                                             return -1
                                         }
 
-                                        onActivated: vm.set_value(rowDelegate.rowId, currentValue)
+                                        onActivated: screenVm.set_value(rowDelegate.rowId, currentValue)
 
                                         contentItem: Label {
                                             leftPadding: Theme.spacingSm
@@ -310,7 +312,7 @@ Item {
                                             stepSize: 1
                                             value: (typeof rowDelegate.value === "number") ? rowDelegate.value : 0
                                             enabled: rowDelegate.rowEnabled
-                                            onMoved: vm.set_value(rowDelegate.rowId, Math.round(value))
+                                            onMoved: screenVm.set_value(rowDelegate.rowId, Math.round(value))
 
                                             background: Rectangle {
                                                 x: sld.leftPadding
@@ -356,7 +358,7 @@ Item {
                                             onClicked: {
                                                 var v = rowDelegate.value - rowDelegate.stepV
                                                 if (v >= rowDelegate.minV)
-                                                    vm.set_value(rowDelegate.rowId, v)
+                                                    screenVm.set_value(rowDelegate.rowId, v)
                                             }
                                         }
                                         Label {
@@ -372,7 +374,7 @@ Item {
                                             onClicked: {
                                                 var v = rowDelegate.value + rowDelegate.stepV
                                                 if (v <= rowDelegate.maxV)
-                                                    vm.set_value(rowDelegate.rowId, v)
+                                                    screenVm.set_value(rowDelegate.rowId, v)
                                             }
                                         }
                                     }
@@ -395,7 +397,7 @@ Item {
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
-                                                    onClicked: vm.set_value(rowDelegate.rowId, modelData)
+                                                    onClicked: screenVm.set_value(rowDelegate.rowId, modelData)
                                                 }
                                             }
                                         }
@@ -407,7 +409,7 @@ Item {
                                         text: rowDelegate.label
                                         danger: rowDelegate.variant === "danger"
                                         active: rowDelegate.variant === "primary"
-                                        onClicked: vm.action(rowDelegate.rowId)
+                                        onClicked: screenVm.action(rowDelegate.rowId)
                                     }
 
                                     // info
@@ -438,7 +440,7 @@ Item {
                                             border.width: 1
                                             border.color: parent.activeFocus ? root.accentColor : root.colors["border"]
                                         }
-                                        onEditingFinished: vm.set_value(rowDelegate.rowId, text)
+                                        onEditingFinished: screenVm.set_value(rowDelegate.rowId, text)
                                     }
                                 }
                             }
@@ -459,7 +461,7 @@ Item {
                                     spacing: Theme.spacingSm
 
                                     Repeater {
-                                        model: vm.eqBands
+                                        model: screenVm.eqBands
 
                                         delegate: ColumnLayout {
                                             id: bandCol
@@ -488,8 +490,8 @@ Item {
                                                 to: 12
                                                 stepSize: 0.1
                                                 value: bandCol.modelData
-                                                enabled: vm.eqEnabled
-                                                onMoved: vm.set_eq_band(bandCol.index, value)
+                                                enabled: screenVm.eqEnabled
+                                                onMoved: screenVm.set_eq_band(bandCol.index, value)
 
                                                 background: Rectangle {
                                                     x: parent.width / 2 - 2
@@ -516,7 +518,7 @@ Item {
 
                                             Label {
                                                 Layout.fillWidth: true
-                                                text: vm.eqBandLabels[bandCol.index] || ""
+                                                text: screenVm.eqBandLabels[bandCol.index] || ""
                                                 color: root.colors["text_secondary"]
                                                 font.family: Theme.fontFamily
                                                 font.pixelSize: Theme.typeCaption
@@ -532,6 +534,34 @@ Item {
                     Item { Layout.fillHeight: true }
                 }
             }
+        }
+    }
+
+    ModalDialog {
+        id: logoutDialog
+        dialogTitle: "Cerrar sesión"
+        confirmText: "Cerrar sesión"
+        cancelText: "Cancelar"
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        contentItemData: [
+            Text {
+                width: 360
+                text: "¿Cerrar sesión y borrar las cookies, credenciales y perfil local de YouTube Music?"
+                wrapMode: Text.WordWrap
+                color: root.colors["text_secondary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeBody
+            }
+        ]
+
+        onConfirmed: screenVm.confirm_logout()
+    }
+
+    Connections {
+        target: screenVm
+        function onLogoutConfirmationRequested() {
+            logoutDialog.open()
         }
     }
 }

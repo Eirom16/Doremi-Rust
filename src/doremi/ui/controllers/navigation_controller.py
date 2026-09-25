@@ -44,12 +44,13 @@ class NavigationController:
             self.main_window._offline_blocked_path = None
 
         if route != "search":
-            self.main_window.search_bar.input.blockSignals(True)
-            self.main_window.search_bar.input.clear()
-            self.main_window.search_bar.input.blockSignals(False)
+            self.main_window.search_bar.clear_query()
 
         index = self.main_window.ROUTES.get(route, 0)
         self.set_stack_index(index)
+        set_active = getattr(self.main_window.sidebar, "set_active", None)
+        if callable(set_active):
+            set_active(route)
 
         # Wait for the FadeStackedWidget animation (260ms) to complete before blocking thread with UI updates
         await asyncio.sleep(0.3)
@@ -130,9 +131,7 @@ class NavigationController:
             await self.main_window.artist_screen.load(artist_id)
         elif route == "search" and "query=" in query:
             query_param = query.split("=", 1)[1]
-            self.main_window.search_bar.input.blockSignals(True)
-            self.main_window.search_bar.input.setText(query_param)
-            self.main_window.search_bar.input.blockSignals(False)
+            self.main_window.search_bar.set_query(query_param, fetch=False)
             await self.main_window.search_screen.search(query_param)
         elif route == "library" and query.startswith("tab="):
             tab = query.split("=", 1)[1]

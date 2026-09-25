@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QUrl, Signal
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, Signal
+from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.services.download_manager import DownloadManager
-from doremi.ui.theme_bridge import theme_bridge
 from doremi.ui.viewmodels.notification_vm import NotificationViewModel
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
-
-
-class NotificationPanelQml(QWidget):
+class NotificationPanelQml(QObject):
     """Isla QML del panel de notificaciones.
 
     Drop-in replacement de NotificationPanel (QtWidgets): mismas señales y
@@ -31,34 +24,12 @@ class NotificationPanelQml(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("notificationPanel")
-        self.setMinimumWidth(0)
-        self.setMaximumWidth(0)
-
         self._vm = NotificationViewModel(QApplication.instance())
         self.has_unread = False
+        self._shell_managed = False
+        self._shell_open = False
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self._quick.setAutoFillBackground(False)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))
-        engine = self._quick.engine()
-        engine.addImportPath(str(QML_DIR))
-        ctx = self._quick.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "NotificationPanel.qml")))
-
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self._quick.errors():
-                logger.error(f"QML NotificationPanel: {err.toString()}")
-
-        layout.addWidget(self._quick)
+        self._load_ok = True
 
         # Señales de la VM → señales de la pantalla
         self._vm.song_clicked.connect(self.song_clicked)
@@ -78,7 +49,7 @@ class NotificationPanelQml(QWidget):
 
     def add_custom_notification(self, message: str, kind: str = "info") -> None:
         self._vm.add_history(message, kind)
-        if not self.isVisible():
+        if not self._shell_open:
             self.has_unread = True
             self.unread_changed.emit(True)
 
@@ -86,7 +57,16 @@ class NotificationPanelQml(QWidget):
         self._vm.clear_history()
 
     def toggle_panel(self) -> None:
-        if self.isVisible():
+        if self._shell_managed:
+            if self._shell_open:
+                self._close_anim()
+            else:
+                self.has_unread = False
+                self.unread_changed.emit(False)
+                self.load_db_notifications()
+                self._open_anim()
+            return
+        if self._shell_open:
             self._close_anim()
         else:
             self.has_unread = False
@@ -95,35 +75,32 @@ class NotificationPanelQml(QWidget):
             self._open_anim()
 
     def _open_anim(self) -> None:
-        self.show()
-        self.anim = QPropertyAnimation(self, b"maximumWidth")
-        self.anim.setDuration(250)
-        self.anim.setStartValue(0)
-        self.anim.setEndValue(360)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        self.anim.valueChanged.connect(self._on_anim_step)
-        self.anim.finished.connect(lambda: self.panel_toggled.emit(True))
-        self.anim.start()
+        if self._shell_managed:
+            self._shell_open = True
+            self.panel_toggled.emit(True)
+            return
+        self._shell_open = True
+        self.panel_toggled.emit(True)
 
     def _close_anim(self) -> None:
-        self.anim = QPropertyAnimation(self, b"maximumWidth")
-        self.anim.setDuration(250)
-        self.anim.setStartValue(self.width())
-        self.anim.setEndValue(0)
-        self.anim.setEasingCurve(QEasingCurve.Type.InCubic)
-        self.anim.valueChanged.connect(self._on_anim_step)
-
-        def _done():
-            self.hide()
+        if self._shell_managed:
+            self._shell_open = False
             self.panel_toggled.emit(False)
-        self.anim.finished.connect(_done)
-        self.anim.start()
+            return
+        self._shell_open = False
+        self.panel_toggled.emit(False)
 
-    def _on_anim_step(self, value) -> None:
-        self.setMinimumWidth(int(value))
-        win = self.window()
-        if hasattr(win, "_position_mini_player"):
-            win._position_mini_player()
+    def set_shell_managed(self) -> None:
+        """Delegate visibility and animation to MainShell.qml."""
+        self._shell_managed = True
+        return None
+
+    def hide(self) -> None:
+        self._shell_open = False
+
+    @property
+    def is_open(self) -> bool:
+        return self._shell_open
 
     # ── Descargas activas ──────────────────────────────────────────────────
 
@@ -136,7 +113,7 @@ class NotificationPanelQml(QWidget):
 
     def _on_download_queued(self, task) -> None:
         self._vm.add_active_download(task.video_id, task.title, task.artist)
-        if not self.isVisible():
+        if not self._shell_open:
             self.has_unread = True
             self.unread_changed.emit(True)
 

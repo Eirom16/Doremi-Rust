@@ -1,21 +1,14 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-
-from PySide6.QtCore import Property, QEasingCurve, QPropertyAnimation, Qt, QUrl, Signal
-from PySide6.QtGui import QColor
-from PySide6.QtQuickWidgets import QQuickWidget
+from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtWidgets import QApplication
-from loguru import logger
 
 from doremi.audio.player import PlayerState
 from doremi.utils.image_cache import ImageCache
 from doremi.utils.time_utils import format_duration_short
 from doremi.ui.theme_bridge import theme_bridge
 from doremi.ui.viewmodels.mini_player_vm import MiniPlayerViewModel
-
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
 
 _image_cache = ImageCache()
 
@@ -32,8 +25,8 @@ class _ExpandButtonShim:
         self._vm.set_expand_less(glyph == Icon.get("expand_less"))
 
 
-class MiniPlayerQml(QQuickWidget):
-    """Isla QML del mini-player. API pública idéntica a MiniPlayerWidget:
+class MiniPlayerQml(QObject):
+    """Mini-player presenter. MainShell.qml owns its rendering.
     mismas señales (on_expand/on_prev/on_play_pause/on_next/on_seek,
     artist_clicked) y métodos (update_track_info, update_state,
     update_position, show_animated)."""
@@ -59,29 +52,11 @@ class MiniPlayerQml(QQuickWidget):
         self.on_seek.connect(on_seek)
 
         self._is_visible = False
-        self.setFixedHeight(0)
-
-        # La isla es el propio QQuickWidget: envolverla y recortar el wrapper con
-        # setMask() crea una región nativa que algunos compositores interpretan
-        # como un agujero en la ventana principal.
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysStackOnTop, True)
-        self.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self.setClearColor(QColor(0, 0, 0, 0))
 
         self._vm = MiniPlayerViewModel(QApplication.instance())
         self.btn_expand = _ExpandButtonShim(self._vm)
 
-        self.engine().addImportPath(str(QML_DIR))
-        ctx = self.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-        self.setSource(QUrl.fromLocalFile(str(QML_DIR / "MiniPlayer.qml")))
-
-        self._load_ok = self.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self.errors():
-                logger.error(f"QML MiniPlayer: {err.toString()}")
+        self._load_ok = True
 
         self._vm.prev_requested.connect(self.on_prev)
         self._vm.play_pause_requested.connect(self.on_play_pause)
@@ -94,30 +69,27 @@ class MiniPlayerQml(QQuickWidget):
     def is_ok(self) -> bool:
         return self._load_ok
 
-    # ── Animación de altura (parity con la versión widgets) ─────────────
-
-    def _get_player_height(self) -> int:
-        return self.height()
-
-    def _set_player_height(self, value: int) -> None:
-        self.setFixedHeight(value)
-        theme_bridge().set_mini_player_visible(value > 0 and self.isVisible())
-        positioner = getattr(self.window(), "_position_mini_player", None)
-        if callable(positioner):
-            positioner()
-
-    player_height = Property(int, _get_player_height, _set_player_height)
-
     def show_animated(self) -> None:
         if self._is_visible:
             return
         self._is_visible = True
-        self._pop_anim = QPropertyAnimation(self, b"player_height", self)
-        self._pop_anim.setDuration(600)
-        self._pop_anim.setStartValue(0)
-        self._pop_anim.setEndValue(88)
-        self._pop_anim.setEasingCurve(QEasingCurve.Type.OutExpo)
-        self._pop_anim.start()
+        theme_bridge().set_mini_player_visible(True)
+
+    def set_shell_managed(self) -> None:
+        """Keep this compatibility presenter out of the visible widget tree."""
+        return None
+
+    def show(self) -> None:
+        theme_bridge().set_mini_player_visible(self._is_visible)
+
+    def hide(self) -> None:
+        theme_bridge().set_mini_player_visible(False)
+
+    def raise_(self) -> None:
+        """Compatibility no-op: z-order belongs to MainShell.qml."""
+
+    def update(self) -> None:
+        """Compatibility no-op: ViewModel signals update QML bindings."""
 
     # ── API pública (llamada por controllers) ───────────────────────────
 
@@ -151,13 +123,3 @@ class MiniPlayerQml(QQuickWidget):
             self._vm.set_progress(position_ms / duration_ms)
         self._vm.set_position_text(format_duration_short(position_ms))
         self._vm.set_duration_text(format_duration_short(duration_ms))
-
-    def showEvent(self, event) -> None:
-        super().showEvent(event)
-        self.update()
-        positioner = getattr(self.window(), "_position_mini_player", None)
-        if callable(positioner):
-            positioner()
-
-    def _update_mini_player_styles(self) -> None:
-        self.setClearColor(QColor(0, 0, 0, 0))

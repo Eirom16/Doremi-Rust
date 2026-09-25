@@ -17,65 +17,7 @@ from loguru import logger
 from doremi.ui.widgets.song_card import SongCard
 from doremi.ui.widgets.error_state import ErrorStateWidget
 from doremi.ui.widgets.load_more import PaginatorFooter
-
-
-async def gather_history(yt_client) -> tuple[list[dict], set, int]:
-    """Fetch y fusiona historial local + YouTube Music (dedup por videoId).
-
-    Compartida por la versión QtWidgets y la isla QML (history_qml).
-    Devuelve (items, liked_ids, local_count). Cada item:
-    videoId, title, artist, duration (str), duration_ms, thumbnail_url.
-    """
-    from doremi.db.repository import HistoryRepository, SongRepository
-    from doremi.utils.time_utils import format_duration_short, parse_duration_to_ms
-
-    liked_ids = await SongRepository().get_liked_video_ids()
-    local_history = await HistoryRepository().get_history(limit=50)
-
-    yt_history = []
-    if yt_client and yt_client.is_authenticated:
-        try:
-            yt_history = await yt_client.get_history()
-        except Exception as e:
-            logger.error(f"Error fetching YouTube history: {e}")
-
-    items: list[dict] = []
-    seen: set = set()
-
-    for entry, thumbnail_url in local_history:
-        if entry.video_id in seen:
-            continue
-        seen.add(entry.video_id)
-        items.append({
-            "videoId": entry.video_id,
-            "title": entry.title,
-            "artist": entry.artist,
-            "duration": format_duration_short(entry.duration_ms or 0) if entry.duration_ms else "",
-            "duration_ms": entry.duration_ms or 0,
-            "thumbnail_url": thumbnail_url or "",
-        })
-
-    for entry in yt_history:
-        video_id = entry.get("videoId", "")
-        if not video_id or video_id in seen:
-            continue
-        seen.add(video_id)
-        artists_data = entry.get("artists", [])
-        artist_names = ", ".join(a.get("name", "") for a in artists_data) if artists_data else ""
-        thumbnails = entry.get("thumbnails", [])
-        thumb_url = thumbnails[-1].get("url", "") if thumbnails else ""
-        duration_str = entry.get("duration", "")
-        items.append({
-            "videoId": video_id,
-            "title": entry.get("title", "Desconocido"),
-            "artist": artist_names,
-            "duration": duration_str,
-            "duration_ms": parse_duration_to_ms(duration_str),
-            "thumbnail_url": thumb_url,
-        })
-
-    return items, liked_ids, len(local_history)
-
+from doremi.ui.screens.history_data import gather_history
 
 class HistoryScreen(QWidget):
     download_requested = Signal(str, str, str, str)

@@ -9,3 +9,5 @@ MediaCard 1.0 MediaCard.qml
 SongRow 1.0 SongRow.qml
 ContextMenu 1.0 ContextMenu.qml
 ContextMenuItem 1.0 ContextMenuItem.qml
+NavigationSidebar 1.0 NavigationSidebar.qml
+OfflineBanner 1.0 OfflineBanner.qml

@@ -135,6 +135,25 @@ class TestSettingsViewModel:
         vm.action("storage.clear_cache")
         assert acts == ["accounts.login", "storage.clear_cache"]
 
+    def test_logout_requires_a_separate_confirmation(self, qapp):
+        from doremi.ui.viewmodels.settings_vm import SettingsViewModel
+
+        vm = SettingsViewModel(AppSettings(), None, qapp)
+        requested: list[bool] = []
+        confirmed: list[bool] = []
+        actions: list[str] = []
+        vm.logout_confirmation_requested.connect(lambda: requested.append(True))
+        vm.logout_confirmed.connect(lambda: confirmed.append(True))
+        vm.action_requested.connect(actions.append)
+
+        vm.action("accounts.logout")
+        assert requested == [True]
+        assert confirmed == []
+        assert actions == []
+
+        vm.confirm_logout()
+        assert confirmed == [True]
+
 
 class TestSettingsScreenQml:
     def test_qml_loads(self, qapp):

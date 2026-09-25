@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import time
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -10,8 +13,6 @@ from doremi.api.youtube_music import YouTubeMusicClient
 from doremi.config.settings import AppSettings
 from doremi.api.stream_extractor import StreamExtractor
 from doremi.services.download_manager import DownloadManager
-from doremi.ui.widgets.mini_player import MiniPlayerWidget
-from doremi.ui.screens.now_playing import NowPlayingScreen
 from doremi.system.tray import SystemTray
 from doremi.system.mpris import MprisPlayer
 from doremi.api.lastfm import LastFmScrobbler
@@ -20,6 +21,10 @@ from doremi.audio.crossfade import CrossfadeManager
 from doremi.system.network import NetworkMonitor
 from doremi.api.lyrics import LyricsClient
 from doremi.audio.sleep_timer import SleepTimer
+
+if TYPE_CHECKING:
+    from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+    from doremi.ui.widgets.mini_player_qml import MiniPlayerQml
 
 
 class PlaybackController:
@@ -41,8 +46,8 @@ class PlaybackController:
         extractor: StreamExtractor,
         download_manager: DownloadManager,
         run_async,
-        mini_player: MiniPlayerWidget,
-        now_playing_screen: NowPlayingScreen,
+        mini_player: MiniPlayerQml,
+        now_playing_screen: NowPlayingScreenQml,
         tray: SystemTray,
         mpris: MprisPlayer,
         scrobbler: LastFmScrobbler | None,
@@ -298,6 +303,16 @@ class PlaybackController:
     async def _play_current_request(self, resume: bool = False) -> None:
         item = self.queue.current
         if not item:
+            return
+
+        if not getattr(self.player, "is_available", True):
+            from doremi.ui.widgets.toast import ToastNotification
+            reason = getattr(
+                self.player,
+                "_unavailable_reason",
+                "VLC no esta disponible para reproducir musica.",
+            )
+            ToastNotification.show(self.main_window, reason, "error")
             return
 
         # Registrar la solicitud antes del primer await: la consulta local

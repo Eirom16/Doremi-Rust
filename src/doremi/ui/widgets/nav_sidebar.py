@@ -220,7 +220,7 @@ class NavSidebar(QWidget):
         logo_layout.setContentsMargins(0, 0, 0, 12)
         logo_layout.setSpacing(10)
         from doremi.config.paths import AppDirs
-        icon_path = AppDirs.root / "assets" / "icon.png"
+        icon_path = AppDirs.root / "assets" / "Doremi_Withoth_Background.png"
         if icon_path.exists():
             self._app_icon = QLabel()
             self._app_icon.setFixedSize(52, 52)
@@ -237,11 +237,15 @@ class NavSidebar(QWidget):
             self._app_icon_is_custom = False
             
         self._app_title = QLabel("Doremi")
-        self._app_title.setFont(AppFont.display(21))
+        self._app_title.setFont(AppFont.display(20))
+        self._app_title.setContentsMargins(12, 0, 0, 0)
         self._update_header_style()
         logo_layout.addWidget(self._app_icon)
         logo_layout.addWidget(self._app_title)
         logo_layout.addStretch()
+        # En el estado expandido el wordmark sustituye al isotipo. El isotipo
+        # queda reservado para la barra contraída, donde no hay texto visible.
+        self._app_icon.setVisible(False)
         layout.addWidget(self._logo_row)
 
         for route, icon_name, label in NAV_ITEMS:
@@ -334,6 +338,7 @@ class NavSidebar(QWidget):
         for btn in self._playlist_buttons:
             btn.set_collapsed(self._collapsed)
         self._app_title.setVisible(not self._collapsed)
+        self._app_icon.setVisible(self._collapsed)
         self._update_playlist_visibility()
         self._update_toggle_icon()
 

@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (StatsViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -60,27 +62,27 @@ Item {
 
             // ── Loading ───────────────────────────────────────────────
             ColumnLayout {
-                visible: vm.loading
+                visible: screenVm.loading
                 Layout.fillWidth: true
                 spacing: Theme.spacingMd
                 Item { Layout.preferredHeight: 80 }
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    running: vm.loading
+                    running: screenVm.loading
                 }
             }
 
             // ── Cards ─────────────────────────────────────────────────
             RowLayout {
-                visible: !vm.loading
+                visible: !screenVm.loading
                 Layout.fillWidth: true
                 spacing: Theme.spacingMd
 
                 Repeater {
                     model: [
-                        { "icon": "schedule", "value": vm.timeListened, "label": "Tiempo Escuchado" },
-                        { "icon": "play_arrow", "value": "" + vm.totalPlays, "label": "Total Reproducidas" },
-                        { "icon": "artist", "value": "" + vm.uniqueArtists, "label": "Artistas Únicos" }
+                        { "icon": "schedule", "value": screenVm.timeListened, "label": "Tiempo Escuchado" },
+                        { "icon": "play_arrow", "value": "" + screenVm.totalPlays, "label": "Total Reproducidas" },
+                        { "icon": "artist", "value": "" + screenVm.uniqueArtists, "label": "Artistas Únicos" }
                     ]
 
                     delegate: Rectangle {
@@ -144,7 +146,7 @@ Item {
 
             // ── Columnas: top songs + chart ───────────────────────────
             RowLayout {
-                visible: !vm.loading
+                visible: !screenVm.loading
                 Layout.fillWidth: true
                 spacing: Theme.spacingLg
 
@@ -163,7 +165,7 @@ Item {
                     }
 
                     Label {
-                        visible: vm.topSongs.rowCount() === 0
+                        visible: screenVm.topSongs.rowCount() === 0
                         text: "No hay suficientes reproducciones registradas."
                         color: root.colors["text_secondary"]
                         font.family: Theme.fontFamily
@@ -174,7 +176,7 @@ Item {
                     }
 
                     Repeater {
-                        model: vm.topSongs
+                        model: screenVm.topSongs
 
                         delegate: Rectangle {
                             id: songRow
@@ -197,7 +199,7 @@ Item {
                                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                                 onClicked: (mouse) => {
                                     if (mouse.button === Qt.LeftButton)
-                                        vm.play_at(songRow.index)
+                                        screenVm.play_at(songRow.index)
                                     else
                                         songMenu.popup()
                                 }
@@ -260,27 +262,27 @@ Item {
                                     id: songMenu
                                     ContextMenuItem {
                                         text: "Reproducir siguiente"
-                                        onTriggered: vm.song_action(songRow.index, "play_next")
+                                        onTriggered: screenVm.song_action(songRow.index, "play_next")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a la cola"
-                                        onTriggered: vm.song_action(songRow.index, "add_to_queue")
+                                        onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
                                     }
                                     ContextMenuItem {
                                         text: "Me gusta"
-                                        onTriggered: vm.song_action(songRow.index, "like")
+                                        onTriggered: screenVm.song_action(songRow.index, "like")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a playlist"
-                                        onTriggered: vm.song_action(songRow.index, "add_to_playlist")
+                                        onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
                                     }
                                     ContextMenuItem {
                                         text: "Descargar"
-                                        onTriggered: vm.song_action(songRow.index, "download")
+                                        onTriggered: screenVm.song_action(songRow.index, "download")
                                     }
                                     ContextMenuItem {
                                         text: "Ir al artista"
-                                        onTriggered: vm.song_action(songRow.index, "go_artist")
+                                        onTriggered: screenVm.song_action(songRow.index, "go_artist")
                                     }
                                 }
                             }
@@ -311,7 +313,7 @@ Item {
                         border.color: root.colors["border"]
 
                         Label {
-                            visible: vm.chartMax === 0
+                            visible: screenVm.chartMax === 0
                             anchors.centerIn: parent
                             text: "Sin datos suficientes para graficar"
                             color: root.colors["text_secondary"]
@@ -323,11 +325,11 @@ Item {
                             anchors.fill: parent
                             anchors.margins: Theme.spacingLg
                             anchors.bottomMargin: Theme.spacingLg + Theme.spacingMd
-                            visible: vm.chartMax > 0
+                            visible: screenVm.chartMax > 0
                             spacing: Theme.spacingSm
 
                             Repeater {
-                                model: vm.chart
+                                model: screenVm.chart
 
                                 delegate: ColumnLayout {
                                     id: barCol
@@ -355,8 +357,8 @@ Item {
                                         Layout.fillWidth: true
                                         Layout.preferredHeight: {
                                             var avail = barCol.height - 40
-                                            if (vm.chartMax <= 0) return 0
-                                            return Math.max(4, avail * barCol.count / vm.chartMax)
+                                            if (screenVm.chartMax <= 0) return 0
+                                            return Math.max(4, avail * barCol.count / screenVm.chartMax)
                                         }
                                         radius: Theme.radiusSm
                                         color: root.accentColor
@@ -382,7 +384,7 @@ Item {
                             spacing: Theme.spacingSm
 
                             Repeater {
-                                model: vm.chart
+                                model: screenVm.chart
                                 delegate: Label {
                                     required property string day
                                     Layout.fillWidth: true

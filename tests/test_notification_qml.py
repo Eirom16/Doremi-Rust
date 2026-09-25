@@ -65,7 +65,7 @@ class TestNotificationPanelQml:
 
         panel = NotificationPanelQml(None)
         assert panel.is_ok
-        assert panel.maximumWidth() == 0
+        assert not panel.is_open
 
     def test_unread_badge_flow(self, qapp):
         from doremi.ui.widgets.notification_panel_qml import NotificationPanelQml

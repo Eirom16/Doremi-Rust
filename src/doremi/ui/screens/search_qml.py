@@ -3,19 +3,17 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtWidgets import QApplication
 from loguru import logger
 
-from doremi.ui.theme_bridge import theme_bridge
 from doremi.utils.i18n import _
 from doremi.ui.viewmodels.search_vm import SearchViewModel
 
 QML_DIR = Path(__file__).resolve().parent.parent / "qml"
 
 
-class SearchScreenQml(QWidget):
+class SearchScreenQml(QObject):
     """Isla QML: Búsqueda como QQuickWidget.
 
     Drop-in replacement de SearchScreen (QtWidgets): mismas señales,
@@ -37,37 +35,14 @@ class SearchScreenQml(QWidget):
         self.yt = yt_client
         self.on_play_song = on_play_song
         self.on_navigate = on_navigate
-        self.setAutoFillBackground(False)
 
         self._vm = SearchViewModel(QApplication.instance())
         self._current_query = ""
         self._results_by_cat: dict[str, list[dict]] = {}
         self._fetch_task: asyncio.Task | None = None
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self._quick.setAutoFillBackground(False)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))
-
-        engine = self._quick.engine()
-        engine.addImportPath(str(QML_DIR))
-
-        ctx = self._quick.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "SearchScreen.qml")))
-
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self._quick.errors():
-                logger.error(f"QML SearchScreen: {err.toString()}")
-
-        layout.addWidget(self._quick)
+        self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "SearchScreen.qml"))
+        self._load_ok = True
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
@@ -84,6 +59,11 @@ class SearchScreenQml(QWidget):
     @property
     def is_ok(self) -> bool:
         return self._load_ok
+
+    def close(self) -> None:
+        """Compatibility cleanup for callers from the former widget surface."""
+        if self._fetch_task and not self._fetch_task.done():
+            self._fetch_task.cancel()
 
     def _on_vm_play(self, video_id, title, artist, duration_ms, thumb) -> None:
         if self.on_play_song:

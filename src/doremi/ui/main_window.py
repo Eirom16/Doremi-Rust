@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QFrame, QMessageBox
@@ -18,9 +17,6 @@ from doremi.audio.player import MusicPlayer, PlayerState
 from doremi.audio.queue import PlayQueue, QueueItem, RepeatMode
 from doremi.system.mpris import MprisPlayer
 from doremi.system.tray import SystemTray
-from doremi.ui.widgets.nav_sidebar import NavSidebar
-from doremi.ui.widgets.mini_player import MiniPlayerWidget
-from doremi.ui.widgets.fade_stack import FadeStackedWidget
 from doremi.ui.widgets.toast import ToastNotification
 from doremi.audio.sleep_timer import SleepTimer
 from doremi.audio.crossfade import CrossfadeManager
@@ -32,11 +28,6 @@ from doremi.ui.controllers.download_controller import DownloadController
 from doremi.ui.controllers.queue_controller import QueueController
 from doremi.ui.controllers.session_manager import PlaybackSessionManager
 from doremi.ui.controllers.settings_controller import SettingsController
-
-
-def _qml_enabled(flag: str) -> bool:
-    """Las islas QML son la UI por defecto; DOREMI_QML_<X>=0 fuerza QtWidgets."""
-    return os.environ.get(flag, "1") != "0"
 
 
 class MainWindow(QMainWindow):
@@ -166,7 +157,7 @@ class MainWindow(QMainWindow):
                     return True
 
                 notification_panel = getattr(self.mw, "notification_panel", None)
-                if notification_panel is not None and notification_panel.isVisible():
+                if notification_panel is not None and getattr(notification_panel, "is_open", notification_panel.isVisible()):
                     notification_panel._close_anim()
                     return True
 
@@ -279,13 +270,8 @@ class MainWindow(QMainWindow):
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
 
-        content_area = QWidget()
-        content_area.setObjectName("contentArea")
-        h_layout = QHBoxLayout(content_area)
-        h_layout.setContentsMargins(0, 0, 0, 0)
-        h_layout.setSpacing(0)
-
-        self.sidebar = NavSidebar(on_navigate=self._navigate_to)
+        from doremi.ui.widgets.nav_sidebar_qml import NavSidebarQml
+        self.sidebar = self._require_qml("navegacion", NavSidebarQml(on_navigate=self._navigate_to))
         self._profile_name = ""
         self._profile_avatar = ""
         
@@ -326,15 +312,11 @@ class MainWindow(QMainWindow):
                         logger.debug(f"Could not read saved user profile: {e}")
             self._profile_name = name
             self._profile_avatar = avatar
-        h_layout.addWidget(self.sidebar)
-
-        right_panel = QWidget()
-        right_layout = QVBoxLayout(right_panel)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        right_layout.setSpacing(0)
-
-        from doremi.ui.widgets.global_search import GlobalSearchBar
-        self.search_bar = GlobalSearchBar(self.yt, self._play_song_sync)
+        from doremi.ui.widgets.global_search_qml import GlobalSearchBarQml
+        self.search_bar = self._require_qml(
+            "cabecera",
+            GlobalSearchBarQml(self.yt, self._play_song_sync),
+        )
         self.search_bar.search_submitted.connect(self._on_search_submitted)
         self.search_bar.profile_requested.connect(self._on_header_profile_clicked)
         self.search_bar.update_profile(
@@ -343,114 +325,63 @@ class MainWindow(QMainWindow):
             self._profile_avatar,
         )
         
-        self.notification_service.unread_changed.connect(self.search_bar.notif_btn.set_unread)
+        self.notification_service.unread_changed.connect(self.search_bar.set_unread)
         self._run_async(self.notification_service.check_unread())
         
-        right_layout.addWidget(self.search_bar)
+        from doremi.ui.widgets.offline_banner_qml import OfflineBannerQml
+        self.offline_banner = self._require_qml("aviso sin conexion", OfflineBannerQml(self))
 
-        # Add glassmorphic offline warning banner
-        from doremi.ui.widgets.offline_banner import OfflineBannerWidget
-        self.offline_banner = OfflineBannerWidget(self)
-        right_layout.addWidget(self.offline_banner)
-
-        # Container for stack and notification panel
-        self.main_content_hbox = QHBoxLayout()
-        self.main_content_hbox.setContentsMargins(0, 0, 0, 0)
-        self.main_content_hbox.setSpacing(0)
-
-        self.stack = FadeStackedWidget()
-        self.stack.setObjectName("screenStack")
-        self.main_content_hbox.addWidget(self.stack)
-
-        from doremi.ui.widgets.notification_panel import NotificationPanel
-        if _qml_enabled("DOREMI_QML_NOTIFICATIONS"):
-            self.notification_panel = self._build_notifications_qml() or NotificationPanel(self)
-        else:
-            self.notification_panel = NotificationPanel(self)
+        self.notification_panel = self._build_notifications_qml()
         self.notification_panel.hide()
-        self.main_content_hbox.addWidget(self.notification_panel)
 
         self.search_bar.notifications_requested.connect(self.notification_panel.toggle_panel)
-        self.notification_panel.panel_toggled.connect(self.search_bar.notif_btn.set_panel_open)
+        self.notification_panel.panel_toggled.connect(self.search_bar.set_panel_open)
         self.notification_panel.artist_clicked.connect(lambda a, a_id: self._navigate_to(f"artist?id={a_id}") if a_id else self.resolve_and_navigate_artist(a))
         self.notification_panel.song_clicked.connect(lambda v, t, a, u: self._play_song_sync(v, t, a, "", 0, u))
-
-
-
-        from doremi.ui.screens.home import HomeScreen
-        from doremi.ui.screens.library import LibraryScreen
-        from doremi.ui.screens.history import HistoryScreen
-        from doremi.ui.screens.downloads import DownloadsScreen
-        from doremi.ui.screens.settings import SettingsScreen
-
-        from doremi.ui.screens.playlist import PlaylistScreen
-        from doremi.ui.screens.album import AlbumScreen
-        from doremi.ui.screens.artist import ArtistScreen
-
-        from doremi.ui.screens.now_playing import NowPlayingScreen
-        from doremi.ui.screens.search import SearchScreen
-        from doremi.ui.screens.stats import StatsScreen
-        from doremi.ui.widgets.error_state import ErrorStateWidget
-
-        if _qml_enabled("DOREMI_QML_HOME"):
-            self.home_screen = self._build_home_qml() or HomeScreen(self.yt, self._play_song_sync, self._navigate_to)
-        else:
-            self.home_screen = HomeScreen(self.yt, self._play_song_sync, self._navigate_to)
-        if _qml_enabled("DOREMI_QML_LIBRARY"):
-            self.library_screen = self._build_library_qml() or LibraryScreen(self.yt, self._play_song_sync, self._navigate_to)
-        else:
-            self.library_screen = LibraryScreen(self.yt, self._play_song_sync, self._navigate_to)
-        if _qml_enabled("DOREMI_QML_HISTORY"):
-            self.history_screen = self._build_history_qml() or HistoryScreen(self.yt, self._play_song_sync)
-        else:
-            self.history_screen = HistoryScreen(self.yt, self._play_song_sync)
-        if _qml_enabled("DOREMI_QML_DOWNLOADS"):
-            self.downloads_screen = self._build_downloads_qml() or DownloadsScreen(self.extractor, self._play_local_wrapper, self._play_local_playlist, self._navigate_to)
-        else:
-            self.downloads_screen = DownloadsScreen(self.extractor, self._play_local_wrapper, self._play_local_playlist, self._navigate_to)
-        if _qml_enabled("DOREMI_QML_SETTINGS"):
-            self.settings_screen = self._build_settings_qml() or SettingsScreen(
-                self.yt,
-                self.settings,
-                on_settings_changed=self._on_settings_changed,
-                on_auth_changed=self._on_auth_changed
-            )
-        else:
-            self.settings_screen = SettingsScreen(
-                self.yt,
-                self.settings,
-                on_settings_changed=self._on_settings_changed,
-                on_auth_changed=self._on_auth_changed
-            )
-        if _qml_enabled("DOREMI_QML_PLAYLIST"):
-            self.playlist_screen = self._build_playlist_qml() or PlaylistScreen(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back)
-        else:
-            self.playlist_screen = PlaylistScreen(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back)
-        if _qml_enabled("DOREMI_QML_ALBUM"):
-            self.album_screen = self._build_album_qml() or AlbumScreen(self.yt, self._play_song_sync, on_back=self._go_back)
-        else:
-            self.album_screen = AlbumScreen(self.yt, self._play_song_sync, on_back=self._go_back)
-        if _qml_enabled("DOREMI_QML_ARTIST"):
-            self.artist_screen = self._build_artist_qml() or ArtistScreen(self.yt, self._play_song_sync, self._navigate_to, on_back=self._go_back)
-        else:
-            self.artist_screen = ArtistScreen(self.yt, self._play_song_sync, self._navigate_to, on_back=self._go_back)
-        if _qml_enabled("DOREMI_QML_NOW_PLAYING"):
-            self.now_playing_screen = self._build_now_playing_qml() or NowPlayingScreen(self.player, self.queue, self.yt, self._play_queue_item, self.settings, on_back=self._go_back)
-        else:
-            self.now_playing_screen = NowPlayingScreen(self.player, self.queue, self.yt, self._play_queue_item, self.settings, on_back=self._go_back)
-        if _qml_enabled("DOREMI_QML_SEARCH"):
-            self.search_screen = self._build_search_qml() or SearchScreen(self.yt, self._play_song_sync, self._navigate_to)
-        else:
-            self.search_screen = SearchScreen(self.yt, self._play_song_sync, self._navigate_to)
-        if _qml_enabled("DOREMI_QML_STATS"):
-            self.stats_screen = self._build_stats_qml() or StatsScreen(self.yt, self._play_song_sync)
-        else:
-            self.stats_screen = StatsScreen(self.yt, self._play_song_sync)
-        self.offline_state_screen = ErrorStateWidget(
-            "No hay conexion. Puedes seguir escuchando tu musica descargada.",
-            retry_callback=lambda: self._navigate_to("downloads"),
-            action_text="Ir a Descargas",
+        # Las rutas de contenido se renderizan exclusivamente con QML. Un error
+        # de carga se propaga al arranque para no ocultarlo con una vista Widgets.
+        self.home_screen = self._build_home_qml()
+        self.library_screen = self._build_library_qml()
+        self.history_screen = self._build_history_qml()
+        self.downloads_screen = self._build_downloads_qml()
+        self.settings_screen = self._build_settings_qml()
+        self.playlist_screen = self._build_playlist_qml()
+        self.album_screen = self._build_album_qml()
+        self.artist_screen = self._build_artist_qml()
+        self.now_playing_screen = self._build_now_playing_qml()
+        self.search_screen = self._build_search_qml()
+        self.stats_screen = self._build_stats_qml()
+        from doremi.ui.widgets.offline_state_qml import OfflineStateQml
+        self.offline_state_screen = self._require_qml(
+            "estado sin conexión",
+            OfflineStateQml(
+                "No hay conexión. Puedes seguir escuchando tu música descargada.",
+                action_text="Ir a Descargas",
+                retry_callback=lambda: self._navigate_to("downloads"),
+            ),
         )
+
+        self.mini_player = self._build_mini_player(central)
+        self.mini_player.set_shell_managed()
+        self.notification_panel.set_shell_managed()
+
+        from doremi.ui.widgets.main_shell_qml import MainShellQml
+        from doremi.ui.widgets.screen_host_qml import QmlRouteStack
+        self.main_shell = self._require_qml(
+            "shell principal",
+            MainShellQml(
+                sidebar=self.sidebar,
+                search_bar=self.search_bar,
+                offline_banner=self.offline_banner,
+                notification_panel=self.notification_panel,
+                mini_player=self.mini_player,
+                parent=central,
+            ),
+        )
+        self.screen_host = self.main_shell
+        self.stack = QmlRouteStack(self.screen_host)
+        root_layout.addWidget(self.main_shell)
+        self.notification_panel.panel_toggled.connect(self.main_shell.set_notifications_open)
 
         for screen in [
             self.home_screen,
@@ -491,24 +422,13 @@ class MainWindow(QMainWindow):
                 screen.album_clicked.connect(self.resolve_and_navigate_album)
 
         self._offline_state_index = self.stack.addWidget(self.offline_state_screen)
+        self.stack.setCurrentIndex(self.ROUTES["home"])
 
         if hasattr(self.now_playing_screen, 'queue_tab'):
             self.now_playing_screen.queue_tab.like_requested.connect(self._on_like_requested)
             self.now_playing_screen.queue_tab.artist_clicked.connect(self.resolve_and_navigate_artist)
             self.now_playing_screen.queue_tab.album_clicked.connect(self.resolve_and_navigate_album)
             self.now_playing_screen.queue_tab.queue_move_requested.connect(self._on_queue_move_requested)
-
-        right_layout.addLayout(self.main_content_hbox)
-
-        h_layout.addWidget(right_panel)
-        
-        root_layout.addWidget(content_area)
-
-        self.mini_player = self._build_mini_player(central)
-        self.mini_player.raise_()
-        self.sidebar._width_anim.valueChanged.connect(lambda _value: self._position_mini_player())
-        self.sidebar._max_anim.valueChanged.connect(lambda _value: self._position_mini_player())
-        self._position_mini_player()
 
         if hasattr(self, 'mini_player'):
             self.mini_player.artist_clicked.connect(self.resolve_and_navigate_artist)
@@ -528,6 +448,9 @@ class MainWindow(QMainWindow):
         )
 
     def _position_mini_player(self) -> None:
+        # MainShell.qml owns geometry in the QML-first application frame.
+        if hasattr(self, "main_shell"):
+            return
         if not hasattr(self, "mini_player") or not self.mini_player:
             return
         central = getattr(self, "_central_widget", None) or self.centralWidget()
@@ -551,14 +474,6 @@ class MainWindow(QMainWindow):
         self.mini_player.setGeometry(x, max(0, y), width, max(0, player_height))
         self.mini_player.raise_()
 
-        if hasattr(self, "stack"):
-            # The mini player is an overlay attached to the central widget. Do not
-            # reserve bottom space in the stacked content; that creates a visible
-            # solid strip underneath instead of the intended floating effect.
-            current_margins = self.stack.contentsMargins()
-            if current_margins.bottom() != 0:
-                self.stack.setContentsMargins(0, 0, 0, 0)
-
     def _on_header_profile_clicked(self) -> None:
         """La cuenta se abre desde la cabecera, junto a notificaciones."""
         if self.yt.is_authenticated:
@@ -573,191 +488,99 @@ class MainWindow(QMainWindow):
             self.theme_manager.on_main_window_resized()
 
     def _build_mini_player(self, parent):
-        """Crea el mini-player: isla QML por defecto; DOREMI_QML_MINIPLAYER=0 (o fallo) → widgets."""
-        kwargs = dict(
-            player=self.player,
-            queue=self.queue,
-            on_expand=self._show_full_player,
-            on_prev=self._on_prev,
-            on_play_pause=self._on_play_pause,
-            on_next=self._on_next,
-            on_seek=self._on_seek,
-            parent=parent,
+        from doremi.ui.widgets.mini_player_qml import MiniPlayerQml
+
+        return self._require_qml(
+            "mini-player",
+            MiniPlayerQml(
+                player=self.player,
+                queue=self.queue,
+                on_expand=self._show_full_player,
+                on_prev=self._on_prev,
+                on_play_pause=self._on_play_pause,
+                on_next=self._on_next,
+                on_seek=self._on_seek,
+                parent=parent,
+            ),
         )
-        if _qml_enabled("DOREMI_QML_MINIPLAYER"):
-            try:
-                from doremi.ui.widgets.mini_player_qml import MiniPlayerQml
-                widget = MiniPlayerQml(**kwargs)
-                if widget.is_ok:
-                    logger.info("Usando isla QML para mini-player")
-                    return widget
-                logger.warning("Isla QML mini-player no cargó; usando versión QtWidgets")
-            except Exception as e:
-                logger.warning(f"No se pudo crear la isla QML del mini-player: {e}")
-        return MiniPlayerWidget(**kwargs)
+
+    @staticmethod
+    def _require_qml(name: str, surface):
+        """Hace explícito un fallo QML en vez de volver a una UI distinta."""
+        if getattr(surface, "is_ok", False):
+            logger.info(f"Usando QML para {name}")
+            return surface
+        raise RuntimeError(f"No se pudo cargar la superficie QML obligatoria: {name}")
 
     def _build_home_qml(self):
-        """Isla QML de Inicio. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.home_qml import HomeScreenQml
-            screen = HomeScreenQml(self.yt, self._play_song_sync, self._navigate_to)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Inicio")
-                return screen
-            logger.warning("Isla QML Inicio no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Inicio: {e}")
-        return None
+        from doremi.ui.screens.home_qml import HomeScreenQml
+        return self._require_qml("Inicio", HomeScreenQml(self.yt, self._play_song_sync, self._navigate_to))
 
     def _build_settings_qml(self):
-        """Isla QML de Ajustes. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.settings_qml import SettingsScreenQml
-            screen = SettingsScreenQml(
+        from doremi.ui.screens.settings_qml import SettingsScreenQml
+        return self._require_qml(
+            "Ajustes",
+            SettingsScreenQml(
                 self.yt, self.settings,
                 on_settings_changed=self._on_settings_changed,
                 on_auth_changed=self._on_auth_changed,
-            )
-            if screen.is_ok:
-                logger.info("Usando isla QML para Ajustes")
-                return screen
-            logger.warning("Isla QML Ajustes no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Ajustes: {e}")
-        return None
+            ),
+        )
 
     def _build_now_playing_qml(self):
-        """Isla QML de Now Playing. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
-            screen = NowPlayingScreenQml(
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+        return self._require_qml(
+            "Now Playing",
+            NowPlayingScreenQml(
                 self.player, self.queue, self.yt, self._play_queue_item,
                 self.settings, on_back=self._go_back,
-            )
-            if screen.is_ok:
-                logger.info("Usando isla QML para Now Playing")
-                return screen
-            logger.warning("Isla QML Now Playing no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Now Playing: {e}")
-        return None
+            ),
+        )
 
     def _build_notifications_qml(self):
-        """Isla QML del panel de notificaciones; None → fallback a widgets."""
-        try:
-            from doremi.ui.widgets.notification_panel_qml import NotificationPanelQml
-            panel = NotificationPanelQml(self)
-            if panel.is_ok:
-                logger.info("Usando isla QML para notificaciones")
-                return panel
-            logger.warning("Isla QML notificaciones no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de notificaciones: {e}")
-        return None
+        from doremi.ui.widgets.notification_panel_qml import NotificationPanelQml
+        return self._require_qml("notificaciones", NotificationPanelQml(self))
 
     def _build_stats_qml(self):
-        """Isla QML de Estadísticas. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.stats_qml import StatsScreenQml
-            screen = StatsScreenQml(self.yt, self._play_song_sync)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Estadísticas")
-                return screen
-            logger.warning("Isla QML Estadísticas no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Estadísticas: {e}")
-        return None
+        from doremi.ui.screens.stats_qml import StatsScreenQml
+        return self._require_qml("Estadísticas", StatsScreenQml(self.yt, self._play_song_sync))
 
     def _build_playlist_qml(self):
-        """Isla QML de Playlist. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.playlist_qml import PlaylistScreenQml
-            screen = PlaylistScreenQml(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Playlist")
-                return screen
-            logger.warning("Isla QML Playlist no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Playlist: {e}")
-        return None
+        from doremi.ui.screens.playlist_qml import PlaylistScreenQml
+        return self._require_qml(
+            "playlist",
+            PlaylistScreenQml(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back),
+        )
 
     def _build_album_qml(self):
-        """Isla QML de Álbum. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.album_qml import AlbumScreenQml
-            screen = AlbumScreenQml(self.yt, self._play_song_sync, on_back=self._go_back)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Álbum")
-                return screen
-            logger.warning("Isla QML Álbum no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Álbum: {e}")
-        return None
+        from doremi.ui.screens.album_qml import AlbumScreenQml
+        return self._require_qml("álbum", AlbumScreenQml(self.yt, self._play_song_sync, on_back=self._go_back))
 
     def _build_artist_qml(self):
-        """Isla QML de Artista. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.artist_qml import ArtistScreenQml
-            screen = ArtistScreenQml(self.yt, self._play_song_sync, self._navigate_to, on_back=self._go_back)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Artista")
-                return screen
-            logger.warning("Isla QML Artista no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Artista: {e}")
-        return None
+        from doremi.ui.screens.artist_qml import ArtistScreenQml
+        return self._require_qml(
+            "artista",
+            ArtistScreenQml(self.yt, self._play_song_sync, self._navigate_to, on_back=self._go_back),
+        )
 
     def _build_downloads_qml(self):
-        """Isla QML de Descargas. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.downloads_qml import DownloadsScreenQml
-            screen = DownloadsScreenQml(self.extractor, self._play_local_wrapper, self._play_local_playlist, self._navigate_to)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Descargas")
-                return screen
-            logger.warning("Isla QML Descargas no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Descargas: {e}")
-        return None
+        from doremi.ui.screens.downloads_qml import DownloadsScreenQml
+        return self._require_qml(
+            "Descargas",
+            DownloadsScreenQml(self.extractor, self._play_local_wrapper, self._play_local_playlist, self._navigate_to),
+        )
 
     def _build_search_qml(self):
-        """Isla QML de Búsqueda. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.search_qml import SearchScreenQml
-            screen = SearchScreenQml(self.yt, self._play_song_sync, self._navigate_to)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Búsqueda")
-                return screen
-            logger.warning("Isla QML Búsqueda no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Búsqueda: {e}")
-        return None
+        from doremi.ui.screens.search_qml import SearchScreenQml
+        return self._require_qml("Búsqueda", SearchScreenQml(self.yt, self._play_song_sync, self._navigate_to))
 
     def _build_library_qml(self):
-        """Isla QML de Biblioteca. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.library_qml import LibraryScreenQml
-            screen = LibraryScreenQml(self.yt, self._play_song_sync, self._navigate_to)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Biblioteca")
-                return screen
-            logger.warning("Isla QML Biblioteca no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Biblioteca: {e}")
-        return None
+        from doremi.ui.screens.library_qml import LibraryScreenQml
+        return self._require_qml("Biblioteca", LibraryScreenQml(self.yt, self._play_song_sync, self._navigate_to))
 
     def _build_history_qml(self):
-        """Isla QML del Historial. Devuelve None si el backend QML falla → fallback a widgets."""
-        try:
-            from doremi.ui.screens.history_qml import HistoryScreenQml
-            screen = HistoryScreenQml(self.yt, self._play_song_sync)
-            if screen.is_ok:
-                logger.info("Usando isla QML para Historial")
-                return screen
-            logger.warning("Isla QML Historial no cargó; usando versión QtWidgets")
-        except Exception as e:
-            logger.warning(f"No se pudo crear la isla QML de Historial: {e}")
-        return None
+        from doremi.ui.screens.history_qml import HistoryScreenQml
+        return self._require_qml("Historial", HistoryScreenQml(self.yt, self._play_song_sync))
 
     def _reset_lastfm_scrobble_state(self, item: QueueItem) -> None:
         self.integrations_controller.reset_lastfm_scrobble_state(item)

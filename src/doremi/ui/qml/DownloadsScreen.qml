@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (DownloadsViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -36,8 +38,8 @@ Item {
     })
 
     function emptyText() {
-        var byTab = root.emptyTexts[vm.tab] || {}
-        return byTab[vm.statusFilter] || byTab["all"] || ""
+        var byTab = root.emptyTexts[screenVm.tab] || {}
+        return byTab[screenVm.statusFilter] || byTab["all"] || ""
     }
 
     function statusLabel(status, progress, speed) {
@@ -80,16 +82,16 @@ Item {
             // Toolbar de selección
             RowLayout {
                 spacing: Theme.spacingSm
-                visible: vm.selectionMode
+                visible: screenVm.selectionMode
 
                 HeaderButton {
                     text: "Seleccionar Todo"
-                    onClicked: vm.select_all()
+                    onClicked: screenVm.select_all()
                 }
                 HeaderButton {
-                    text: "Borrar Seleccionados (" + vm.selectedCount + ")"
+                    text: "Borrar Seleccionados (" + screenVm.selectedCount + ")"
                     danger: true
-                    visible: vm.selectedCount > 0
+                    visible: screenVm.selectedCount > 0
                     onClicked: confirmBatch.openFor(false)
                 }
                 HeaderButton {
@@ -100,9 +102,9 @@ Item {
             }
 
             HeaderButton {
-                text: vm.selectionMode ? "Cancelar" : "Seleccionar"
-                active: vm.selectionMode
-                onClicked: vm.toggle_selection_mode()
+                text: screenVm.selectionMode ? "Cancelar" : "Seleccionar"
+                active: screenVm.selectionMode
+                onClicked: screenVm.toggle_selection_mode()
             }
         }
 
@@ -116,7 +118,7 @@ Item {
                 delegate: Rectangle {
                     id: tabPill
                     required property var modelData
-                    readonly property bool active: vm.tab === modelData.key
+                    readonly property bool active: screenVm.tab === modelData.key
 
                     Layout.preferredWidth: tabLabel.implicitWidth + Theme.spacingLg * 1.5
                     Layout.preferredHeight: 36
@@ -140,7 +142,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.set_tab(tabPill.modelData.key)
+                        onClicked: screenVm.set_tab(tabPill.modelData.key)
                     }
                 }
             }
@@ -152,14 +154,14 @@ Item {
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingXs
-            visible: vm.tab === "songs"
+            visible: screenVm.tab === "songs"
 
             Repeater {
                 model: root.statusDefs
                 delegate: Rectangle {
                     id: chip
                     required property var modelData
-                    readonly property bool active: vm.statusFilter === modelData.key
+                    readonly property bool active: screenVm.statusFilter === modelData.key
 
                     Layout.preferredWidth: chipLabel.implicitWidth + Theme.spacingMd
                     Layout.preferredHeight: 30
@@ -182,7 +184,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.set_status_filter(chip.modelData.key)
+                        onClicked: screenVm.set_status_filter(chip.modelData.key)
                     }
                 }
             }
@@ -194,12 +196,12 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vm.loading
+            visible: screenVm.loading
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: vm.loading
+                running: screenVm.loading
             }
             Item { Layout.fillHeight: true }
         }
@@ -208,9 +210,9 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading
-                     && ((vm.tab === "songs" && vm.songs.rowCount() === 0)
-                         || (vm.tab !== "songs" && vm.groups.rowCount() === 0))
+            visible: !screenVm.loading
+                     && ((screenVm.tab === "songs" && screenVm.songs.rowCount() === 0)
+                         || (screenVm.tab !== "songs" && screenVm.groups.rowCount() === 0))
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             Label {
@@ -228,8 +230,8 @@ Item {
             id: songsList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.tab === "songs" && vm.songs.rowCount() > 0
-            model: vm.songs
+            visible: !screenVm.loading && screenVm.tab === "songs" && screenVm.songs.rowCount() > 0
+            model: screenVm.songs
             clip: true
             spacing: Theme.spacingXs
             cacheBuffer: 600
@@ -264,10 +266,10 @@ Item {
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
                     onClicked: {
-                        if (vm.selectionMode)
-                            vm.toggle_item_selected(row.index)
+                        if (screenVm.selectionMode)
+                            screenVm.toggle_item_selected(row.index)
                         else if (row.status === "completed")
-                            vm.play_at(row.index)
+                            screenVm.play_at(row.index)
                     }
                 }
 
@@ -279,7 +281,7 @@ Item {
 
                     // Checkbox (modo selección)
                     Rectangle {
-                        visible: vm.selectionMode
+                        visible: screenVm.selectionMode
                         Layout.preferredWidth: 20
                         Layout.preferredHeight: 20
                         radius: 10
@@ -373,7 +375,7 @@ Item {
 
                     // Like
                     Rectangle {
-                        visible: !vm.selectionMode && row.status === "completed"
+                        visible: !screenVm.selectionMode && row.status === "completed"
                         width: 36; height: 36; radius: 18
                         color: likeMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
 
@@ -389,13 +391,13 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.item_action(row.index, "like")
+                            onClicked: screenVm.item_action(row.index, "like")
                         }
                     }
 
                     // Play (solo completadas)
                     Rectangle {
-                        visible: !vm.selectionMode && row.status === "completed"
+                        visible: !screenVm.selectionMode && row.status === "completed"
                         width: 36; height: 36; radius: 18
                         color: playMa.containsMouse ? root.accentColor : "transparent"
 
@@ -411,13 +413,13 @@ Item {
                             anchors.fill: parent
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
-                            onClicked: vm.play_at(row.index)
+                            onClicked: screenVm.play_at(row.index)
                         }
                     }
 
                     // Menú
                     Rectangle {
-                        visible: !vm.selectionMode
+                        visible: !screenVm.selectionMode
                         width: 36; height: 36; radius: 18
                         color: menuMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
 
@@ -440,19 +442,19 @@ Item {
                             id: rowMenu
                             ContextMenuItem {
                                 text: "Reproducir siguiente"
-                                onTriggered: vm.item_action(row.index, "play_next")
+                                onTriggered: screenVm.item_action(row.index, "play_next")
                             }
                             ContextMenuItem {
                                 text: "Añadir a la cola"
-                                onTriggered: vm.item_action(row.index, "add_to_queue")
+                                onTriggered: screenVm.item_action(row.index, "add_to_queue")
                             }
                             ContextMenuItem {
                                 text: "Añadir a playlist"
-                                onTriggered: vm.item_action(row.index, "add_to_playlist")
+                                onTriggered: screenVm.item_action(row.index, "add_to_playlist")
                             }
                             ContextMenuItem {
                                 text: "Eliminar descarga"
-                                onTriggered: vm.item_action(row.index, "delete")
+                                onTriggered: screenVm.item_action(row.index, "delete")
                             }
                         }
                     }
@@ -467,8 +469,8 @@ Item {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.tab !== "songs" && vm.groups.rowCount() > 0
-            model: vm.groups
+            visible: !screenVm.loading && screenVm.tab !== "songs" && screenVm.groups.rowCount() > 0
+            model: screenVm.groups
             clip: true
             cacheBuffer: 400
 
@@ -530,7 +532,7 @@ Item {
 
                             // Checkbox overlay (modo selección)
                             Rectangle {
-                                visible: vm.selectionMode
+                                visible: screenVm.selectionMode
                                 anchors.top: parent.top
                                 anchors.right: parent.right
                                 anchors.margins: Theme.spacingXs
@@ -575,10 +577,10 @@ Item {
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
-                            if (vm.selectionMode)
-                                vm.toggle_group_selected(gridCell.index)
+                            if (screenVm.selectionMode)
+                                screenVm.toggle_group_selected(gridCell.index)
                             else if (gridCell.navigate)
-                                vm.navigate(gridCell.navigate)
+                                screenVm.navigate(gridCell.navigate)
                         }
                     }
                 }
@@ -622,12 +624,12 @@ Item {
                 Layout.preferredWidth: 360
                 wrapMode: Text.WordWrap
                 text: {
-                    var target = vm.tab === "songs" ? "canciones descargadas"
-                             : (vm.tab === "albums" ? "álbumes descargados con todas sus canciones"
+                    var target = screenVm.tab === "songs" ? "canciones descargadas"
+                             : (screenVm.tab === "albums" ? "álbumes descargados con todas sus canciones"
                                                     : "playlists descargadas con todas sus canciones")
                     if (confirmBatch.isAll)
                         return "¿Eliminar TODAS las " + target + "?"
-                    return "¿Eliminar las " + vm.selectedCount + " " + target + " seleccionadas?"
+                    return "¿Eliminar las " + screenVm.selectedCount + " " + target + " seleccionadas?"
                 }
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -646,8 +648,8 @@ Item {
                     text: "Eliminar"
                     danger: true
                     onClicked: {
-                        if (confirmBatch.isAll) vm.delete_all()
-                        else vm.delete_selected()
+                        if (confirmBatch.isAll) screenVm.delete_all()
+                        else screenVm.delete_selected()
                         confirmBatch.close()
                     }
                 }

@@ -26,7 +26,7 @@ class AboutScreen(QWidget):
 
         from PySide6.QtGui import QPixmap
         from doremi.config.paths import AppDirs
-        logo_path = AppDirs.root / "assets" / "logo.png"
+        logo_path = AppDirs.root / "assets" / "Doremi_Withoth_Background.png"
         if logo_path.exists():
             self._logo = QLabel()
             pixmap = QPixmap(str(logo_path))
@@ -158,7 +158,7 @@ class AboutScreen(QWidget):
             CURRENT_VERSION,
             is_dev_build,
         )
-        from doremi.ui.widgets.update_dialog import UpdateDialog
+        from doremi.ui.widgets.update_dialog_qml import UpdateDialogQml
 
         self._check_btn.setEnabled(False)
         self._check_btn.setText("Comprobando...")
@@ -180,7 +180,7 @@ class AboutScreen(QWidget):
             return
 
         if release:
-            dlg = UpdateDialog(release, parent=self.window())
+            dlg = UpdateDialogQml(release, parent=self.window())
             dlg.show()
         else:
             main_win = self.window()
@@ -241,4 +241,3 @@ class AboutScreen(QWidget):
                 finally:
                     self._in_style_change = False
         super().changeEvent(event)
-

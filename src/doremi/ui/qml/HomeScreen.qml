@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
 
@@ -36,12 +38,12 @@ Item {
             ColumnLayout {
                 Layout.fillWidth: true
                 Layout.fillHeight: true
-                visible: vm.loading
+                visible: screenVm.loading
                 spacing: Theme.spacingMd
                 Item { Layout.fillHeight: true }
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    running: vm.loading
+                    running: screenVm.loading
                 }
                 Label {
                     text: "Cargando inicio…"
@@ -54,8 +56,8 @@ Item {
 
             // ── Greeting ──────────────────────────────────────────────
             Label {
-                visible: !vm.loading
-                text: vm.greeting
+                visible: !screenVm.loading
+                text: screenVm.greeting
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeDisplay * 0.9
@@ -66,7 +68,7 @@ Item {
 
             // ── Spotlight Banner ──────────────────────────────────────
             Rectangle {
-                visible: !vm.loading && vm.hasSpotlight
+                visible: !screenVm.loading && screenVm.hasSpotlight
                 Layout.fillWidth: true
                 Layout.preferredHeight: 180
                 radius: Theme.radiusLg
@@ -107,7 +109,7 @@ Item {
                         }
 
                         Label {
-                            text: vm.spotTitle
+                            text: screenVm.spotTitle
                             color: root.colors["text_primary"]
                             font.family: Theme.fontFamily
                             font.pixelSize: 22
@@ -118,7 +120,7 @@ Item {
                         }
 
                         Label {
-                            text: vm.spotSubtitle
+                            text: screenVm.spotSubtitle
                             color: root.colors["text_secondary"]
                             font.family: Theme.fontFamily
                             font.pixelSize: Theme.typeBody
@@ -152,7 +154,7 @@ Item {
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (vm.spotNavigate) vm.navigate(vm.spotNavigate)
+                                        if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
                                     }
                                 }
                             }
@@ -179,7 +181,7 @@ Item {
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
                                     onClicked: {
-                                        if (vm.spotNavigate) vm.navigate(vm.spotNavigate)
+                                        if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
                                     }
                                 }
                             }
@@ -200,7 +202,7 @@ Item {
                         Image {
                             id: spotlightImg
                             anchors.fill: parent
-                            source: vm.spotThumbnail
+                            source: screenVm.spotThumbnail
                             fillMode: Image.PreserveAspectCrop
                             asynchronous: true
                             cache: true
@@ -221,14 +223,14 @@ Item {
 
             // ── Quick Access Grid ─────────────────────────────────────
             GridLayout {
-                visible: !vm.loading && vm.tiles.rowCount() > 0
+                visible: !screenVm.loading && screenVm.tiles.rowCount() > 0
                 Layout.fillWidth: true
                 columns: 3
                 rowSpacing: Theme.spacingXs
                 columnSpacing: Theme.spacingSm
 
                 Repeater {
-                    model: vm.tiles
+                    model: screenVm.tiles
 
                     Rectangle {
                         Layout.fillWidth: true
@@ -250,7 +252,7 @@ Item {
                             hoverEnabled: true
                             cursorShape: Qt.PointingHandCursor
                             acceptedButtons: Qt.LeftButton
-                            onClicked: vm.play_tile(index)
+                            onClicked: screenVm.play_tile(index)
                         }
 
                         RowLayout {
@@ -320,7 +322,7 @@ Item {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
-                                    onClicked: vm.play_tile(index)
+                                    onClicked: screenVm.play_tile(index)
                                 }
                             }
 
@@ -350,23 +352,23 @@ Item {
                                     id: tileMenu
                                     ContextMenuItem {
                                         text: "Reproducir siguiente"
-                                        onTriggered: vm.tile_action(index, "play_next")
+                                        onTriggered: screenVm.tile_action(index, "play_next")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a la cola"
-                                        onTriggered: vm.tile_action(index, "add_to_queue")
+                                        onTriggered: screenVm.tile_action(index, "add_to_queue")
                                     }
                                     ContextMenuItem {
                                         text: "Me gusta"
-                                        onTriggered: vm.tile_action(index, "like")
+                                        onTriggered: screenVm.tile_action(index, "like")
                                     }
                                     ContextMenuItem {
                                         text: "Añadir a playlist"
-                                        onTriggered: vm.tile_action(index, "add_to_playlist")
+                                        onTriggered: screenVm.tile_action(index, "add_to_playlist")
                                     }
                                     ContextMenuItem {
                                         text: "Descargar"
-                                        onTriggered: vm.tile_action(index, "download")
+                                        onTriggered: screenVm.tile_action(index, "download")
                                     }
                                 }
                             }
@@ -377,7 +379,7 @@ Item {
 
             // ── Section title ─────────────────────────────────────────
             Label {
-                visible: !vm.loading && (vm.horizontal.rowCount() > 0 || vm.songs.rowCount() > 0)
+                visible: !screenVm.loading && (screenVm.horizontal.rowCount() > 0 || screenVm.songs.rowCount() > 0)
                 text: "Recomendaciones para ti"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
@@ -390,7 +392,7 @@ Item {
 
             // ── Rail horizontales (una fila por sección) ─────────────
             Repeater {
-                model: vm.sections
+                model: screenVm.sections
 
                 delegate: ColumnLayout {
                     id: sectionBlock
@@ -489,7 +491,7 @@ Item {
                                 cursorShape: Qt.PointingHandCursor
                                 onClicked: {
                                     var nav = hCard.modelData.navigate || ""
-                                    if (nav) vm.navigate(nav)
+                                    if (nav) screenVm.navigate(nav)
                                 }
                             }
                         }
@@ -501,7 +503,7 @@ Item {
 
             // ── Song grid ─────────────────────────────────────────────
             Repeater {
-                model: vm.songs
+                model: screenVm.songs
                 delegate: Rectangle {
                     required property string title
                     required property string artist
@@ -525,7 +527,7 @@ Item {
                         acceptedButtons: Qt.LeftButton | Qt.RightButton
                         onClicked: (mouse) => {
                             if (mouse.button === Qt.LeftButton) {
-                                vm.play_at(index)
+                                screenVm.play_at(index)
                             } else {
                                 songCtxMenu.popup()
                             }
@@ -618,7 +620,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: vm.play_at(index)
+                                onClicked: screenVm.play_at(index)
                             }
                         }
 
@@ -648,27 +650,27 @@ Item {
                                 id: songCtxMenu
                                 ContextMenuItem {
                                     text: "Reproducir siguiente"
-                                    onTriggered: vm.song_action(index, "play_next")
+                                    onTriggered: screenVm.song_action(index, "play_next")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a la cola"
-                                    onTriggered: vm.song_action(index, "add_to_queue")
+                                    onTriggered: screenVm.song_action(index, "add_to_queue")
                                 }
                                 ContextMenuItem {
                                     text: "Me gusta"
-                                    onTriggered: vm.song_action(index, "like")
+                                    onTriggered: screenVm.song_action(index, "like")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a playlist"
-                                    onTriggered: vm.song_action(index, "add_to_playlist")
+                                    onTriggered: screenVm.song_action(index, "add_to_playlist")
                                 }
                                 ContextMenuItem {
                                     text: "Descargar"
-                                    onTriggered: vm.song_action(index, "download")
+                                    onTriggered: screenVm.song_action(index, "download")
                                 }
                                 ContextMenuItem {
                                     text: "Ir al artista"
-                                    onTriggered: vm.song_action(index, "go_artist")
+                                    onTriggered: screenVm.song_action(index, "go_artist")
                                 }
                             }
                         }
@@ -678,7 +680,7 @@ Item {
 
             // ── Empty offline state ───────────────────────────────────
             Label {
-                visible: !vm.loading && vm.horizontal.rowCount() === 0 && vm.songs.rowCount() === 0 && vm.tiles.rowCount() === 0
+                visible: !screenVm.loading && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Aún no hay música disponible sin conexión"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
@@ -689,7 +691,7 @@ Item {
             }
 
             Label {
-                visible: !vm.loading && vm.horizontal.rowCount() === 0 && vm.songs.rowCount() === 0 && vm.tiles.rowCount() === 0
+                visible: !screenVm.loading && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Conéctate una vez para que Doremi prepare y rote tus recomendaciones."
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily

@@ -3,19 +3,17 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import QApplication, QMessageBox, QVBoxLayout, QWidget
+from PySide6.QtCore import QObject, QUrl
+from PySide6.QtWidgets import QApplication, QWidget
 from loguru import logger
 
 from doremi.config.paths import AppDirs
-from doremi.ui.theme_bridge import theme_bridge
 from doremi.ui.viewmodels.settings_vm import SettingsViewModel
 
 QML_DIR = Path(__file__).resolve().parent.parent / "qml"
 
 
-class SettingsScreenQml(QWidget):
+class SettingsScreenQml(QObject):
     """Isla QML: Ajustes como QQuickWidget (schema-driven).
 
     Drop-in replacement de SettingsScreen (QtWidgets): mismo constructor,
@@ -32,38 +30,16 @@ class SettingsScreenQml(QWidget):
         self.settings = settings
         self.on_settings_changed = on_settings_changed
         self.on_auth_changed = on_auth_changed
-        self.setAutoFillBackground(False)
 
         self._vm = SettingsViewModel(settings, yt_client, QApplication.instance())
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self._quick.setAutoFillBackground(False)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))
-
-        engine = self._quick.engine()
-        engine.addImportPath(str(QML_DIR))
-
-        ctx = self._quick.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "SettingsScreen.qml")))
-
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self._quick.errors():
-                logger.error(f"QML SettingsScreen: {err.toString()}")
-
-        layout.addWidget(self._quick)
+        self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "SettingsScreen.qml"))
+        self._load_ok = True
 
         self._vm.settings_changed.connect(self._on_vm_settings_changed)
         self._vm.toast_requested.connect(self._show_toast)
         self._vm.action_requested.connect(self._on_action)
+        self._vm.logout_confirmed.connect(self._accounts_logout)
 
     @property
     def is_ok(self) -> bool:
@@ -129,16 +105,6 @@ class SettingsScreenQml(QWidget):
         dialog.exec()
 
     def _accounts_logout(self) -> None:
-        from doremi.ui.design import tokens
-        result = QMessageBox.question(
-            self.window(),
-            "Cerrar sesión",
-            "¿Cerrar sesión y borrar las cookies, credenciales y perfil local de YouTube Music?",
-            QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes,
-            QMessageBox.StandardButton.Cancel,
-        )
-        if result != QMessageBox.StandardButton.Yes:
-            return
         try:
             from PySide6.QtWebEngineCore import QWebEngineProfile
             QWebEngineProfile.defaultProfile().cookieStore().deleteAllCookies()
@@ -276,8 +242,8 @@ class SettingsScreenQml(QWidget):
                 self._show_toast("Estás en una versión de desarrollo (siempre es la última)", "info")
                 return
             if release:
-                from doremi.ui.widgets.update_dialog import UpdateDialog
-                dlg = UpdateDialog(release, parent=self.window())
+                from doremi.ui.widgets.update_dialog_qml import UpdateDialogQml
+                dlg = UpdateDialogQml(release, parent=self.window())
                 dlg.show()
             else:
                 self._show_toast(f"Ya tienes la última versión ({CURRENT_VERSION})", "success")

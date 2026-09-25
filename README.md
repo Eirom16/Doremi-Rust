@@ -1,7 +1,7 @@
 # Doremi
 
 <p align="center">
-  <img src="assets/logo.png" alt="Doremi logo" width="220" />
+  <img src="assets/Doremi_Withoth_Background.png" alt="Doremi logo" width="220" />
 </p>
 
 <p align="center">

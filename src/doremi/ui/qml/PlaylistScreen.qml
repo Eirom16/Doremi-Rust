@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (PlaylistViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -68,25 +70,25 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: vm.go_back()
+                    onClicked: screenVm.go_back()
                 }
             }
 
             // ── Loading ───────────────────────────────────────────────
             ColumnLayout {
                 Layout.fillWidth: true
-                visible: vm.loading
+                visible: screenVm.loading
                 spacing: Theme.spacingMd
                 Item { Layout.preferredHeight: 120 }
                 BusyIndicator {
                     Layout.alignment: Qt.AlignHCenter
-                    running: vm.loading
+                    running: screenVm.loading
                 }
             }
 
             // ── No encontrada ─────────────────────────────────────────
             Label {
-                visible: !vm.loading && !vm.found
+                visible: !screenVm.loading && !screenVm.found
                 text: "Playlist no encontrada"
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -97,7 +99,7 @@ Item {
 
             // ── Hero ──────────────────────────────────────────────────
             RowLayout {
-                visible: !vm.loading && vm.found
+                visible: !screenVm.loading && screenVm.found
                 Layout.fillWidth: true
                 spacing: Theme.spacingXl
 
@@ -110,7 +112,7 @@ Item {
 
                     Image {
                         anchors.fill: parent
-                        source: vm.thumbnail
+                        source: screenVm.thumbnail
                         fillMode: Image.PreserveAspectCrop
                         asynchronous: true
                         cache: true
@@ -132,7 +134,7 @@ Item {
                     spacing: Theme.spacingXs
 
                     Label {
-                        text: vm.isLocal ? "PLAYLIST LOCAL" : "PLAYLIST"
+                        text: screenVm.isLocal ? "PLAYLIST LOCAL" : "PLAYLIST"
                         color: root.accentColor
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeCaption
@@ -140,7 +142,7 @@ Item {
                         font.letterSpacing: 1.5
                     }
                     Label {
-                        text: vm.title
+                        text: screenVm.title
                         color: root.colors["text_primary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeDisplay
@@ -149,7 +151,7 @@ Item {
                         Layout.fillWidth: true
                     }
                     Label {
-                        text: vm.meta
+                        text: screenVm.meta
                         color: root.colors["text_secondary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeLabel
@@ -164,20 +166,20 @@ Item {
                             primary: true
                             text: "Reproducir"
                             iconCode: "" // play_arrow
-                            enabled: vm.hasTracks
-                            onClicked: vm.play_all()
+                            enabled: screenVm.hasTracks
+                            onClicked: screenVm.play_all()
                         }
                         HeroButton {
                             primary: false
                             text: "Aleatorio"
                             iconCode: "" // shuffle
-                            enabled: vm.hasTracks
-                            onClicked: vm.play_shuffle()
+                            enabled: screenVm.hasTracks
+                            onClicked: screenVm.play_shuffle()
                         }
 
                         // Estado offline / descarga
                         Label {
-                            visible: vm.isLocal || vm.dlState === "full"
+                            visible: screenVm.isLocal || screenVm.dlState === "full"
                             text: "Disponible sin conexión"
                             color: root.accentColor
                             font.family: Theme.fontFamily
@@ -187,29 +189,29 @@ Item {
                         }
 
                         ColumnLayout {
-                            visible: !vm.isLocal && vm.dlState !== "full" && vm.dlState !== ""
+                            visible: !screenVm.isLocal && screenVm.dlState !== "full" && screenVm.dlState !== ""
                             spacing: Theme.spacingXs
 
                             HeroButton {
                                 primary: false
-                                text: vm.dlText
+                                text: screenVm.dlText
                                 iconCode: "" // download
-                                enabled: vm.dlState !== "active"
+                                enabled: screenVm.dlState !== "active"
                                 onClicked: {
-                                    vm.download_playlist()
-                                    vm.mark_downloader_feedback()
+                                    screenVm.download_playlist()
+                                    screenVm.mark_downloader_feedback()
                                 }
                             }
 
                             Rectangle {
-                                visible: vm.dlState === "active"
+                                visible: screenVm.dlState === "active"
                                 Layout.preferredWidth: 180
                                 Layout.preferredHeight: 4
                                 radius: 2
                                 color: root.colors["bg_high"]
 
                                 Rectangle {
-                                    width: parent.width * vm.dlPercent / 100
+                                    width: parent.width * screenVm.dlPercent / 100
                                     height: parent.height
                                     radius: 2
                                     color: root.accentColor
@@ -224,13 +226,13 @@ Item {
 
             // ── Tracks ────────────────────────────────────────────────
             ColumnLayout {
-                visible: !vm.loading && vm.found && vm.hasTracks
+                visible: !screenVm.loading && screenVm.found && screenVm.hasTracks
                 Layout.fillWidth: true
                 spacing: Theme.spacingXs
                 Layout.topMargin: Theme.spacingSm
 
                 Repeater {
-                    model: vm.tracks
+                    model: screenVm.tracks
 
                     delegate: Rectangle {
                         id: row
@@ -256,7 +258,7 @@ Item {
                             acceptedButtons: Qt.LeftButton | Qt.RightButton
                             onClicked: (mouse) => {
                                 if (mouse.button === Qt.LeftButton)
-                                    vm.play_at(row.index)
+                                    screenVm.play_at(row.index)
                                 else
                                     rowMenu.popup()
                             }
@@ -335,31 +337,31 @@ Item {
                                 id: rowMenu
                                 ContextMenuItem {
                                     text: "Reproducir siguiente"
-                                    onTriggered: vm.track_action(row.index, "play_next")
+                                    onTriggered: screenVm.track_action(row.index, "play_next")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a la cola"
-                                    onTriggered: vm.track_action(row.index, "add_to_queue")
+                                    onTriggered: screenVm.track_action(row.index, "add_to_queue")
                                 }
                                 ContextMenuItem {
                                     text: "Me gusta"
-                                    onTriggered: vm.track_action(row.index, "like")
+                                    onTriggered: screenVm.track_action(row.index, "like")
                                 }
                                 ContextMenuItem {
                                     text: "Añadir a playlist"
-                                    onTriggered: vm.track_action(row.index, "add_to_playlist")
+                                    onTriggered: screenVm.track_action(row.index, "add_to_playlist")
                                 }
                                 ContextMenuItem {
                                     text: "Descargar"
-                                    onTriggered: vm.track_action(row.index, "download")
+                                    onTriggered: screenVm.track_action(row.index, "download")
                                 }
                                 ContextMenuItem {
                                     visible: row.isDownloaded
                                     text: "Eliminar descarga"
-                                    onTriggered: vm.track_action(row.index, "delete_download")
+                                    onTriggered: screenVm.track_action(row.index, "delete_download")
                                 }
                                 ContextMenuItem {
-                                    visible: row.setVideoId !== "" && !vm.isLocal
+                                    visible: row.setVideoId !== "" && !screenVm.isLocal
                                     text: "Quitar de esta playlist"
                                     onTriggered: {
                                         root.pendingRemoveIndex = row.index
@@ -402,7 +404,7 @@ Item {
                 wrapMode: Text.WordWrap
                 text: {
                     var t = root.pendingRemoveIndex >= 0
-                        ? vm.tracks.data(vm.tracks.index(root.pendingRemoveIndex, 0), 257)
+                        ? screenVm.tracks.data(screenVm.tracks.index(root.pendingRemoveIndex, 0), 257)
                         : ""
                     return "¿Quitar '" + t + "' de esta playlist?"
                 }
@@ -422,7 +424,7 @@ Item {
                     danger: true
                     onClicked: {
                         if (root.pendingRemoveIndex >= 0)
-                            vm.track_action(root.pendingRemoveIndex, "remove")
+                            screenVm.track_action(root.pendingRemoveIndex, "remove")
                         confirmRemove.close()
                     }
                 }

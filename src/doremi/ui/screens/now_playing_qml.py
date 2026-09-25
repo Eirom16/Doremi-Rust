@@ -3,18 +3,11 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from PySide6.QtCore import QObject, Qt, QPropertyAnimation, QTimer, QUrl, Signal
-from PySide6.QtQuickWidgets import QQuickWidget
-from PySide6.QtWidgets import (
-    QApplication,
-    QGraphicsOpacityEffect,
-    QVBoxLayout,
-    QWidget,
-)
+from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.audio.player import PlayerState
-from doremi.ui.theme_bridge import theme_bridge
 from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
 from doremi.utils.image_cache import ImageCache
 from doremi.utils.i18n import _
@@ -45,7 +38,7 @@ class QueueTabShim(QObject):
             self._vm.set_queue(list(items), set(liked_ids or set()))
 
 
-class NowPlayingScreenQml(QWidget):
+class NowPlayingScreenQml(QObject):
     """Isla QML: Now Playing como QQuickWidget.
 
     Drop-in replacement de NowPlayingScreen (QtWidgets): mismas señales,
@@ -77,13 +70,6 @@ class NowPlayingScreenQml(QWidget):
         self._video_request_generation = 0
         self._video_player = None
         self._video_audio = None
-        self._video_sink = None
-        self._video_widget = None
-        self._video_pixmap = None
-        self._video_opacity = None
-        self._video_fade = None
-        self._video_geometry_timer = None
-        self.setAutoFillBackground(False)
 
         self._vm = NowPlayingViewModel(QApplication.instance())
         self._apply_lyrics_style()
@@ -97,30 +83,8 @@ class NowPlayingScreenQml(QWidget):
             repeat = "off"
         self._vm.set_shuffle_repeat(bool(getattr(queue, "shuffle_enabled", False)), repeat)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-
-        self._quick = QQuickWidget(self)
-        self._quick.setResizeMode(QQuickWidget.SizeRootObjectToView)
-        self._quick.setAutoFillBackground(False)
-        from PySide6.QtGui import QColor
-        self._quick.setClearColor(QColor(0, 0, 0, 0))
-
-        engine = self._quick.engine()
-        engine.addImportPath(str(QML_DIR))
-
-        ctx = self._quick.rootContext()
-        ctx.setContextProperty("themeBridge", theme_bridge())
-        ctx.setContextProperty("vm", self._vm)
-
-        self._quick.setSource(QUrl.fromLocalFile(str(QML_DIR / "NowPlayingScreen.qml")))
-
-        self._load_ok = self._quick.status() == QQuickWidget.Status.Ready
-        if not self._load_ok:
-            for err in self._quick.errors():
-                logger.error(f"QML NowPlayingScreen: {err.toString()}")
-
-        layout.addWidget(self._quick)
+        self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "NowPlayingScreen.qml"))
+        self._load_ok = True
 
         # Shim de la cola (paridad con NowPlayingScreen.queue_tab)
         self.queue_tab = QueueTabShim(self)
@@ -306,40 +270,15 @@ class NowPlayingScreenQml(QWidget):
         if self._video_player is not None:
             return True
         try:
-            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer, QVideoSink
-            from PySide6.QtWidgets import QLabel
-
-            # QQuickWidget es el lienzo de Now Playing; como hijo directo,
-            # el vídeo queda por encima del FBO QML sin abrir otra ventana.
-            # QVideoWidget no pinta frames con algunos backends FFmpeg de Qt;
-            # QVideoSink entrega los frames decodificados de forma fiable.
-            self._video_widget = QLabel(self._quick)
-            self._video_widget.setObjectName("nowPlayingVideoWidget")
-            self._video_widget.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self._video_widget.setStyleSheet("background: #000000;")
-            self._video_widget.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent, True)
-            self._video_widget.setVisible(False)
-            self._video_widget.raise_()
-
-            self._video_opacity = QGraphicsOpacityEffect(self._video_widget)
-            self._video_opacity.setOpacity(0.0)
-            self._video_widget.setGraphicsEffect(self._video_opacity)
-            self._video_fade = QPropertyAnimation(self._video_opacity, b"opacity", self)
-            self._video_fade.setDuration(240)
-            self._video_fade.finished.connect(self._finish_video_fade)
+            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 
             self._video_audio = QAudioOutput(self)
             self._video_audio.setMuted(True)
             self._video_player = QMediaPlayer(self)
             self._video_player.setAudioOutput(self._video_audio)
-            self._video_sink = QVideoSink(self)
-            self._video_sink.videoFrameChanged.connect(self._on_video_frame_changed)
-            self._video_player.setVideoSink(self._video_sink)
+            self._vm.set_video_player(self._video_player)
             self._video_player.mediaStatusChanged.connect(self._on_video_media_status)
             self._video_player.errorOccurred.connect(self._on_video_player_error)
-            self._video_geometry_timer = QTimer(self)
-            self._video_geometry_timer.setInterval(32)
-            self._video_geometry_timer.timeout.connect(self._sync_video_widget_geometry)
             return True
         except Exception as exc:
             logger.warning(f"No se pudo inicializar el visor de vídeo: {exc}")
@@ -349,45 +288,22 @@ class NowPlayingScreenQml(QWidget):
     def _sync_video_player(self) -> None:
         if self._vm.mediaMode != "video" or not self._vm.videoStreamUrl:
             if self._video_player is not None:
-                self._fade_video_widget(False)
-                QTimer.singleShot(300, self._stop_video_player)
+                self._stop_video_player()
             return
         if not self._ensure_video_player():
             return
         from PySide6.QtCore import QUrl
 
-        self._video_widget.show()
-        self._video_widget.raise_()
-        self._sync_video_widget_geometry()
-        self._video_geometry_timer.start()
-        self._fade_video_widget(True)
         source = QUrl(self._vm.videoStreamUrl)
         if self._video_player.source() != source:
-            self._video_pixmap = None
-            self._video_widget.clear()
             self._video_player.setSource(source)
         self._sync_video_playback()
-
-    def _fade_video_widget(self, visible: bool) -> None:
-        if self._video_widget is None or self._video_opacity is None:
-            return
-        self._video_fade.stop()
-        self._video_widget.show()
-        self._video_fade.setStartValue(self._video_opacity.opacity())
-        self._video_fade.setEndValue(1.0 if visible else 0.0)
-        self._video_fade.start()
-
-    def _finish_video_fade(self) -> None:
-        if self._video_opacity is not None and self._video_opacity.opacity() <= 0.01:
-            self._video_widget.hide()
 
     def _stop_video_player(self) -> None:
         if self._vm.mediaMode == "video":
             return
         if self._video_player is not None:
             self._video_player.stop()
-        if self._video_geometry_timer is not None:
-            self._video_geometry_timer.stop()
 
     def _sync_video_playback(self) -> None:
         if self._video_player is None or self._vm.mediaMode != "video":
@@ -423,61 +339,6 @@ class NowPlayingScreenQml(QWidget):
         if self._vm.mediaMode == "video":
             self._vm.report_video_error(error_string or _("No se pudo reproducir el videoclip."))
 
-    def _sync_video_widget_geometry(self) -> None:
-        if self._video_widget is None or not self._quick.rootObject():
-            return
-        frame = next(
-            (item for item in self._quick.rootObject().findChildren(QObject)
-             if item.objectName() == "mediaFrame"),
-            None,
-        )
-        if frame is None:
-            return
-        x = y = 0.0
-        item = frame
-        while item is not None and item is not self._quick.rootObject():
-            x += float(item.property("x") or 0)
-            y += float(item.property("y") or 0)
-            item = item.parent()
-        self._video_widget.setGeometry(
-            round(x), round(y), round(float(frame.property("width") or 0)),
-            round(float(frame.property("height") or 0)),
-        )
-        self._refresh_video_pixmap()
-
-    def _on_video_frame_changed(self, frame) -> None:
-        """Pinta el último frame decodificado en el overlay del panel."""
-        try:
-            if not frame.isValid():
-                return
-            image = frame.toImage()
-            if image.isNull():
-                return
-            from PySide6.QtGui import QPixmap
-
-            self._video_pixmap = QPixmap.fromImage(image)
-            self._refresh_video_pixmap()
-        except Exception as exc:
-            logger.debug(f"No se pudo pintar un frame del videoclip: {exc}")
-
-    def _refresh_video_pixmap(self) -> None:
-        if self._video_widget is None or self._video_pixmap is None:
-            return
-        size = self._video_widget.size()
-        if size.width() <= 0 or size.height() <= 0:
-            return
-        self._video_widget.setPixmap(
-            self._video_pixmap.scaled(
-                size,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-        )
-
-    def resizeEvent(self, event) -> None:
-        super().resizeEvent(event)
-        self._sync_video_widget_geometry()
-
     def _cancel_video_request(self) -> None:
         self._video_request_generation += 1
         task = self._video_task
@@ -487,11 +348,8 @@ class NowPlayingScreenQml(QWidget):
 
     def _close_video_clip(self) -> None:
         self._cancel_video_request()
-        # El widget nativo también participa en el crossfade; el stream se
-        # conserva unos milisegundos para que la animación no corte el frame.
         if self._video_player is not None:
-            self._fade_video_widget(False)
-            QTimer.singleShot(300, self._stop_video_player)
+            self._stop_video_player()
         generation = self._video_request_generation
         # Conserva el último frame mientras QML completa el crossfade a artwork.
         QTimer.singleShot(280, lambda: self._clear_video_after_transition(generation))
@@ -530,13 +388,6 @@ class NowPlayingScreenQml(QWidget):
 
     def update_position(self, position_ms: int, duration_ms: int) -> None:
         self._vm.set_position(position_ms, duration_ms)
-
-    def closeEvent(self, event) -> None:
-        self._cancel_video_request()
-        self._vm.clear_video()
-        if self._video_player is not None:
-            self._video_player.stop()
-        super().closeEvent(event)
 
     def set_lyrics_loading(self) -> None:
         self._vm.set_lyrics_loading()

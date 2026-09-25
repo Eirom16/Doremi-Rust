@@ -130,6 +130,8 @@ class SettingsViewModel(QObject):
     settings_changed = Signal()          # → wrapper.on_changed(settings)
     toast_requested = Signal(str, str)   # (mensaje, kind)
     action_requested = Signal(str)       # botones que requieren diálogos/widgets
+    logout_confirmation_requested = Signal(name="logoutConfirmationRequested")
+    logout_confirmed = Signal()
     eq_bands_changed = Signal()
 
     def __init__(self, settings, yt_client=None, parent: QObject | None = None) -> None:
@@ -525,4 +527,11 @@ class SettingsViewModel(QObject):
         if action_id == "equalizer.reset":
             self.set_value("equalizer.preset_name", "Flat")
             return
+        if action_id == "accounts.logout":
+            self.logout_confirmation_requested.emit()
+            return
         self.action_requested.emit(action_id)
+
+    @Slot()
+    def confirm_logout(self) -> None:
+        self.logout_confirmed.emit()

@@ -543,34 +543,6 @@ QTabWidget#nowPlayingTabs QTabBar::tab:selected {
     background: transparent;
 }
 
-/* ─── Full Player Dialog ───────────────────────────────────── */
-QDialog#fullPlayerBg {
-    background-color: #0A0A14;
-}
-QLabel#fullPlayerArtwork {
-    background-color: #1E1E38;
-    color: #4A4A6A;
-    border-radius: 20px;
-}
-QLabel#fullPlayerArtist {
-    color: #9B9BC0;
-}
-QLabel#fullPlayerTimeCurrent, QLabel#fullPlayerTimeTotal {
-    color: #9B9BC0;
-}
-QPushButton#fullPlayerCloseBtn, QPushButton#fullPlayerShuffleBtn, QPushButton#fullPlayerPrevBtn, QPushButton#fullPlayerNextBtn, QPushButton#fullPlayerRepeatBtn {
-    color: #9B9BC0;
-}
-QPushButton#fullPlayerPrevBtn:hover, QPushButton#fullPlayerNextBtn:hover {
-    color: #F1F0FF;
-}
-QPushButton#fullPlayerShuffleBtn:hover, QPushButton#fullPlayerRepeatBtn:hover, QPushButton#fullPlayerCloseBtn:hover {
-    color: #A78BFA;
-}
-QLabel#fullPlayerLyricsHeader {
-    color: #F1F0FF;
-}
-
 /* ─── Playlist / Artist Screens ────────────────────────────── */
 QLabel#playlistCover, QLabel#artistCover {
     background-color: #1E1E38;

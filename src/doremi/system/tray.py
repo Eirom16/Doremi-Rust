@@ -18,7 +18,8 @@ class SystemTray(QSystemTrayIcon):
         
         # Load own application icon from assets if available
         from doremi.config.paths import AppDirs
-        icon_path = AppDirs.root / "assets" / "icon.png"
+        # Mantener el mismo icono con fondo que usa la ventana y la barra de tareas.
+        icon_path = AppDirs.root / "assets" / "Doremi.png"
         if icon_path.exists():
             self.setIcon(QIcon(str(icon_path)))
         else:

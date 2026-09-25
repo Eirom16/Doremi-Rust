@@ -135,3 +135,24 @@ async def test_successful_play_clears_previous_error(player, monkeypatch):
         if player._poll_task:
             player._poll_task.cancel()
             await asyncio.gather(player._poll_task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_player_without_vlc_reports_unavailability_without_crashing(monkeypatch):
+    import doremi.audio.player as player_module
+
+    class BrokenVlc:
+        @staticmethod
+        def Instance(*_args):
+            raise RuntimeError("libvlc missing")
+
+    monkeypatch.setattr(player_module, "get_vlc", lambda: BrokenVlc)
+    unavailable = MusicPlayer()
+    errors = []
+    unavailable.on("error", lambda status: errors.append(status.error_msg))
+
+    assert not unavailable.is_available
+    assert await unavailable.play_url("https://example.invalid/audio", "missing") is False
+    assert unavailable.status.state == PlayerState.ERROR
+    assert errors == [unavailable.status.error_msg]
+    unavailable.release()

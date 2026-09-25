@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (SearchViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
@@ -37,8 +39,8 @@ Item {
 
         // ── Query header ──────────────────────────────────────────────
         Label {
-            visible: vm.query !== ""
-            text: "Resultados para \"" + vm.query + "\""
+            visible: screenVm.query !== ""
+            text: "Resultados para \"" + screenVm.query + "\""
             color: root.colors["text_primary"]
             font.family: Theme.fontFamily
             font.pixelSize: Theme.typeHeading
@@ -57,7 +59,7 @@ Item {
                 delegate: Rectangle {
                     id: chip
                     required property var modelData
-                    readonly property bool active: vm.category === modelData.key
+                    readonly property bool active: screenVm.category === modelData.key
 
                     Layout.preferredWidth: chipLabel.implicitWidth + Theme.spacingLg * 1.5
                     Layout.preferredHeight: 34
@@ -81,7 +83,7 @@ Item {
                         anchors.fill: parent
                         hoverEnabled: true
                         cursorShape: Qt.PointingHandCursor
-                        onClicked: vm.set_category(chip.modelData.key)
+                        onClicked: screenVm.set_category(chip.modelData.key)
                     }
                 }
             }
@@ -93,12 +95,12 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vm.loading
+            visible: screenVm.loading
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: vm.loading
+                running: screenVm.loading
             }
             Label {
                 text: "Buscando…"
@@ -113,11 +115,11 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.errorText !== ""
+            visible: !screenVm.loading && screenVm.errorText !== ""
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             Label {
-                text: vm.errorText
+                text: screenVm.errorText
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeTitle
@@ -146,7 +148,7 @@ Item {
                     anchors.fill: parent
                     hoverEnabled: true
                     cursorShape: Qt.PointingHandCursor
-                    onClicked: vm.retry()
+                    onClicked: screenVm.retry()
                 }
             }
             Item { Layout.fillHeight: true }
@@ -156,11 +158,11 @@ Item {
         Label {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.errorText === "" && vm.query !== ""
-                     && ((vm.category === "song" && !vm.hasTop)
-                         || ((vm.category === "album" || vm.category === "podcast")
-                             && vm.albums.rowCount() === 0)
-                         || (vm.category === "playlist" && vm.playlists.rowCount() === 0))
+            visible: !screenVm.loading && screenVm.errorText === "" && screenVm.query !== ""
+                     && ((screenVm.category === "song" && !screenVm.hasTop)
+                         || ((screenVm.category === "album" || screenVm.category === "podcast")
+                             && screenVm.albums.rowCount() === 0)
+                         || (screenVm.category === "playlist" && screenVm.playlists.rowCount() === 0))
             text: "No se encontraron resultados en esta categoría"
             color: root.colors["text_secondary"]
             font.family: Theme.fontFamily
@@ -174,7 +176,7 @@ Item {
             id: songsFlick
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.errorText === "" && vm.category === "song" && vm.hasTop
+            visible: !screenVm.loading && screenVm.errorText === "" && screenVm.category === "song" && screenVm.hasTop
             clip: true
             contentWidth: width
             contentHeight: songsCol.height
@@ -228,7 +230,7 @@ Item {
                                 anchors.fill: parent
                                 hoverEnabled: true
                                 cursorShape: Qt.PointingHandCursor
-                                onClicked: vm.play_top()
+                                onClicked: screenVm.play_top()
                             }
 
                             ColumnLayout {
@@ -249,7 +251,7 @@ Item {
 
                                         Image {
                                             anchors.fill: parent
-                                            source: vm.topThumbnail
+                                            source: screenVm.topThumbnail
                                             fillMode: Image.PreserveAspectCrop
                                             asynchronous: true
                                             cache: true
@@ -286,7 +288,7 @@ Item {
                                                 anchors.fill: parent
                                                 hoverEnabled: true
                                                 cursorShape: Qt.PointingHandCursor
-                                                onClicked: vm.play_top()
+                                                onClicked: screenVm.play_top()
                                             }
                                         }
 
@@ -312,23 +314,23 @@ Item {
                                                 id: topMenu
                                                 ContextMenuItem {
                                                     text: "Reproducir siguiente"
-                                                    onTriggered: vm.top_action("play_next")
+                                                    onTriggered: screenVm.top_action("play_next")
                                                 }
                                                 ContextMenuItem {
                                                     text: "Añadir a la cola"
-                                                    onTriggered: vm.top_action("add_to_queue")
+                                                    onTriggered: screenVm.top_action("add_to_queue")
                                                 }
                                                 ContextMenuItem {
                                                     text: "Me gusta"
-                                                    onTriggered: vm.top_action("like")
+                                                    onTriggered: screenVm.top_action("like")
                                                 }
                                                 ContextMenuItem {
                                                     text: "Añadir a playlist"
-                                                    onTriggered: vm.top_action("add_to_playlist")
+                                                    onTriggered: screenVm.top_action("add_to_playlist")
                                                 }
                                                 ContextMenuItem {
                                                     text: "Descargar"
-                                                    onTriggered: vm.top_action("download")
+                                                    onTriggered: screenVm.top_action("download")
                                                 }
                                             }
                                         }
@@ -338,7 +340,7 @@ Item {
                                 Item { Layout.fillHeight: true }
 
                                 Label {
-                                    text: vm.topTitle
+                                    text: screenVm.topTitle
                                     color: root.colors["text_primary"]
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.typeHeading
@@ -357,7 +359,7 @@ Item {
                                         Label {
                                             id: typeLbl
                                             anchors.centerIn: parent
-                                            text: vm.topType.toUpperCase()
+                                            text: screenVm.topType.toUpperCase()
                                             color: root.colors["text_on_accent"]
                                             font.family: Theme.fontFamily
                                             font.pixelSize: 9
@@ -365,7 +367,7 @@ Item {
                                         }
                                     }
                                     Label {
-                                        text: vm.topArtist
+                                        text: screenVm.topArtist
                                         color: root.colors["text_secondary"]
                                         font.family: Theme.fontFamily
                                         font.pixelSize: Theme.typeLabel
@@ -382,7 +384,7 @@ Item {
                         Layout.fillWidth: true
                         Layout.alignment: Qt.AlignTop
                         spacing: Theme.spacingXs
-                        visible: vm.featured.rowCount() > 0
+                        visible: screenVm.featured.rowCount() > 0
 
                         Label {
                             text: "Canciones principales"
@@ -394,7 +396,7 @@ Item {
                         }
 
                         Repeater {
-                            model: vm.featured
+                            model: screenVm.featured
                             delegate: songRowComponent
                             // ancho gestionado por el ColumnLayout padre
                         }
@@ -405,7 +407,7 @@ Item {
                 ColumnLayout {
                     Layout.fillWidth: true
                     spacing: Theme.spacingXs
-                    visible: vm.rest.rowCount() > 0
+                    visible: screenVm.rest.rowCount() > 0
 
                     Label {
                         text: "Más canciones"
@@ -417,7 +419,7 @@ Item {
                     }
 
                     Repeater {
-                        model: vm.rest
+                        model: screenVm.rest
                         delegate: restSongRowComponent
                     }
                 }
@@ -429,10 +431,10 @@ Item {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && vm.errorText === "" && vm.category !== "song"
-                     && (((vm.category === "album" || vm.category === "podcast")
-                          && vm.albums.rowCount() > 0)
-                         || (vm.category === "playlist" && vm.playlists.rowCount() > 0))
+            visible: !screenVm.loading && screenVm.errorText === "" && screenVm.category !== "song"
+                     && (((screenVm.category === "album" || screenVm.category === "podcast")
+                          && screenVm.albums.rowCount() > 0)
+                         || (screenVm.category === "playlist" && screenVm.playlists.rowCount() > 0))
             clip: true
             cacheBuffer: 400
 
@@ -440,8 +442,8 @@ Item {
             cellWidth: width / cols
             cellHeight: 216
 
-            model: (vm.category === "album" || vm.category === "podcast")
-                   ? vm.albums : vm.playlists
+            model: (screenVm.category === "album" || screenVm.category === "podcast")
+                   ? screenVm.albums : screenVm.playlists
 
             delegate: Item {
                 id: gridCell
@@ -487,8 +489,8 @@ Item {
                             Text {
                                 anchors.centerIn: parent
                                 visible: parent.children[0].status !== Image.Ready
-                                text: vm.category === "podcast" ? ""
-                                      : (vm.category === "album" ? "" : "")
+                                text: screenVm.category === "podcast" ? ""
+                                      : (screenVm.category === "album" ? "" : "")
                                 font.family: root.iconFont
                                 font.pixelSize: 36
                                 color: root.colors["text_secondary"]
@@ -552,7 +554,7 @@ Item {
                         cursorShape: Qt.PointingHandCursor
                         onClicked: {
                             if (gridCell.navigate)
-                                vm.navigate(gridCell.navigate)
+                                screenVm.navigate(gridCell.navigate)
                         }
                     }
                 }
@@ -562,7 +564,7 @@ Item {
         }
     }
 
-    // ── Fila de canción reutilizable (featured usa modelo vm.featured) ─
+    // ── Fila de canción reutilizable (featured usa modelo screenVm.featured) ─
     Component {
         id: songRowComponent
 
@@ -644,23 +646,23 @@ Item {
                     id: songMenu
                     ContextMenuItem {
                         text: "Reproducir siguiente"
-                        onTriggered: vm.featured_action(songRow.index, "play_next")
+                        onTriggered: screenVm.featured_action(songRow.index, "play_next")
                     }
                     ContextMenuItem {
                         text: "Añadir a la cola"
-                        onTriggered: vm.featured_action(songRow.index, "add_to_queue")
+                        onTriggered: screenVm.featured_action(songRow.index, "add_to_queue")
                     }
                     ContextMenuItem {
                         text: "Me gusta"
-                        onTriggered: vm.featured_action(songRow.index, "like")
+                        onTriggered: screenVm.featured_action(songRow.index, "like")
                     }
                     ContextMenuItem {
                         text: "Añadir a playlist"
-                        onTriggered: vm.featured_action(songRow.index, "add_to_playlist")
+                        onTriggered: screenVm.featured_action(songRow.index, "add_to_playlist")
                     }
                     ContextMenuItem {
                         text: "Descargar"
-                        onTriggered: vm.featured_action(songRow.index, "download")
+                        onTriggered: screenVm.featured_action(songRow.index, "download")
                     }
                 }
             }
@@ -673,7 +675,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: (mouse) => {
                     if (mouse.button === Qt.LeftButton)
-                        vm.play_featured(songRow.index)
+                        screenVm.play_featured(songRow.index)
                     else
                         songMenu.popup()
                 }
@@ -681,7 +683,7 @@ Item {
         }
     }
 
-    // ── Variante para el resto (modelo vm.rest) ───────────────────────
+    // ── Variante para el resto (modelo screenVm.rest) ───────────────────────
     Component {
         id: restSongRowComponent
 
@@ -763,23 +765,23 @@ Item {
                     id: restMenu
                     ContextMenuItem {
                         text: "Reproducir siguiente"
-                        onTriggered: vm.rest_action(restRow.index, "play_next")
+                        onTriggered: screenVm.rest_action(restRow.index, "play_next")
                     }
                     ContextMenuItem {
                         text: "Añadir a la cola"
-                        onTriggered: vm.rest_action(restRow.index, "add_to_queue")
+                        onTriggered: screenVm.rest_action(restRow.index, "add_to_queue")
                     }
                     ContextMenuItem {
                         text: "Me gusta"
-                        onTriggered: vm.rest_action(restRow.index, "like")
+                        onTriggered: screenVm.rest_action(restRow.index, "like")
                     }
                     ContextMenuItem {
                         text: "Añadir a playlist"
-                        onTriggered: vm.rest_action(restRow.index, "add_to_playlist")
+                        onTriggered: screenVm.rest_action(restRow.index, "add_to_playlist")
                     }
                     ContextMenuItem {
                         text: "Descargar"
-                        onTriggered: vm.rest_action(restRow.index, "download")
+                        onTriggered: screenVm.rest_action(restRow.index, "download")
                     }
                 }
             }
@@ -792,7 +794,7 @@ Item {
                 acceptedButtons: Qt.LeftButton | Qt.RightButton
                 onClicked: (mouse) => {
                     if (mouse.button === Qt.LeftButton)
-                        vm.play_rest(restRow.index)
+                        screenVm.play_rest(restRow.index)
                     else
                         restMenu.popup()
                 }

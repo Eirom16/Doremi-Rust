@@ -6,6 +6,8 @@ import Doremi 1.0
 Item {
     id: root
 
+    property var screenVm: null
+
     // themeBridge (ThemeBridge) y vm (HistoryViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
 
@@ -86,8 +88,8 @@ Item {
             id: listView
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !vm.loading && !vm.empty
-            model: vm.model
+            visible: !screenVm.loading && !screenVm.empty
+            model: screenVm.model
             clip: true
             spacing: Theme.spacingXs
             cacheBuffer: 600 // pre-render extra para scroll suave
@@ -168,7 +170,7 @@ Item {
                     acceptedButtons: Qt.LeftButton | Qt.RightButton
                     onClicked: (mouse) => {
                         if (mouse.button === Qt.LeftButton)
-                            vm.play_at(row.index)
+                            screenVm.play_at(row.index)
                         else
                             rowMenu.popup()
                     }
@@ -177,31 +179,31 @@ Item {
                         id: rowMenu
                         ContextMenuItem {
                             text: "Reproducir"
-                            onTriggered: vm.play_at(row.index)
+                            onTriggered: screenVm.play_at(row.index)
                         }
                         ContextMenuItem {
                             text: "Reproducir siguiente"
-                            onTriggered: vm.action_at(row.index, "play_next")
+                            onTriggered: screenVm.action_at(row.index, "play_next")
                         }
                         ContextMenuItem {
                             text: "Añadir a la cola"
-                            onTriggered: vm.action_at(row.index, "add_to_queue")
+                            onTriggered: screenVm.action_at(row.index, "add_to_queue")
                         }
                         ContextMenuItem {
                             text: "Me gusta"
-                            onTriggered: vm.action_at(row.index, "like")
+                            onTriggered: screenVm.action_at(row.index, "like")
                         }
                         ContextMenuItem {
                             text: "Añadir a playlist"
-                            onTriggered: vm.action_at(row.index, "add_to_playlist")
+                            onTriggered: screenVm.action_at(row.index, "add_to_playlist")
                         }
                         ContextMenuItem {
                             text: "Descargar"
-                            onTriggered: vm.action_at(row.index, "download")
+                            onTriggered: screenVm.action_at(row.index, "download")
                         }
                         ContextMenuItem {
                             text: "Ir al artista"
-                            onTriggered: vm.action_at(row.index, "go_artist")
+                            onTriggered: screenVm.action_at(row.index, "go_artist")
                         }
                     }
                 }
@@ -216,13 +218,13 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vm.loading
+            visible: screenVm.loading
             spacing: Theme.spacingMd
 
             Item { Layout.fillHeight: true }
             BusyIndicator {
                 Layout.alignment: Qt.AlignHCenter
-                running: vm.loading
+                running: screenVm.loading
             }
             Label {
                 text: "Cargando historial…"
@@ -237,7 +239,7 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: vm.empty && !vm.loading
+            visible: screenVm.empty && !screenVm.loading
             spacing: Theme.spacingMd
 
             Item { Layout.fillHeight: true }
@@ -295,6 +297,6 @@ Item {
             color: root.colors["text_primary"]
         }
 
-        onAccepted: vm.clear()
+        onAccepted: screenVm.clear()
     }
 }
