@@ -43,7 +43,7 @@ class NavSidebarQml(QObject):
     @Property(str, constant=True)
     def appIconSource(self) -> str:
         return QUrl.fromLocalFile(
-            str(AppDirs.root / "assets" / "Doremi_Withoth_Background.png")
+            str(AppDirs.root / "assets" / "Doremi.png")
         ).toString()
 
     def _get_sidebar_width(self) -> int:

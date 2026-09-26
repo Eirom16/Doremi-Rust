@@ -55,6 +55,9 @@ def test_navigation_sidebar_is_a_theme_bound_qml_surface():
     assert "ToolTip.visible" in source
     assert 'navigationController.activeRoute === "playlist"' in source
 
+    presenter = Path("src/doremi/ui/widgets/nav_sidebar_qml.py").read_text(encoding="utf-8")
+    assert '"Doremi.png"' in presenter
+
 
 def test_offline_banner_is_a_theme_bound_qml_surface():
     source = Path("src/doremi/ui/qml/Doremi/OfflineBanner.qml").read_text(encoding="utf-8")
