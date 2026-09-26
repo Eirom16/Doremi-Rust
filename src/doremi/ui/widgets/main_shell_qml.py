@@ -61,3 +61,8 @@ class MainShellQml(QQuickWidget):
         root = self.rootObject()
         if root is not None:
             root.setProperty("notificationsOpen", bool(is_open))
+
+    def set_toast_controller(self, controller) -> None:
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("toastController", controller)

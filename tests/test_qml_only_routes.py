@@ -136,9 +136,9 @@ def test_qml_screen_host_can_replace_the_widget_stack():
     assert "fadeIn" in source
     assert "QStackedWidget" not in source
 
-    adapter = Path("src/doremi/ui/widgets/screen_host_qml.py").read_text(encoding="utf-8")
-    assert "QmlRouteStack" in adapter
-    assert "show_screen" in adapter
+    router = Path("src/doremi/ui/widgets/screen_host_qml.py").read_text(encoding="utf-8")
+    assert "QmlRouteStack" in router
+    assert "show_screen" in router
 
 
 def test_main_shell_composes_the_qml_application_frame():

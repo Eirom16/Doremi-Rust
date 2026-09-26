@@ -10,6 +10,7 @@ Item {
     property var offlineController: null
     property var notificationController: null
     property var playerController: null
+    property var toastController: null
     property url screenSource: ""
     property var screenVm: null
     property bool notificationsOpen: false
@@ -120,6 +121,16 @@ Item {
             visible: themeBridge.miniPlayerVisible && !root.showingNowPlaying
             z: 2
             playerController: root.playerController
+        }
+
+        Toast {
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.rightMargin: Theme.spacingLg
+            anchors.bottomMargin: Theme.spacingXxl
+            width: 380
+            z: 8
+            toastVm: root.toastController
         }
     }
 }

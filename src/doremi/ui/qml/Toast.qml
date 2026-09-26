@@ -4,6 +4,7 @@ import Doremi
 
 Item {
     id: root
+    property var toastVm: null
     width: 380
     height: toastCard.implicitHeight
     visible: toastVm && toastVm.visible
