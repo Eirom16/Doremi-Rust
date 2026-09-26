@@ -67,6 +67,7 @@ class NowPlayingScreenQml(QObject):
         self.settings = settings
         self._play_queue_item_cb = play_queue_item_cb
         self._video_task: asyncio.Task | None = None
+        self._active = False
         self._video_request_generation = 0
         self._video_player = None
         self._video_audio = None
@@ -124,6 +125,20 @@ class NowPlayingScreenQml(QObject):
     @property
     def is_ok(self) -> bool:
         return self._load_ok
+
+    def set_active(self, active: bool) -> None:
+        self._active = bool(active)
+        if self._active:
+            self._sync_video_player()
+        elif self._video_player is not None:
+            self._video_player.stop()
+
+    def close(self) -> None:
+        """Release video resources retained by the former widget lifecycle."""
+        self._cancel_video_request()
+        self._vm.clear_video()
+        if self._video_player is not None:
+            self._video_player.stop()
 
     # ── Find MainWindow (paridad con versión widgets) ──────────────────────
 
@@ -286,6 +301,8 @@ class NowPlayingScreenQml(QObject):
             return False
 
     def _sync_video_player(self) -> None:
+        if not self._active:
+            return
         if self._vm.mediaMode != "video" or not self._vm.videoStreamUrl:
             if self._video_player is not None:
                 self._stop_video_player()

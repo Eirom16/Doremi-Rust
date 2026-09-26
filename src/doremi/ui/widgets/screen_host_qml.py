@@ -69,7 +69,14 @@ class QmlRouteStack:
     def setCurrentIndex(self, index: int) -> None:
         if not 0 <= index < len(self._screens):
             return
+        for screen in self._screens:
+            set_active = getattr(screen, "set_active", None)
+            if callable(set_active):
+                set_active(False)
         self._current_index = index
+        set_active = getattr(self._screens[index], "set_active", None)
+        if callable(set_active):
+            set_active(True)
         self._host.show_screen(self._screens[index])
 
     def setCurrentIndexAnimated(self, index: int) -> None:
