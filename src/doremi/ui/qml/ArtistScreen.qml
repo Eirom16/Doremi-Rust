@@ -562,7 +562,7 @@ Item {
                             Rectangle {
                                 anchors.fill: parent
                                 radius: width / 2
-                                color: relMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                                color: relMa.containsMouse ? root.accentWithAlpha(0.08) : "transparent"
                                 border.width: 1
                                 border.color: relMa.containsMouse ? root.accentColor : "transparent"
                             }

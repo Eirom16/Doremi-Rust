@@ -22,7 +22,7 @@ Item {
     // ── Fondo ambiental: artwork difuminado ──────────────────────────────
     Rectangle {
         anchors.fill: parent
-        color: root.colors ? root.colors["bg_base"] : "#11111b"
+        color: root.colors["bg_base"]
     }
     Image {
         id: ambientImg
@@ -42,7 +42,7 @@ Item {
     }
     Rectangle {
         anchors.fill: parent
-        color: root.colors ? root.colors["bg_base"] : "#11111b"
+        color: root.colors["bg_base"]
         opacity: ambientImg.status === Image.Ready ? 0.4 : 0.0
     }
 
@@ -330,7 +330,7 @@ Item {
                         Layout.preferredWidth: 44
                         Layout.preferredHeight: 44
                         radius: 22
-                        color: likeMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                        color: likeMa.containsMouse ? root.accentWithAlpha(0.06) : "transparent"
 
                         Text {
                             anchors.centerIn: parent
@@ -907,7 +907,7 @@ Item {
         Layout.preferredWidth: big ? 48 : 42
         Layout.preferredHeight: big ? 48 : 42
         radius: width / 2
-        color: ctrlMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+        color: ctrlMa.containsMouse ? root.accentWithAlpha(0.08) : "transparent"
 
         Text {
             anchors.centerIn: parent

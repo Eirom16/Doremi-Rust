@@ -60,7 +60,7 @@ Item {
                 width: clearLabel.implicitWidth + Theme.spacingLg * 2
                 height: 40
                 radius: Theme.radiusPill
-                color: hovered ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                color: hovered ? root.colors["accent_dim"] : "transparent"
                 border.width: 1
                 border.color: root.colors["error"]
 
@@ -269,7 +269,7 @@ Item {
         anchors.margins: Theme.spacingSm
         width: fpsLabel.implicitWidth + Theme.spacingMd
         height: fpsLabel.implicitHeight + Theme.spacingXs
-        color: root.colors ? root.colors["bg_base"] : "#11111b"
+        color: root.colors["bg_base"]
         opacity: 0.8
         radius: Theme.radiusSm
         z: 100
@@ -278,7 +278,8 @@ Item {
             id: fpsLabel
             anchors.centerIn: parent
             text: root.fps + " fps"
-            color: root.fps >= 55 ? "#34D399" : (root.fps >= 30 ? "#FBBF24" : "#F87171")
+            color: root.fps >= 55 ? root.colors["success"]
+                                  : (root.fps >= 30 ? root.colors["warning"] : root.colors["error"])
             font.pixelSize: Theme.typeLabel
             font.family: Theme.fontMono
         }

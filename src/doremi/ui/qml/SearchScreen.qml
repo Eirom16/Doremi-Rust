@@ -294,7 +294,7 @@ Item {
 
                                         Rectangle {
                                             width: 44; height: 44; radius: 22
-                                            color: topMenuMa.containsMouse ? Qt.rgba(1, 1, 1, 0.08) : "transparent"
+                                            color: topMenuMa.containsMouse ? root.accentWithAlpha(0.08) : "transparent"
                                             Text {
                                                 anchors.centerIn: parent
                                                 text: "" // more_vert
@@ -505,7 +505,7 @@ Item {
                                 width: dlBadge.implicitWidth + Theme.spacingSm
                                 height: 22
                                 radius: Theme.radiusPill
-                                color: root.colors ? Qt.rgba(0, 0, 0, 0.7) : "#cc000000"
+                                color: root.colors["bg_overlay"]
 
                                 Row {
                                     anchors.centerIn: parent

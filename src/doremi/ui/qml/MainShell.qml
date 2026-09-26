@@ -11,9 +11,12 @@ Item {
     property var notificationController: null
     property var playerController: null
     property var toastController: null
+    property var closeController: null
     property url screenSource: ""
     property var screenVm: null
     property bool notificationsOpen: false
+    property bool closeConfirmationVisible: false
+    property int activeDownloadCount: 0
 
     readonly property int expandedSidebarWidth: 214
     readonly property int collapsedSidebarWidth: 64
@@ -132,5 +135,39 @@ Item {
             z: 8
             toastVm: root.toastController
         }
+    }
+
+    ModalDialog {
+        id: closeConfirmation
+        dialogTitle: "Descargas activas"
+        confirmText: "Salir"
+        cancelText: "Cancelar"
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        contentItemData: [
+            Text {
+                width: 360
+                text: "Hay " + root.activeDownloadCount
+                      + " descargas en curso o en cola. ¿Salir de todos modos?"
+                wrapMode: Text.WordWrap
+                color: themeBridge.colors["text_secondary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeBody
+            }
+        ]
+
+        onConfirmed: root.closeController.confirm_close_with_downloads()
+        onCancelled: root.closeController.cancel_close_with_downloads()
+        onClosed: {
+            if (root.closeConfirmationVisible)
+                root.closeController.cancel_close_with_downloads()
+        }
+    }
+
+    onCloseConfirmationVisibleChanged: {
+        if (closeConfirmationVisible)
+            closeConfirmation.open()
+        else
+            closeConfirmation.close()
     }
 }

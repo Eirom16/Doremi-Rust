@@ -329,7 +329,7 @@ Item {
                             // Menu button
                             Rectangle {
                                 width: 32; height: 32; radius: 16
-                                color: tileMenuMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                                color: tileMenuMa.containsMouse ? root.colors["accent_dim"] : "transparent"
                                 opacity: hovered ? 1.0 : 0.0
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
 
@@ -627,7 +627,7 @@ Item {
                         // Menu
                         Rectangle {
                             width: 36; height: 36; radius: 18
-                            color: songMenuMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                            color: songMenuMa.containsMouse ? root.colors["accent_dim"] : "transparent"
                             opacity: (songMa.containsMouse || songMenuMa.containsMouse) ? 1.0 : 0.0
                             Behavior on opacity { NumberAnimation { duration: 120 } }
 

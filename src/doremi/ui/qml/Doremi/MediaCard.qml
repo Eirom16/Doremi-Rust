@@ -17,18 +17,12 @@ Rectangle {
     signal playClicked()
     signal menuClicked()
 
-    property var colors: (typeof themeBridge !== "undefined" && themeBridge && themeBridge.colors)
-                         ? themeBridge.colors
-                         : null
+    readonly property var colors: themeBridge.colors
 
     radius: Theme.radiusLg
-    color: ma.containsMouse
-           ? (root.colors ? root.colors["bg_high"] : "#313244")
-           : (root.colors ? root.colors["bg_surface"] : "#1e1e2e")
+    color: ma.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
     border.width: 1
-    border.color: ma.containsMouse
-                  ? (root.colors ? root.colors["border_focus"] : "#585b70")
-                  : (root.colors ? root.colors["border"] : "#313244")
+    border.color: ma.containsMouse ? root.colors["border_focus"] : root.colors["border"]
 
     Behavior on color { ColorAnimation { duration: 120 } }
     Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -50,7 +44,7 @@ Rectangle {
             Layout.fillWidth: true
             Layout.fillHeight: true
             radius: root.isArtist ? height / 2 : Theme.radiusMd
-            color: root.colors ? root.colors["bg_elevated"] : "#181825"
+            color: root.colors["bg_elevated"]
             clip: true
 
             Image {
@@ -64,14 +58,14 @@ Rectangle {
             Rectangle {
                 anchors.fill: parent
                 visible: root.thumbnail === ""
-                color: root.colors ? root.colors["bg_elevated"] : "#181825"
+                color: root.colors["bg_elevated"]
 
                 Text {
                     anchors.centerIn: parent
                     text: root.isArtist ? "" : ""
                     font.family: "Material Symbols Rounded"
                     font.pixelSize: 36
-                    color: root.colors ? root.colors["text_disabled"] : "#6c7086"
+                    color: root.colors["text_disabled"]
                 }
             }
 
@@ -83,7 +77,7 @@ Rectangle {
                 width: 38
                 height: 38
                 radius: 19
-                color: root.colors ? root.colors["accent"] : "#cba6f7"
+                color: root.colors["accent"]
                 opacity: root.hovered ? 1.0 : 0.0
                 scale: root.hovered ? 1.0 : 0.8
                 visible: !root.isArtist
@@ -96,7 +90,7 @@ Rectangle {
                     text: ""
                     font.family: "Material Symbols Rounded"
                     font.pixelSize: 22
-                    color: root.colors ? root.colors["bg_base"] : "#11111b"
+                    color: root.colors["bg_base"]
                 }
 
                 MouseArea {
@@ -116,7 +110,7 @@ Rectangle {
                 width: 20
                 height: 20
                 radius: 10
-                color: root.colors ? root.colors["bg_base"] : "#11111b"
+                color: root.colors["bg_base"]
                 visible: root.isDownloaded
 
                 Text {
@@ -124,7 +118,7 @@ Rectangle {
                     text: ""
                     font.family: "Material Symbols Rounded"
                     font.pixelSize: 13
-                    color: root.colors ? root.colors["accent"] : "#cba6f7"
+                    color: root.colors["accent"]
                 }
             }
         }
@@ -135,7 +129,7 @@ Rectangle {
             font.family: Theme.fontFamily
             font.pixelSize: Theme.typeBody
             font.weight: Font.Medium
-            color: root.colors ? root.colors["text_primary"] : "#cdd6f4"
+            color: root.colors["text_primary"]
             elide: Text.ElideRight
             horizontalAlignment: root.isArtist ? Text.AlignHCenter : Text.AlignLeft
         }
@@ -145,7 +139,7 @@ Rectangle {
             text: root.subtitle
             font.family: Theme.fontFamily
             font.pixelSize: Theme.typeCaption
-            color: root.colors ? root.colors["text_secondary"] : "#a6adc8"
+            color: root.colors["text_secondary"]
             elide: Text.ElideRight
             visible: root.subtitle !== ""
             horizontalAlignment: root.isArtist ? Text.AlignHCenter : Text.AlignLeft

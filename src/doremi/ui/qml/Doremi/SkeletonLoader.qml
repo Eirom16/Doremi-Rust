@@ -6,11 +6,9 @@ Rectangle {
     id: root
 
     property int borderRadius: Theme.radiusMd
-    property color baseColor: root.colors ? root.colors["bg_surface"] : "#1e1e2e"
-    property color highlightColor: root.colors ? root.colors["bg_high"] : "#313244"
-    property var colors: (typeof themeBridge !== "undefined" && themeBridge && themeBridge.colors)
-                         ? themeBridge.colors
-                         : null
+    readonly property var colors: themeBridge.colors
+    property color baseColor: root.colors["bg_surface"]
+    property color highlightColor: root.colors["bg_high"]
 
     radius: borderRadius
     color: baseColor

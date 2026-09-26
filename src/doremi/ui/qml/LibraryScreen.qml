@@ -474,7 +474,7 @@ Item {
                                 width: dlBadge.implicitWidth + Theme.spacingSm
                                 height: 22
                                 radius: Theme.radiusPill
-                                color: root.colors ? Qt.rgba(0, 0, 0, 0.7) : "#cc000000"
+                                color: root.colors["bg_overlay"]
 
                                 Row {
                                     anchors.centerIn: parent

@@ -86,7 +86,7 @@ Item {
                     Rectangle {
                         anchors.fill: parent
                         visible: playerController.loading
-                        color: Qt.rgba(0, 0, 0, 0.55)
+                        color: root.colors["bg_overlay"]
                         BusyIndicator {
                             anchors.centerIn: parent
                             running: playerController.loading

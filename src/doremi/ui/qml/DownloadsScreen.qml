@@ -377,7 +377,7 @@ Item {
                     Rectangle {
                         visible: !screenVm.selectionMode && row.status === "completed"
                         width: 36; height: 36; radius: 18
-                        color: likeMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                        color: likeMa.containsMouse ? root.accentWithAlpha(0.06) : "transparent"
 
                         Text {
                             anchors.centerIn: parent
@@ -421,7 +421,7 @@ Item {
                     Rectangle {
                         visible: !screenVm.selectionMode
                         width: 36; height: 36; radius: 18
-                        color: menuMa.containsMouse ? Qt.rgba(1, 1, 1, 0.06) : "transparent"
+                        color: menuMa.containsMouse ? root.accentWithAlpha(0.06) : "transparent"
 
                         Text {
                             anchors.centerIn: parent
@@ -537,9 +537,9 @@ Item {
                                 anchors.right: parent.right
                                 anchors.margins: Theme.spacingXs
                                 width: 26; height: 26; radius: 13
-                                color: gridCell.selected ? root.accentColor : "#CC000000"
+                                color: gridCell.selected ? root.accentColor : root.colors["bg_overlay"]
                                 border.width: 2
-                                border.color: gridCell.selected ? root.accentColor : "#80FFFFFF"
+                                border.color: gridCell.selected ? root.accentColor : root.colors["border_focus"]
 
                                 Text {
                                     anchors.centerIn: parent

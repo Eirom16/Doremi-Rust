@@ -25,6 +25,7 @@ class MainShellQml(QQuickWidget):
         offline_banner,
         notification_panel,
         mini_player,
+        close_controller,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -39,6 +40,7 @@ class MainShellQml(QQuickWidget):
             "offlineController": offline_banner,
             "notificationController": notification_panel._vm,
             "playerController": mini_player._vm,
+            "closeController": close_controller,
         })
         self.setSource(QUrl.fromLocalFile(str(QML_DIR / "MainShell.qml")))
         self._load_ok = self.status() == QQuickWidget.Status.Ready
@@ -66,3 +68,9 @@ class MainShellQml(QQuickWidget):
         root = self.rootObject()
         if root is not None:
             root.setProperty("toastController", controller)
+
+    def set_close_confirmation(self, visible: bool, active_downloads: int = 0) -> None:
+        root = self.rootObject()
+        if root is not None:
+            root.setProperty("activeDownloadCount", max(0, int(active_downloads)))
+            root.setProperty("closeConfirmationVisible", bool(visible))

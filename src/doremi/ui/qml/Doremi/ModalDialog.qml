@@ -16,9 +16,7 @@ Popup {
     signal confirmed()
     signal cancelled()
 
-    property var colors: (typeof themeBridge !== "undefined" && themeBridge && themeBridge.colors)
-                         ? themeBridge.colors
-                         : null
+    readonly property var colors: themeBridge.colors
 
     modal: true
     focus: true
@@ -31,7 +29,7 @@ Popup {
     }
 
     Overlay.modal: Rectangle {
-        color: Qt.rgba(0, 0, 0, 0.6)
+        color: root.colors["bg_overlay"]
         
         Behavior on opacity {
             NumberAnimation { duration: 150 }
@@ -42,9 +40,9 @@ Popup {
         implicitWidth: 420
         implicitHeight: dialogLayout.implicitHeight + Theme.spacingLg * 2
         radius: Theme.radiusLg
-        color: root.colors ? root.colors["bg_surface"] : "#1e1e2e"
+        color: root.colors["bg_surface"]
         border.width: 1
-        border.color: root.colors ? root.colors["border"] : "#313244"
+        border.color: root.colors["border"]
         clip: true
 
         ColumnLayout {
@@ -64,7 +62,7 @@ Popup {
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeTitle
                     font.weight: Font.Bold
-                    color: root.colors ? root.colors["text_primary"] : "#cdd6f4"
+                    color: root.colors["text_primary"]
                     elide: Text.ElideRight
                 }
 
@@ -72,16 +70,14 @@ Popup {
                     width: 28
                     height: 28
                     radius: 14
-                    color: closeMa.containsMouse
-                           ? (root.colors ? root.colors["bg_high"] : "#45475a")
-                           : "transparent"
+                    color: closeMa.containsMouse ? root.colors["bg_high"] : "transparent"
 
                     Text {
                         anchors.centerIn: parent
                         text: ""
                         font.family: "Material Symbols Rounded"
                         font.pixelSize: 18
-                        color: root.colors ? root.colors["text_secondary"] : "#a6adc8"
+                        color: root.colors["text_secondary"]
                     }
 
                     MouseArea {
@@ -118,11 +114,9 @@ Popup {
                     implicitWidth: cancelLbl.implicitWidth + Theme.spacingLg * 2
                     implicitHeight: 36
                     radius: Theme.radiusMd
-                    color: cancelMa.containsMouse
-                           ? (root.colors ? root.colors["bg_high"] : "#45475a")
-                           : (root.colors ? root.colors["bg_surface"] : "#181825")
+                    color: cancelMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
                     border.width: 1
-                    border.color: root.colors ? root.colors["border"] : "#313244"
+                    border.color: root.colors["border"]
 
                     Text {
                         id: cancelLbl
@@ -130,7 +124,7 @@ Popup {
                         text: root.cancelText
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeLabel
-                        color: root.colors ? root.colors["text_primary"] : "#cdd6f4"
+                        color: root.colors["text_primary"]
                     }
 
                     MouseArea {
@@ -151,9 +145,7 @@ Popup {
                     implicitWidth: confirmLbl.implicitWidth + Theme.spacingLg * 2
                     implicitHeight: 36
                     radius: Theme.radiusMd
-                    color: confirmMa.containsMouse
-                           ? (root.colors ? root.colors["accent_bright"] : "#f5c2e7")
-                           : (root.colors ? root.colors["accent"] : "#cba6f7")
+                    color: confirmMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
 
                     Text {
                         id: confirmLbl
@@ -162,7 +154,7 @@ Popup {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeLabel
                         font.weight: Font.Bold
-                        color: root.colors ? root.colors["bg_base"] : "#11111b"
+                        color: root.colors["bg_base"]
                     }
 
                     MouseArea {

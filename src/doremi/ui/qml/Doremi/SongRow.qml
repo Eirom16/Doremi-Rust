@@ -19,17 +19,12 @@ Rectangle {
     signal likeRequested()
     signal menuRequested()
 
-    property var colors: (typeof themeBridge !== "undefined" && themeBridge && themeBridge.colors)
-                         ? themeBridge.colors
-                         : null
+    readonly property var colors: themeBridge.colors
 
     implicitHeight: 48
     radius: Theme.radiusMd
-    color: root.isPlaying
-           ? (root.colors ? root.colors["bg_high"] : "#313244")
-           : (ma.containsMouse
-              ? (root.colors ? root.colors["bg_surface"] : "#1e1e2e")
-              : "transparent")
+    color: root.isPlaying ? root.colors["bg_high"]
+                          : (ma.containsMouse ? root.colors["bg_surface"] : "transparent")
 
     Behavior on color { ColorAnimation { duration: 100 } }
 
@@ -57,9 +52,7 @@ Rectangle {
                 text: root.isPlaying ? "" : (ma.containsMouse ? "" : (root.itemIndex + 1).toString())
                 font.family: (root.isPlaying || ma.containsMouse) ? "Material Symbols Rounded" : Theme.fontMono
                 font.pixelSize: (root.isPlaying || ma.containsMouse) ? 18 : Theme.typeCaption
-                color: root.isPlaying
-                       ? (root.colors ? root.colors["accent"] : "#cba6f7")
-                       : (root.colors ? root.colors["text_secondary"] : "#a6adc8")
+                color: root.isPlaying ? root.colors["accent"] : root.colors["text_secondary"]
             }
         }
 
@@ -69,7 +62,7 @@ Rectangle {
             width: 32
             height: 32
             radius: Theme.radiusSm
-            color: root.colors ? root.colors["bg_elevated"] : "#181825"
+            color: root.colors["bg_elevated"]
             clip: true
 
             Image {
@@ -91,9 +84,7 @@ Rectangle {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeBody
                 font.weight: root.isPlaying ? Font.Bold : Font.Normal
-                color: root.isPlaying
-                       ? (root.colors ? root.colors["accent"] : "#cba6f7")
-                       : (root.colors ? root.colors["text_primary"] : "#cdd6f4")
+                color: root.isPlaying ? root.colors["accent"] : root.colors["text_primary"]
                 elide: Text.ElideRight
             }
 
@@ -102,7 +93,7 @@ Rectangle {
                 text: root.artist
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeCaption
-                color: root.colors ? root.colors["text_secondary"] : "#a6adc8"
+                color: root.colors["text_secondary"]
                 elide: Text.ElideRight
                 visible: root.artist !== ""
             }
@@ -114,7 +105,7 @@ Rectangle {
             text: ""
             font.family: "Material Symbols Rounded"
             font.pixelSize: 16
-            color: root.colors ? root.colors["accent"] : "#cba6f7"
+            color: root.colors["accent"]
         }
 
         // Like Button
@@ -122,18 +113,14 @@ Rectangle {
             width: 28
             height: 28
             radius: 14
-            color: likeMa.containsMouse
-                   ? (root.colors ? root.colors["bg_high"] : "#45475a")
-                   : "transparent"
+            color: likeMa.containsMouse ? root.colors["bg_high"] : "transparent"
 
             Text {
                 anchors.centerIn: parent
                 text: root.isLiked ? "" : ""
                 font.family: "Material Symbols Rounded"
                 font.pixelSize: 18
-                color: root.isLiked
-                       ? (root.colors ? root.colors["accent"] : "#cba6f7")
-                       : (root.colors ? root.colors["text_disabled"] : "#6c7086")
+                color: root.isLiked ? root.colors["accent"] : root.colors["text_disabled"]
             }
 
             MouseArea {
@@ -150,7 +137,7 @@ Rectangle {
             text: root.duration
             font.family: Theme.fontMono
             font.pixelSize: Theme.typeCaption
-            color: root.colors ? root.colors["text_secondary"] : "#a6adc8"
+            color: root.colors["text_secondary"]
             visible: root.duration !== ""
         }
 
@@ -159,16 +146,14 @@ Rectangle {
             width: 28
             height: 28
             radius: 14
-            color: menuMa.containsMouse
-                   ? (root.colors ? root.colors["bg_high"] : "#45475a")
-                   : "transparent"
+            color: menuMa.containsMouse ? root.colors["bg_high"] : "transparent"
 
             Text {
                 anchors.centerIn: parent
                 text: ""
                 font.family: "Material Symbols Rounded"
                 font.pixelSize: 18
-                color: root.colors ? root.colors["text_secondary"] : "#a6adc8"
+                color: root.colors["text_secondary"]
             }
 
             MouseArea {

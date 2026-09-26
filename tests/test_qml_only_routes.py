@@ -29,6 +29,7 @@ def test_main_window_has_no_legacy_screen_fallbacks():
     assert "OfflineStateQml" in source
     assert "ErrorStateWidget" not in source
     assert "global_search import" not in source
+    assert "QMessageBox" not in source
     assert "_require_qml" in source
 
 
@@ -68,6 +69,16 @@ def test_qml_surfaces_do_not_need_imperative_theme_refreshes():
 
     assert '("sidebar", "_update_sidebar_styles")' not in source
     assert '("offline_banner", "_apply_style")' not in source
+
+
+def test_qml_uses_theme_tokens_instead_of_embedded_color_palettes():
+    """Todas las superficies QML activas comparten el tema dinámico."""
+    qml_dir = Path("src/doremi/ui/qml")
+    for source in qml_dir.rglob("*.qml"):
+        content = source.read_text(encoding="utf-8")
+        assert "#" not in content, source
+        assert "Qt.rgba(0, 0, 0" not in content, source
+        assert "Qt.rgba(1, 1, 1" not in content, source
 
 
 def test_transient_notifications_are_rendered_by_qml():
@@ -146,10 +157,11 @@ def test_main_shell_composes_the_qml_application_frame():
 
     for component in (
         "NavigationSidebar", "HeaderBar", "OfflineBanner", "ScreenHost",
-        "NotificationPanel", "MiniPlayer",
+        "NotificationPanel", "MiniPlayer", "ModalDialog",
     ):
         assert component in source
     assert "FadeStackedWidget" not in source
+    assert "closeConfirmationVisible" in source
 
 
 def test_update_dialog_is_a_theme_bound_qml_overlay():

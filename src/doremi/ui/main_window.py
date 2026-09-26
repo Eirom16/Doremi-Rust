@@ -2,9 +2,9 @@ import asyncio
 import json
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QFrame, QMessageBox
+    QFrame
 )
-from PySide6.QtCore import QByteArray, Qt, QSize, QEasingCurve, QPropertyAnimation, Property, QTimer
+from PySide6.QtCore import QByteArray, Qt, QSize, QEasingCurve, QPropertyAnimation, Property, QTimer, Slot
 from qasync import asyncSlot
 from loguru import logger
 from doremi.config.settings import AppSettings
@@ -81,6 +81,8 @@ class MainWindow(QMainWindow):
         self.scrobbler: LastFmScrobbler | None = None
         self.discord: DiscordRPC | None = None
         self._force_close = False
+        self._close_confirmation_pending = False
+        self._skip_download_close_prompt = False
         from doremi.config.paths import AppDirs
         self._window_state_file = AppDirs.data / "window_state.json"
         self._current_route = "home"
@@ -375,6 +377,7 @@ class MainWindow(QMainWindow):
                 offline_banner=self.offline_banner,
                 notification_panel=self.notification_panel,
                 mini_player=self.mini_player,
+                close_controller=self,
                 parent=central,
             ),
         )
@@ -865,6 +868,24 @@ class MainWindow(QMainWindow):
         self._force_close = True
         self.close()
 
+    @Slot()
+    def confirm_close_with_downloads(self) -> None:
+        """Continue the close flow after its QML confirmation."""
+        self._close_confirmation_pending = False
+        self._skip_download_close_prompt = True
+        shell = getattr(self, "main_shell", None)
+        if shell is not None:
+            shell.set_close_confirmation(False)
+        self.close()
+
+    @Slot()
+    def cancel_close_with_downloads(self) -> None:
+        """Keep the application open after its QML confirmation is dismissed."""
+        self._close_confirmation_pending = False
+        shell = getattr(self, "main_shell", None)
+        if shell is not None:
+            shell.set_close_confirmation(False)
+
     def closeEvent(self, event) -> None:
         if getattr(self, "_shutdown_complete", False):
             if hasattr(self, "tray") and self.tray:
@@ -874,6 +895,9 @@ class MainWindow(QMainWindow):
         if getattr(self, "_shutdown_task", None) is not None:
             event.ignore()
             return
+        if getattr(self, "_close_confirmation_pending", False):
+            event.ignore()
+            return
         self._save_playback_session()
         self._save_window_state()
         if getattr(self.settings.player, "minimize_to_tray", True) and not getattr(self, "_force_close", False) and hasattr(self, "tray") and self.tray.isVisible():
@@ -881,16 +905,12 @@ class MainWindow(QMainWindow):
             event.ignore()
         else:
             active_downloads = getattr(self.download_manager, "active_count", 0)
-            if active_downloads > 0:
-                result = QMessageBox.question(
-                    self,
-                    "Descargas activas",
-                    f"Hay {active_downloads} descargas en curso o en cola. ¿Salir de todos modos?",
-                    QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Yes,
-                    QMessageBox.StandardButton.Cancel,
-                )
-                if result != QMessageBox.StandardButton.Yes:
-                    event.ignore()
-                    return
+            if active_downloads > 0 and not getattr(self, "_skip_download_close_prompt", False):
+                self._close_confirmation_pending = True
+                shell = getattr(self, "main_shell", None)
+                if shell is not None:
+                    shell.set_close_confirmation(True, active_downloads)
+                event.ignore()
+                return
             event.ignore()
             self._shutdown_task = asyncio.create_task(self._finish_close())
