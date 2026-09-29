@@ -109,10 +109,34 @@ class SongRepository:
 
 class HistoryRepository:
 
-    async def add_entry(self, video_id: str, title: str, artist: str, duration_ms: int) -> None:
+    async def add_entry(
+        self,
+        video_id: str,
+        title: str,
+        artist: str,
+        duration_ms: int,
+        *,
+        listen_time_ms: int = 0,
+        completion_ratio: float = 0.0,
+        skip_count: int = 0,
+        completed: bool = False,
+        was_played: bool = True,
+        context_type: str = "queue",
+        context_id: str = "",
+    ) -> None:
         async with get_session() as session:
             entry = PlayHistory(
-                video_id=video_id, title=title, artist=artist, duration_ms=duration_ms
+                video_id=video_id,
+                title=title,
+                artist=artist,
+                duration_ms=duration_ms,
+                listen_time_ms=listen_time_ms,
+                completion_ratio=completion_ratio,
+                skip_count=skip_count,
+                completed=completed,
+                was_played=was_played,
+                context_type=context_type,
+                context_id=context_id,
             )
             session.add(entry)
             await session.commit()

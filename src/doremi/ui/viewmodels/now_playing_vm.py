@@ -205,11 +205,13 @@ class NowPlayingViewModel(QObject):
     position_changed = Signal()
     control_changed = Signal()      # shuffle / repeat
     lyrics_style_changed = Signal()
-    lyric_index_changed = Signal()
+    appearance_changed = Signal()
+    # Exposed to QML through Connections, whose handler naming convention is
+    # camelCase (onLyricIndexChanged).  The former snake_case signal was not
+    # discoverable by QML and therefore never auto-scrolled active lyrics.
+    lyricIndexChanged = Signal()
     tab_changed = Signal()
     details_changed = Signal()
-    media_mode_changed = Signal()
-    video_changed = Signal()
 
     # Intenciones de la UI (el wrapper las enruta a MainWindow)
     toggle_play_requested = Signal()
@@ -222,10 +224,9 @@ class NowPlayingViewModel(QObject):
     artist_pressed = Signal(str)
     queue_play_at = Signal(int)
     queue_move_requested = Signal(int, int)
+    queue_remove_requested = Signal(int)
     copy_link_requested = Signal(str)
     details_requested = Signal(str)
-    video_requested = Signal(str)
-    video_closed_requested = Signal()
 
     # Mismas señales que NowPlayingScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -245,8 +246,6 @@ class NowPlayingViewModel(QObject):
         self._queue_model = NowPlayingQueueModel(self)
         self._lyrics = LyricsModel(self)
         self._related = RelatedModel(self)
-        self._video_player = None
-        self._video_sink = None
 
         self._title = "No hay canción"
         self._artist_name = ""
@@ -266,6 +265,7 @@ class NowPlayingViewModel(QObject):
         self._lyric_glow = True
         self._lyric_auto_scroll = True
         self._lyric_delay_ms = 0
+        self._show_artwork_blur = True
         self._details_loading = False
         self._detail_artist = ""
         self._detail_album = ""
@@ -273,10 +273,6 @@ class NowPlayingViewModel(QObject):
         self._detail_release_date = ""
         self._detail_license = ""
         self._details_error = ""
-        self._media_mode = "audio"
-        self._video_stream_url = ""
-        self._video_loading = False
-        self._video_error = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -362,7 +358,11 @@ class NowPlayingViewModel(QObject):
     def lyricAutoScroll(self) -> bool:
         return self._lyric_auto_scroll
 
-    @Property(bool, notify=lyric_index_changed)
+    @Property(bool, notify=appearance_changed)
+    def showArtworkBlur(self) -> bool:
+        return self._show_artwork_blur
+
+    @Property(bool, notify=lyricIndexChanged)
     def hasLyrics(self) -> bool:
         return self._lyrics.rowCount() > 0
 
@@ -393,42 +393,6 @@ class NowPlayingViewModel(QObject):
     @Property(str, notify=details_changed)
     def detailsError(self) -> str:
         return self._details_error
-
-    @Property(str, notify=media_mode_changed)
-    def mediaMode(self) -> str:
-        return self._media_mode
-
-    @Property(str, notify=video_changed)
-    def videoStreamUrl(self) -> str:
-        return self._video_stream_url
-
-    @Property(QObject, notify=video_changed)
-    def videoPlayer(self):
-        return self._video_player
-
-    @Property(bool, notify=video_changed)
-    def videoLoading(self) -> bool:
-        return self._video_loading
-
-    @Property(str, notify=video_changed)
-    def videoError(self) -> str:
-        return self._video_error
-
-    @Property(str, constant=True)
-    def videoRetryText(self) -> str:
-        return _("Reintentar")
-
-    def set_video_player(self, player) -> None:
-        self._video_player = player
-        if self._video_sink is not None:
-            player.setVideoSink(self._video_sink)
-        self.video_changed.emit()
-
-    @Slot(QObject)
-    def setVideoSink(self, sink) -> None:
-        self._video_sink = sink
-        if self._video_player is not None:
-            self._video_player.setVideoSink(sink)
 
     @Property(int, notify=position_changed)
     def positionMs(self) -> int:
@@ -466,31 +430,6 @@ class NowPlayingViewModel(QObject):
         self._details_error = message
         self.details_changed.emit()
 
-    def begin_video_loading(self) -> None:
-        self._video_stream_url = ""
-        self._video_loading = True
-        self._video_error = ""
-        self.video_changed.emit()
-
-    def set_video_stream(self, stream_url: str) -> None:
-        self._video_stream_url = stream_url or ""
-        self._video_loading = False
-        self._video_error = "" if stream_url else _("No se pudo cargar el videoclip.")
-        self.video_changed.emit()
-
-    def set_video_error(self, message: str) -> None:
-        self._video_stream_url = ""
-        self._video_loading = False
-        self._video_error = message or _("No se pudo reproducir el videoclip.")
-        self.video_changed.emit()
-
-    def clear_video(self) -> None:
-        if self._video_stream_url or self._video_loading or self._video_error:
-            self._video_stream_url = ""
-            self._video_loading = False
-            self._video_error = ""
-            self.video_changed.emit()
-
     def set_playing(self, playing: bool) -> None:
         if self._playing != playing:
             self._playing = playing
@@ -514,19 +453,19 @@ class NowPlayingViewModel(QObject):
 
     def set_lyrics_loading(self) -> None:
         self._lyrics.set_lines([])
-        self.lyric_index_changed.emit()
+        self.lyricIndexChanged.emit()
 
     def set_lyrics(self, data) -> None:
         self._lyrics.set_lines(parse_lyrics(data))
-        self.lyric_index_changed.emit()
+        self.lyricIndexChanged.emit()
 
     def set_related(self, tracks: list[dict]) -> None:
         self._related.set_items(tracks)
 
-    def set_queue(self, items: list, liked_ids: set) -> None:
+    def set_queue(self, items: list, liked_ids: set, current_index: int | None = None) -> None:
         from doremi.utils.time_utils import format_duration_short
         rows = []
-        for it in items:
+        for index, it in enumerate(items):
             vid = getattr(it, "video_id", "") or ""
             dur_ms = getattr(it, "duration_ms", 0) or 0
             rows.append({
@@ -536,7 +475,7 @@ class NowPlayingViewModel(QObject):
                 "thumbnail_url": getattr(it, "thumbnail_url", "") or "",
                 "videoId": vid,
                 "is_liked": vid in liked_ids,
-                "is_current": vid == self._video_id,
+                "is_current": index == current_index if current_index is not None else vid == self._video_id,
             })
         self._queue_model.set_items(rows)
 
@@ -549,6 +488,12 @@ class NowPlayingViewModel(QObject):
         self._lyric_delay_ms = int(delay_ms)
         self.lyrics_style_changed.emit()
 
+    def set_show_artwork_blur(self, enabled: bool) -> None:
+        enabled = bool(enabled)
+        if self._show_artwork_blur != enabled:
+            self._show_artwork_blur = enabled
+            self.appearance_changed.emit()
+
     def _update_active_lyric(self) -> None:
         adjusted = self._position_ms + 400 + self._lyric_delay_ms
         active = -1
@@ -559,7 +504,7 @@ class NowPlayingViewModel(QObject):
             if ts != -1 and adjusted >= ts:
                 active = i
         if self._lyrics.set_active(active):
-            self.lyric_index_changed.emit()
+            self.lyricIndexChanged.emit()
 
     # ── Slots called from QML ──────────────────────────────────────────────
 
@@ -609,6 +554,11 @@ class NowPlayingViewModel(QObject):
         if 0 <= index < self._queue_model.rowCount() and 0 <= target < self._queue_model.rowCount():
             self.queue_move_requested.emit(index, target)
 
+    @Slot(int)
+    def remove_queue_item(self, index: int) -> None:
+        if 0 <= index < self._queue_model.rowCount():
+            self.queue_remove_requested.emit(index)
+
     @Slot(str)
     def set_tab(self, tab: str) -> None:
         if tab in self.TABS and tab != self._tab:
@@ -654,32 +604,6 @@ class NowPlayingViewModel(QObject):
         self.details_changed.emit()
         self.details_requested.emit(self._video_id)
 
-    @Slot()
-    def request_video_clip(self) -> None:
-        """Solicita el stream visual asociado sin alterar la cola de audio."""
-        if not self._video_id:
-            return
-        if self._media_mode != "video":
-            self._media_mode = "video"
-            self.media_mode_changed.emit()
-        self.video_requested.emit(self._video_id)
-
-    @Slot(str)
-    def report_video_error(self, message: str) -> None:
-        if self._media_mode == "video":
-            self.set_video_error(message)
-
-    @Slot(str)
-    def set_media_mode(self, mode: str) -> None:
-        if mode not in ("audio", "video") or mode == self._media_mode:
-            return
-        self._media_mode = mode
-        self.media_mode_changed.emit()
-        if mode == "video":
-            self.request_video_clip()
-        else:
-            self.video_closed_requested.emit()
-
     @Slot(int, str)
     def queue_action(self, index: int, action: str) -> None:
         item = self._queue_model.get(index)
@@ -698,11 +622,11 @@ class NowPlayingViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "download":
             self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "delete_download":
-            self.delete_download_requested.emit(vid)
+        elif action == "remove_from_queue":
+            self.remove_queue_item(index)
         elif action == "go_artist" and artist:
             self.artist_clicked.emit(artist)
 
@@ -728,7 +652,7 @@ class NowPlayingViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "download":
             self.download_requested.emit(vid, title, artist, thumb)
         elif action == "go_artist" and artist:

@@ -36,6 +36,8 @@ class HomeScreenQml(QObject):
         self.on_play_song = on_play_song
         self.on_navigate = on_navigate
         self._loaded = False
+        self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self._vm = HomeViewModel(QApplication.instance())
 
@@ -54,6 +56,7 @@ class HomeScreenQml(QObject):
         self._vm.play_requested.connect(self._on_vm_play)
         self._vm.navigate_requested.connect(self._on_navigate)
         self._vm.search_navigate.connect(self._on_search_navigate)
+        self._vm.retry_requested.connect(self.force_reload)
 
     @property
     def is_ok(self) -> bool:
@@ -94,15 +97,42 @@ class HomeScreenQml(QObject):
 
     def force_reload(self) -> None:
         self._loaded = False
-        asyncio.ensure_future(self.load())
+        if self._load_task and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        self._load_task = asyncio.ensure_future(self._load(self._load_generation))
 
     async def load(self) -> None:
+        """Load Home once, replacing an older in-flight public load safely."""
         if self._loaded:
             return
+        current = asyncio.current_task()
+        if self._load_task and self._load_task is not current and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        self._load_task = current
         try:
+            await self._load(self._load_generation)
+        finally:
+            # ``load`` can be awaited by a navigation callback. Never retain
+            # that caller task after it has finished, or a future retry would
+            # cancel the unrelated callback itself.
+            if self._load_task is current:
+                self._load_task = None
+
+    async def _load(self, generation: int) -> None:
+        def is_current_request() -> bool:
+            return generation == self._load_generation
+
+        try:
+            if not is_current_request():
+                return
             self._vm.set_loading(True)
+            self._vm.set_error("")
             from doremi.ui.screens.home_data import gather_home
             data = await gather_home(self.yt)
+            if not is_current_request():
+                return
             self._vm.set_greeting(data["greeting"])
             self._vm.set_spotlight(data["spotlight"])
             self._vm.set_tiles(data["tiles"])
@@ -116,5 +146,15 @@ class HomeScreenQml(QObject):
             self._loaded = True
         except Exception as e:
             logger.error(f"Error loading QML home: {e}")
+            if not is_current_request():
+                return
+            self._loaded = False
+            self._vm.set_greeting("")
+            self._vm.set_spotlight([])
+            self._vm.set_tiles([])
+            self._vm.set_horizontal([])
+            self._vm.set_songs([])
+            self._vm.set_error("No se pudo cargar Inicio. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)

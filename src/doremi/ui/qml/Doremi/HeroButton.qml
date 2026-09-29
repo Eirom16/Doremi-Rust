@@ -28,7 +28,7 @@ Rectangle {
     radius: Theme.radiusPill
     color: {
         if (!enabled) return colors["bg_high"]
-        if (primary) return ma.containsMouse ? colors["accent_bright"] : accentColor
+        if (primary) return ma.containsMouse ? Qt.darker(accentColor, 1.2) : accentColor
         return ma.containsMouse ? colors["bg_high"] : colors["bg_elevated"]
     }
     border.width: activeFocus ? 2 : (primary ? 0 : 1)

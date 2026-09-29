@@ -12,8 +12,6 @@ Item {
     property var playerController: null
     property var toastController: null
     property var closeController: null
-    property url screenSource: ""
-    property var screenVm: null
     property bool notificationsOpen: false
     property bool closeConfirmationVisible: false
     property int activeDownloadCount: 0
@@ -94,8 +92,6 @@ Item {
             anchors.right: parent.right
             anchors.top: offlineBanner.bottom
             anchors.bottom: parent.bottom
-            screenSource: root.screenSource
-            screenVm: root.screenVm
         }
 
         NotificationPanel {
@@ -121,7 +117,23 @@ Item {
             anchors.rightMargin: Theme.spacingMd
             anchors.bottom: parent.bottom
             height: 88
-            visible: themeBridge.miniPlayerVisible && !root.showingNowPlaying
+            // Se mantiene en escena hasta terminar la salida, para que no
+            // desaparezca de golpe. Al activarse se desliza desde debajo de
+            // la ventana; antes de la primera reproducción permanece vacío e
+            // invisible.
+            readonly property bool shouldShow: themeBridge.miniPlayerVisible
+                                              && !root.showingNowPlaying
+            visible: shouldShow || opacity > 0
+            opacity: shouldShow ? 1 : 0
+            transform: Translate {
+                y: miniPlayer.shouldShow ? 0 : miniPlayer.height + Theme.spacingMd
+                Behavior on y {
+                    NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
+                }
+            }
+            Behavior on opacity {
+                NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
+            }
             z: 2
             playerController: root.playerController
         }

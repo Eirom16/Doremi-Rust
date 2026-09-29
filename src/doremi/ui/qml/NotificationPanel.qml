@@ -54,6 +54,13 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: 11
                 font.weight: Font.Medium
+                activeFocusOnTab: visible
+                Accessible.role: Accessible.Button
+                Accessible.name: "Limpiar notificaciones"
+                Accessible.onPressAction: notificationController.clear_all()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) notificationController.clear_all() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) notificationController.clear_all() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) notificationController.clear_all() }
                 MouseArea {
                     id: clearMa
                     anchors.fill: parent
@@ -195,6 +202,13 @@ Item {
                                     font.family: root.iconFont
                                     font.pixelSize: 14
                                     color: cancelMa.containsMouse ? root.colors["error"] : root.colors["text_secondary"]
+                                    activeFocusOnTab: true
+                                    Accessible.role: Accessible.Button
+                                    Accessible.name: "Cancelar descarga " + dlRow.title
+                                    Accessible.onPressAction: notificationController.cancel_download(dlRow.videoId)
+                                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) notificationController.cancel_download(dlRow.videoId) }
+                                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) notificationController.cancel_download(dlRow.videoId) }
+                                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) notificationController.cancel_download(dlRow.videoId) }
                                     MouseArea {
                                         id: cancelMa
                                         anchors.fill: parent
@@ -236,6 +250,15 @@ Item {
                         Layout.preferredHeight: 64
                         radius: Theme.radiusMd
                         color: relMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                        border.width: activeFocus ? 2 : 0
+                        border.color: root.accentColor
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: relRow.title + " — " + relRow.artist
+                        Accessible.onPressAction: notificationController.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail)
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) notificationController.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail) }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) notificationController.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail) }
+                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) notificationController.play_release(relRow.videoId, relRow.title, relRow.artist, relRow.thumbnail) }
                         Layout.leftMargin: Theme.spacingXs
                         Layout.rightMargin: Theme.spacingXs
 
@@ -288,6 +311,13 @@ Item {
                                     font.pixelSize: Theme.typeCaption
                                     elide: Text.ElideRight
                                     Layout.fillWidth: true
+                                    activeFocusOnTab: relRow.artistId !== ""
+                                    Accessible.role: Accessible.Link
+                                    Accessible.name: "Abrir artista " + relRow.artist
+                                    Accessible.onPressAction: if (relRow.artistId !== "") notificationController.open_artist(relRow.artist, relRow.artistId)
+                                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && relRow.artistId !== "") notificationController.open_artist(relRow.artist, relRow.artistId) }
+                                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && relRow.artistId !== "") notificationController.open_artist(relRow.artist, relRow.artistId) }
+                                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && relRow.artistId !== "") notificationController.open_artist(relRow.artist, relRow.artistId) }
                                     MouseArea {
                                         id: artistMa
                                         anchors.fill: parent

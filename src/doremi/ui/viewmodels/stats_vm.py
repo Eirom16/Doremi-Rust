@@ -100,6 +100,7 @@ class StatsViewModel(QObject):
 
     loading_changed = Signal()
     summary_changed = Signal()
+    error_changed = Signal()
 
     # Mismas señales que StatsScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -110,6 +111,7 @@ class StatsViewModel(QObject):
     delete_download_requested = Signal(str)
     artist_clicked = Signal(str)
     play_requested = Signal(str, str, str, int, str)
+    retry_requested = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -119,6 +121,7 @@ class StatsViewModel(QObject):
         self._time_listened = "0m"
         self._total_plays = 0
         self._unique_artists = 0
+        self._error_text = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -150,6 +153,10 @@ class StatsViewModel(QObject):
     def chartMax(self) -> int:
         return self._chart.max_value
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     # ── Mutators ───────────────────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
@@ -165,7 +172,17 @@ class StatsViewModel(QObject):
         self._chart.set_items(data.get("chart", []))
         self.summary_changed.emit()
 
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
+
     # ── Slots called from QML ──────────────────────────────────────────────
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()
 
     @Slot(int)
     def play_at(self, index: int) -> None:
@@ -195,6 +212,6 @@ class StatsViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "go_artist":
             self.artist_clicked.emit(artist)

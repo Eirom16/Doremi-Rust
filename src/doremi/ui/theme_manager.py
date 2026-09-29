@@ -1,11 +1,81 @@
 from __future__ import annotations
 
-from PySide6.QtCore import QTimer, QObject
+from PySide6.QtCore import QTimer, QObject, Qt
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget
 from loguru import logger
 
 from doremi.native_rs import process_qss_template, compute_color_variants
+
+
+def _relative_luminance(color: QColor) -> float:
+    """WCAG relative luminance for an opaque QColor."""
+    components = (color.redF(), color.greenF(), color.blueF())
+    linear = tuple(
+        channel / 12.92 if channel <= 0.04045
+        else ((channel + 0.055) / 1.055) ** 2.4
+        for channel in components
+    )
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(first: QColor, second: QColor) -> float:
+    first_luminance = _relative_luminance(first)
+    second_luminance = _relative_luminance(second)
+    return (max(first_luminance, second_luminance) + 0.05) / (
+        min(first_luminance, second_luminance) + 0.05
+    )
+
+
+def _text_on_accent(accent: str) -> str:
+    """Return the foreground with the strongest WCAG contrast on ``accent``.
+
+    Theme mode is irrelevant to text painted *inside* an accent button.  The
+    previous light-mode rule always selected white, which made several of the
+    offered light accents fail AA contrast.  Choosing between the two semantic
+    ink colors keeps the component API unchanged while making the decision
+    depend on the actual background the user selected.
+    """
+    background = QColor(accent)
+    dark_ink = QColor("#0A0A14")
+    light_ink = QColor("#FFFFFF")
+    if not background.isValid():
+        return dark_ink.name(QColor.HexRgb).upper()
+    if _contrast_ratio(background, light_ink) > _contrast_ratio(background, dark_ink):
+        return light_ink.name(QColor.HexRgb).upper()
+    return dark_ink.name(QColor.HexRgb).upper()
+
+
+def _system_theme_mode() -> str:
+    """Resolve the current OS color scheme using Qt's cross-platform API.
+
+    Qt knows the active desktop scheme on Windows, macOS and modern Linux
+    desktops.  ``gsettings`` remains only as a GNOME fallback for older Qt
+    integrations that report ``Unknown``.
+    """
+    app = QApplication.instance()
+    if app is not None:
+        try:
+            scheme = app.styleHints().colorScheme()
+            if scheme == Qt.ColorScheme.Light:
+                return "light"
+            if scheme == Qt.ColorScheme.Dark:
+                return "dark"
+        except Exception:
+            pass
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
+            capture_output=True,
+            text=True,
+            timeout=0.5,
+        )
+        if "prefer-light" in result.stdout:
+            return "light"
+    except Exception:
+        pass
+    return "dark"
 
 
 class ThemeManager(QObject):
@@ -33,6 +103,13 @@ class ThemeManager(QObject):
         from doremi.ui.widgets.theme_transition import ThemeTransitionOverlay
         self.theme_overlay = ThemeTransitionOverlay(main_window)
         self.theme_overlay.hide()
+        # ``system`` must react after startup too.  The signal is available in
+        # Qt 6; older platforms simply retain the fallback resolved on apply.
+        app = QApplication.instance()
+        try:
+            app.styleHints().colorSchemeChanged.connect(self._on_system_scheme_changed)
+        except Exception:
+            pass
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -50,15 +127,18 @@ class ThemeManager(QObject):
         """Keep the transition overlay aligned with the main window."""
         self.theme_overlay.setGeometry(self._mw.rect())
 
+    def _on_system_scheme_changed(self, _scheme) -> None:
+        if self._pending_theme_mode == "system":
+            self.apply("system", self._pending_accent)
+
     # ── Internal ───────────────────────────────────────────────────────────
 
     def _apply_debounced(self) -> None:
         """Debounce wrapper — shows the transition overlay when visible."""
         theme_mode = self._pending_theme_mode
         accent = self._pending_accent
-
-        theme_key = (theme_mode, accent)
-        if self._last_theme_key == theme_key:
+        effective_mode = _system_theme_mode() if theme_mode == "system" else theme_mode
+        if self._last_theme_key == (effective_mode, accent):
             return
 
         if not self._mw.isVisible():
@@ -77,28 +157,16 @@ class ThemeManager(QObject):
         theme_mode = self._pending_theme_mode
         accent = self._pending_accent
 
-        theme_key = (theme_mode, accent)
-        if self._last_theme_key == theme_key:
-            return
-        self._last_theme_key = theme_key
-
         from doremi.ui.design import tokens
 
         # --- Resolve effective mode (system → dark|light) ------------------
-        active_mode = theme_mode
-        if active_mode == "system":
-            import subprocess
-            try:
-                res = subprocess.run(
-                    ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"],
-                    capture_output=True, text=True, timeout=0.5,
-                )
-                if "prefer-light" in res.stdout:
-                    active_mode = "light"
-                else:
-                    active_mode = "dark"
-            except Exception:
-                active_mode = "dark"
+        active_mode = _system_theme_mode() if theme_mode == "system" else theme_mode
+        # The effective mode belongs in the key: otherwise a system light/dark
+        # transition is incorrectly considered the same requested theme.
+        theme_key = (active_mode, accent)
+        if self._last_theme_key == theme_key:
+            return
+        self._last_theme_key = theme_key
 
         base_scheme = tokens.LIGHT if active_mode == "light" else tokens.DARK
         from doremi.ui.stylesheet import DOREMI_QSS
@@ -142,7 +210,7 @@ class ThemeManager(QObject):
             text_primary=base_scheme.text_primary,
             text_secondary=base_scheme.text_secondary,
             text_disabled=base_scheme.text_disabled,
-            text_on_accent="#FFFFFF" if active_mode == "light" else "#0A0A14",
+            text_on_accent=_text_on_accent(accent),
             border=border_rgba,
             border_focus=border_focus_rgba,
             success=base_scheme.success,

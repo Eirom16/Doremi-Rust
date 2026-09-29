@@ -86,6 +86,7 @@ class PlaylistViewModel(QObject):
     loading_changed = Signal()
     header_changed = Signal()
     dl_state_changed = Signal()
+    error_changed = Signal()
 
     # Mismas señales que PlaylistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -99,6 +100,7 @@ class PlaylistViewModel(QObject):
     play_local_requested = Signal(list, int)       # meta dicts, start_index (local)
     remove_track_requested = Signal(str, str, str)  # video_id, set_video_id, title
     back_requested = Signal()
+    retry_requested = Signal()
 
     DL_NONE = ""
     DL_PARTIAL = "partial"
@@ -122,6 +124,7 @@ class PlaylistViewModel(QObject):
         self._dl_state = self.DL_NONE
         self._dl_text = ""
         self._dl_percent = 0
+        self._error_text = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -159,6 +162,10 @@ class PlaylistViewModel(QObject):
     def hasTracks(self) -> bool:
         return self._tracks.rowCount() > 0
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     @Property(str, notify=dl_state_changed)
     def dlState(self) -> str:
         return self._dl_state
@@ -177,6 +184,12 @@ class PlaylistViewModel(QObject):
         if self._loading != value:
             self._loading = value
             self.loading_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
 
     def set_data(self, data: dict) -> None:
         self._found = bool(data.get("title"))
@@ -220,6 +233,10 @@ class PlaylistViewModel(QObject):
             self.set_download_state(self.DL_PARTIAL if downloaded_count else self.DL_NONE)
 
     # ── Slots called from QML ──────────────────────────────────────────────
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()
 
     @Slot()
     def play_all(self) -> None:
@@ -270,7 +287,7 @@ class PlaylistViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "delete_download":
             self.delete_download_requested.emit(vid)
         elif action == "remove":

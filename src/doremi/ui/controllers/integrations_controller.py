@@ -1,12 +1,7 @@
-import asyncio
-import time
-
 from loguru import logger
 
 from doremi.audio.player import MusicPlayer, PlayerState
 from doremi.audio.queue import PlayQueue, QueueItem, RepeatMode
-from doremi.api.lastfm import LastFmScrobbler
-from doremi.api.discord_rpc import DiscordRPC
 from doremi.api.stream_extractor import StreamExtractor
 from doremi.config.settings import AppSettings
 from doremi.system.mpris import MprisPlayer
@@ -18,8 +13,8 @@ class IntegrationsController:
     """Specialized controller for external integrations.
 
     Owns the player-callback wiring and the integrations that were previously
-    spread across MainWindow's god object: VLC callbacks, Last.fm scrobbling,
-    MPRIS, Discord RPC and network connectivity handling.
+    spread across MainWindow's god object: VLC callbacks, MPRIS and network
+    connectivity handling.
 
     Dependencies are injected through the constructor; ``run_async`` is a
     callable (MainWindow._run_async) used to launch coroutines as asyncio tasks.
@@ -32,8 +27,6 @@ class IntegrationsController:
         player: MusicPlayer,
         queue: PlayQueue,
         mpris: MprisPlayer,
-        scrobbler: LastFmScrobbler | None,
-        discord: DiscordRPC | None,
         settings: AppSettings,
         extractor: StreamExtractor,
         run_async,
@@ -42,21 +35,66 @@ class IntegrationsController:
         self.player = player
         self.queue = queue
         self.mpris = mpris
-        self.scrobbler = scrobbler
-        self.discord = discord
         self.settings = settings
         self.extractor = extractor
         self.run_async = run_async
         self.main_window = main_window
 
-        # Last.fm scrobble state (moved from MainWindow).
-        self._lastfm_track_key: tuple[str, str, str] | None = None
-        self._lastfm_started_at: int | None = None
-        self._lastfm_scrobbled = False
-        self._lastfm_scrobble_pending = False
-
         # Populated lazily by setup_integrations().
         self.network_monitor: NetworkMonitor | None = None
+
+    def reconfigure_mpris(self, enabled: bool) -> None:
+        """Start or stop MPRIS immediately when its persisted setting changes."""
+        if not self.mpris:
+            return
+        if not enabled:
+            self.mpris.stop()
+            logger.info("MPRIS disabled at runtime")
+            return
+        self._wire_mpris_callbacks()
+        self.mpris.start()
+        self._sync_mpris_snapshot()
+        logger.info("MPRIS enabled at runtime")
+
+    def _sync_mpris_snapshot(self) -> None:
+        """Publish the state that existed before MPRIS was enabled.
+
+        Starting a DBus service after playback began must not make desktops see
+        an empty, stopped player until the next VLC polling event arrives.
+        """
+        if not self.mpris:
+            return
+        self.mpris.update_playback_status(self.player.status.state.value)
+        self.mpris.update_position(self.player.status.position_ms)
+        self.mpris.update_volume(self.player.status.volume)
+        self.mpris.update_shuffle(self.queue.shuffle_enabled)
+        self.mpris.update_loop_status()
+        item = self.queue.current
+        if item is not None:
+            self.mpris.update_metadata(
+                item.title, item.artist, item.album, item.duration_ms * 1000,
+                item.thumbnail_url, item.video_id,
+            )
+
+    def _wire_mpris_callbacks(self) -> None:
+        """Install callbacks once; safe to call when re-enabling MPRIS."""
+        self.mpris.on_play_pause = self.main_window._on_play_pause
+        self.mpris.on_play = lambda: self.run_async(
+            self.main_window.playback_controller.resume_or_start()
+        )
+        self.mpris.on_pause = lambda: self.run_async(self.player.pause())
+        self.mpris.on_stop = lambda: self.run_async(
+            self.main_window.playback_controller.stop_playback()
+        )
+        self.mpris.on_next = self.main_window._on_next
+        self.mpris.on_prev = self.main_window._on_prev
+        self.mpris.on_seek = lambda offset_us: self.main_window.playback_controller._on_seek(self.player.status.position_ms + int(offset_us / 1000))
+        self.mpris.on_set_position = lambda track_id, position_us: self.main_window.playback_controller._on_seek(int(position_us / 1000))
+        self.mpris.on_set_volume = lambda vol: (self.player.set_volume(int(vol * 100)), self.on_mpris_volume_changed(int(vol * 100)))
+        self.mpris.on_set_shuffle = lambda shuffle: self.toggle_shuffle_from_mpris(shuffle)
+        self.mpris.on_set_loop_status = self.set_repeat_from_mpris
+        self.mpris.on_raise = lambda: (self.main_window.show(), self.main_window.raise_(), self.main_window.activateWindow())
+        self.mpris.on_quit = self.main_window.close
 
     def connect_player_callbacks(self) -> None:
         self.player.on("track_ended", self.on_track_ended_callback)
@@ -83,16 +121,10 @@ class IntegrationsController:
         is_playing = status.state == PlayerState.PLAYING
 
         if self.mpris:
-            self.mpris.update_playback_status(is_playing)
+            self.mpris.update_playback_status(status.state.value)
 
         if hasattr(self.main_window, "tray") and self.main_window.tray:
             self.main_window.tray.update_play_state(is_playing)
-
-        if self.discord and self.queue.current:
-            item = self.queue.current
-            self.run_async(self.discord.update(
-                item.title, item.artist, item.album, is_playing, item.thumbnail_url
-            ))
 
     def on_position_changed_callback(self, status) -> None:
         self.main_window.mini_player.update_position(
@@ -101,58 +133,10 @@ class IntegrationsController:
         self.main_window.now_playing_screen.update_position(
             status.position_ms, status.duration_ms
         )
-        self.maybe_scrobble_lastfm(status)
+        self.main_window.playback_controller.observe_listen_position(status)
         if self.mpris:
             self.mpris.update_position(status.position_ms)
             self.mpris.update_volume(status.volume)
-
-    def reset_lastfm_scrobble_state(self, item: QueueItem) -> None:
-        self._lastfm_track_key = (item.video_id, item.title, item.artist)
-        self._lastfm_started_at = int(time.time())
-        self._lastfm_scrobbled = False
-        self._lastfm_scrobble_pending = False
-
-    def maybe_scrobble_lastfm(self, status) -> None:
-        if (
-            not self.scrobbler
-            or self._lastfm_scrobbled
-            or self._lastfm_scrobble_pending
-            or status.duration_ms <= 0
-        ):
-            return
-
-        item = self.queue.current
-        if not item or self._lastfm_track_key != (item.video_id, item.title, item.artist):
-            return
-
-        threshold_ms = min(status.duration_ms * 0.5, 240_000)
-        if status.position_ms < threshold_ms:
-            return
-
-        self._lastfm_scrobble_pending = True
-        self.run_async(self.scrobble_current_lastfm(item, self._lastfm_started_at))
-
-    async def scrobble_current_lastfm(self, item: QueueItem, started_at: int | None) -> None:
-        if not self.scrobbler or not started_at:
-            self._lastfm_scrobble_pending = False
-            return
-        track_key = (item.video_id, item.title, item.artist)
-        if self._lastfm_track_key != track_key:
-            self._lastfm_scrobble_pending = False
-            return
-        try:
-            success = await self.scrobbler.scrobble(
-                item.artist, item.title, item.album, timestamp=started_at
-            )
-            if success:
-                self._lastfm_scrobbled = True
-                logger.info(f"Last.fm scrobbled: {item.artist} - {item.title}")
-            else:
-                logger.info(f"Last.fm scrobble queued for retry: {item.artist} - {item.title}")
-        except Exception as e:
-            logger.warning(f"Last.fm scrobble failed for {item.video_id}: {e}")
-        finally:
-            self._lastfm_scrobble_pending = False
 
     def setup_integrations(self) -> None:
         # Initialize player parameters from settings
@@ -166,35 +150,7 @@ class IntegrationsController:
             self.player.reset_equalizer()
 
         if self.settings.integrations.mpris_enabled:
-            # Wire MPRIS2 callbacks
-            self.mpris.on_play_pause = self.main_window._on_play_pause
-            self.mpris.on_play = lambda: self.run_async(self.player.resume())
-            self.mpris.on_pause = lambda: self.run_async(self.player.pause())
-            self.mpris.on_stop = lambda: self.run_async(self.player.stop())
-            self.mpris.on_next = self.main_window._on_next
-            self.mpris.on_prev = self.main_window._on_prev
-            self.mpris.on_seek = lambda offset_us: self.main_window.playback_controller._on_seek(self.player.status.position_ms + int(offset_us / 1000))
-            self.mpris.on_set_position = lambda track_id, position_us: self.main_window.playback_controller._on_seek(int(position_us / 1000))
-            self.mpris.on_set_volume = lambda vol: (self.player.set_volume(int(vol * 100)), self.on_mpris_volume_changed(int(vol * 100)))
-            self.mpris.on_set_shuffle = lambda shuffle: self.toggle_shuffle_from_mpris(shuffle)
-            self.mpris.on_set_loop_status = self.set_repeat_from_mpris
-            self.mpris.on_raise = lambda: (self.main_window.show(), self.main_window.raise_(), self.main_window.activateWindow())
-            self.mpris.on_quit = self.main_window.close
-            self.mpris.start()
-            self.mpris.update_shuffle(self.queue.shuffle_enabled)
-            self.mpris.update_loop_status()
-
-        if self.settings.integrations.lastfm_enabled and self.settings.integrations.lastfm_session_key:
-            self.scrobbler = LastFmScrobbler(
-                self.settings.integrations.lastfm_api_key,
-                self.settings.integrations.lastfm_api_secret,
-                self.settings.integrations.lastfm_session_key,
-            )
-            self.main_window.scrobbler = self.scrobbler
-        if self.settings.integrations.discord_rpc_enabled:
-            self.discord = DiscordRPC()
-            self.main_window.discord = self.discord
-            task = self.run_async(self.discord.connect())
+            self.reconfigure_mpris(True)
 
         # Setup and start network monitor
         from doremi.system.network import NetworkMonitor

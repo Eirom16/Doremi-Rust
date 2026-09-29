@@ -67,7 +67,8 @@ LIGHT = ColorScheme(
     text_primary="#121224",
     text_secondary="#5C5C8A",
     text_disabled="#9E9EBF",
-    text_on_accent="#FFFFFF",
+    # The default accent is light; dark ink provides AA contrast on it.
+    text_on_accent="#0A0A14",
     border="rgba(167,139,250,0.12)",
     border_focus="rgba(167,139,250,0.50)",
     success="#10B981",

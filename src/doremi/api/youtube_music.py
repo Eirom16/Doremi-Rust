@@ -237,7 +237,10 @@ class YouTubeMusicClient:
         try:
             from doremi.api.stream_extractor import StreamExtractor
             extractor = StreamExtractor(self.settings)
-            result = await extractor.get_stream_info(video_id)
+            try:
+                result = await extractor.get_stream_info(video_id)
+            finally:
+                extractor.close()
             url = result.get("url", "")
             if url:
                 self._stream_cache[video_id] = url
@@ -251,7 +254,10 @@ class YouTubeMusicClient:
         try:
             from doremi.api.stream_extractor import StreamExtractor
             extractor = StreamExtractor(self.settings)
-            result = await extractor.get_stream_info(video_id)
+            try:
+                result = await extractor.get_stream_info(video_id)
+            finally:
+                extractor.close()
             url = result.get("url", "")
             if url:
                 self._stream_cache[video_id] = url

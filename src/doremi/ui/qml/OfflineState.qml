@@ -56,7 +56,16 @@ Item {
             width: actionLabel.implicitWidth + Theme.spacingLg * 2
             height: 38
             radius: Theme.radiusMd
-            color: actionMouse.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+            color: actionMouse.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
+            border.width: activeFocus ? 2 : 0
+            border.color: root.colors["text_primary"]
+            activeFocusOnTab: visible
+            Accessible.role: Accessible.Button
+            Accessible.name: screenVm.actionText
+            Accessible.onPressAction: screenVm.retry()
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
 
             Text {
                 id: actionLabel

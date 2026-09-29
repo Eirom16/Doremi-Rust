@@ -23,7 +23,7 @@ Doremi es un reproductor musical moderno para escritorio, pensado para ofrecer u
 - Interfaz moderna con QML y tema dinámico
 - Módulo nativo en Rust para rendimiento y procesamiento visual
 - Descargas, historial, listas de reproducción y estadísticas
-- Soporte para integración del sistema: bandeja, MPRIS, Discord, Last.fm y atajos
+- Soporte para integración del sistema: bandeja, MPRIS y atajos
 - Diseño preparado para Linux con foco en fluidez y estética premium
 
 ## Stack tecnológico

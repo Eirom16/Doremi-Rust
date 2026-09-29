@@ -8,7 +8,40 @@ class StreamExtractor:
     """Fast stream extractor with format selection."""
 
     def __init__(self, settings=None):
+        # The settings object is shared with the runtime settings controller,
+        # so changes saved by the UI are observed by subsequent extractions.
+        self.settings = settings
         self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="stream")
+        self._closed = False
+
+    def close(self) -> None:
+        """Release worker threads when this extractor is no longer needed."""
+        if not self._closed:
+            self._closed = True
+            self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def _network_options(self) -> dict:
+        """Return the yt-dlp network policy configured by the user."""
+        network = getattr(self.settings, "network", None)
+        proxy = str(getattr(network, "proxy_url", "") or "").strip()
+        return {"proxy": proxy} if proxy else {}
+
+    def _quality_ceiling(self) -> int | None:
+        """Map the persisted quality preference to an audio bitrate ceiling.
+
+        ``best`` and unknown values deliberately retain yt-dlp's best audio
+        behaviour.  The lower presets are useful for metered connections and
+        avoid silently returning a higher bitrate than the setting promises.
+        """
+        network = getattr(self.settings, "network", None)
+        quality = str(getattr(network, "stream_quality", "best") or "best").lower()
+        return {"low": 64, "medium": 128, "high": 192}.get(quality)
 
     @staticmethod
     def _load_cookie_opts() -> dict:
@@ -44,6 +77,7 @@ class StreamExtractor:
                 'skip_download': True,
                 'nocheckcertificate': True,
                 **StreamExtractor._load_cookie_opts(),
+                **self._network_options(),
             }
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:
@@ -58,6 +92,11 @@ class StreamExtractor:
                     best_url = ""
                     best_ext = "m4a"
                     best_abr = 0
+                    fallback_url = ""
+                    fallback_ext = "m4a"
+                    fallback_abr = float("inf")
+                    fallback_note = ""
+                    quality_ceiling = self._quality_ceiling()
                     best_duration = info.get('duration', 0)
                     best_format_note = ""
                     
@@ -70,6 +109,16 @@ class StreamExtractor:
                         
                         ext = fmt.get('ext', 'm4a')
                         abr = fmt.get('abr', 0) or 0
+                        if ext in ['m4a', 'mp4'] and abr < fallback_abr:
+                            # Some streams do not expose every bitrate.  Keep
+                            # the lowest compatible audio as a graceful
+                            # fallback instead of turning a quality preference
+                            # into an unplayable track.
+                            fallback_url, fallback_ext = url, ext
+                            fallback_abr = abr
+                            fallback_note = fmt.get('format_note', '')
+                        if quality_ceiling is not None and abr > quality_ceiling:
+                            continue
                         
                         if ext in ['m4a', 'mp4'] and abr >= best_abr:
                             best_url = url
@@ -80,6 +129,10 @@ class StreamExtractor:
                             best_url = url
                             best_ext = ext
                             best_abr = abr
+
+                    if not best_url and fallback_url:
+                        best_url, best_ext, best_abr = fallback_url, fallback_ext, fallback_abr
+                        best_format_note = fallback_note
                     
                     return {
                         "url": best_url,
@@ -111,69 +164,6 @@ class StreamExtractor:
             logger.error(f"Stream extraction error: {e}")
             return {"url": "", "format": "unknown", "quality": 0, "duration": 0}
 
-    async def get_video_stream_info(self, video_id: str) -> dict:
-        """Obtiene un stream de vídeo reproducible directamente por Qt.
-
-        Se prioriza MP4/H.264 porque es el formato con mejor soporte en los
-        backends multimedia de Qt. El audio principal continúa reproduciéndose
-        en VLC, de modo que un formato ``video-only`` es suficiente y permite
-        alcanzar mejor resolución que los streams progresivos de YouTube.
-        """
-
-        def _extract():
-            opts = {
-                "format": (
-                    # Los MP4 progresivos son más estables para QMediaPlayer
-                    # (incluyen metadatos y rangos completos en un solo stream);
-                    # se priorizan los que además llevan audio integrado.
-                    "best[ext=mp4][vcodec^=avc1][acodec!=none][height<=720]/"
-                    "best[ext=mp4][acodec!=none][height<=720]/"
-                    "best[ext=mp4][vcodec^=avc1][height<=720]/"
-                    "best[ext=mp4][height<=720]/"
-                    "bestvideo[ext=mp4][vcodec^=avc1][height<=720]/"
-                    "bestvideo[ext=mp4][height<=720]/"
-                    "bestvideo[height<=720]/"
-                    "best[height<=720]/best"
-                ),
-                "quiet": True,
-                "no_warnings": True,
-                "skip_download": True,
-                "nocheckcertificate": True,
-                "noplaylist": True,
-                **StreamExtractor._load_cookie_opts(),
-            }
-            try:
-                with yt_dlp.YoutubeDL(opts) as ydl:
-                    info = ydl.extract_info(
-                        f"https://www.youtube.com/watch?v={video_id}",
-                        download=False,
-                    )
-                if not info:
-                    return {"url": "", "error": "video_unavailable"}
-
-                stream_url = str(info.get("url", "") or "")
-                if not stream_url.startswith(("http://", "https://")):
-                    return {"url": "", "error": "video_unavailable"}
-                return {
-                    "url": stream_url,
-                    "format": str(info.get("ext", "") or ""),
-                    "codec": str(info.get("vcodec", "") or ""),
-                    "width": int(info.get("width", 0) or 0),
-                    "height": int(info.get("height", 0) or 0),
-                    "fps": float(info.get("fps", 0) or 0),
-                    "duration": float(info.get("duration", 0) or 0),
-                }
-            except Exception as exc:
-                logger.error(f"Video stream extraction error: {exc}")
-                return {"url": "", "error": "video_unavailable"}
-
-        try:
-            loop = asyncio.get_running_loop()
-            return await loop.run_in_executor(self._executor, _extract)
-        except Exception as exc:
-            logger.error(f"Video stream executor error: {exc}")
-            return {"url": "", "error": "video_unavailable"}
-
     async def get_alternative_stream(self, video_id: str) -> str:
         """Get alternative stream format - try different format."""
 
@@ -184,6 +174,7 @@ class StreamExtractor:
                 'no_warnings': True,
                 'skip_download': True,
                 **StreamExtractor._load_cookie_opts(),
+                **self._network_options(),
             }
             try:
                 with yt_dlp.YoutubeDL(opts) as ydl:

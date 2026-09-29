@@ -38,7 +38,12 @@ class LyricsClient:
             result = syncedlyrics.search(
                 f"{clean_title} {clean_artist}",
                 plain_only=False,
-                providers=["lrclib", "netease"]
+                # NetEase emits unhandled stderr errors for routine DNS and
+                # network failures, even though this client handles a miss.
+                # LRCLIB is enough for the app's lyrics feature and keeps an
+                # unavailable optional provider from making startup look
+                # broken.
+                providers=["lrclib"]
             )
             return result
         except Exception as e:

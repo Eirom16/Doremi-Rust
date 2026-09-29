@@ -62,13 +62,24 @@ Item {
         }
 
         Rectangle {
+            id: actionButton
+            objectName: "emptyStateAction"
             visible: root.actionText !== ""
             Layout.alignment: Qt.AlignHCenter
             Layout.topMargin: Theme.spacingSm
             implicitWidth: actionLbl.implicitWidth + Theme.spacingLg * 2
             implicitHeight: 36
             radius: Theme.radiusMd
-            color: actionMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+            color: actionMa.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
+            border.width: activeFocus ? 2 : 0
+            border.color: root.colors["text_primary"]
+            activeFocusOnTab: visible
+            Accessible.role: Accessible.Button
+            Accessible.name: root.actionText
+            Accessible.onPressAction: root.actionClicked()
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) root.actionClicked() }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) root.actionClicked() }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) root.actionClicked() }
 
             Text {
                 id: actionLbl
@@ -77,7 +88,7 @@ Item {
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeLabel
                 font.weight: Font.Bold
-                color: root.colors["bg_base"]
+                color: root.colors["text_on_accent"]
             }
 
             MouseArea {

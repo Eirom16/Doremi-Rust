@@ -123,7 +123,9 @@ class TestArtistViewModel:
         assert got["dl"] == [("s0", "Track 0", "Daft Punk", "")]
         assert got["next"] == [("s0", "Track 0", "Daft Punk", "")]
         assert got["like"] == [("s0", None)]
-        assert got["pl"] == [("s0", "")]
+        # The shared add-to-playlist contract is (video_id, title), never
+        # artwork or an empty placeholder.
+        assert got["pl"] == [("s0", "Track 0")]
         assert got["queue"] == [("s0", "Track 0", "Daft Punk", "")]
 
     def test_navigate_and_back(self, qapp):
@@ -142,6 +144,14 @@ class TestArtistViewModel:
 
 
 class TestArtistScreenQml:
+    def test_play_ctas_name_the_actual_artist_for_accessibility(self):
+        from pathlib import Path
+
+        source = (Path(__file__).parents[1] / "src/doremi/ui/qml/ArtistScreen.qml").read_text()
+        assert '"Reproducir canciones de " + screenVm.artistName' in source
+        assert '"Reproducir aleatoriamente canciones de " + screenVm.artistName' in source
+        assert "screenVm.title" not in source
+
     def test_qml_loads(self, qapp):
         from doremi.ui.screens.artist_qml import ArtistScreenQml
 

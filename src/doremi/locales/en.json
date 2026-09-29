@@ -31,7 +31,6 @@
     "Eliminar descargas": "Delete downloads",
     "Error al exportar copia de seguridad": "Error exporting backup",
     "Error al restaurar la copia de seguridad": "Error restoring backup",
-    "Autenticar en Last.fm": "Authenticate with Last.fm",
     "Idioma": "Language",
     "Idioma cambiado con éxito": "Language changed successfully",
     "Idioma cambiado. Reinicia la aplicación para aplicarlo en toda la interfaz.": "Language changed. Restart the application to apply it across the full interface.",
@@ -76,7 +75,5 @@
     "Añadir a Favoritas": "Add to favorites",
     "No se pudo actualizar el favorito. Puedes reintentarlo.": "Could not update the favorite. You can try again.",
     "Favorito guardado localmente; no se pudo sincronizar con YouTube Music.": "Favorite saved locally; could not sync with YouTube Music.",
-    "No se pudo cargar el videoclip.": "The music video could not be loaded.",
-    "No se pudo reproducir el videoclip.": "The music video could not be played.",
     "Reintentar": "Retry"
 }

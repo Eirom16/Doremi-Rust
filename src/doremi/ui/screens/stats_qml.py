@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QUrl, Signal
@@ -33,6 +34,8 @@ class StatsScreenQml(QObject):
         super().__init__()
         self.yt = yt_client
         self.on_play_song = on_play_song
+        self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self._vm = StatsViewModel(QApplication.instance())
 
@@ -48,6 +51,7 @@ class StatsScreenQml(QObject):
         self._vm.delete_download_requested.connect(self.delete_download_requested)
         self._vm.artist_clicked.connect(self.artist_clicked)
         self._vm.play_requested.connect(self._on_vm_play)
+        self._vm.retry_requested.connect(self._schedule_load)
 
     @property
     def is_ok(self) -> bool:
@@ -60,14 +64,45 @@ class StatsScreenQml(QObject):
             except Exception as e:
                 logger.error(f"Play error desde isla QML Stats: {e}")
 
+    def _schedule_load(self) -> None:
+        if self._load_task and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        self._load_task = asyncio.ensure_future(self._load(self._load_generation))
+
     async def load(self) -> None:
+        current = asyncio.current_task()
+        if self._load_task and self._load_task is not current and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        self._load_task = current
+        try:
+            await self._load(self._load_generation)
+        finally:
+            if self._load_task is current:
+                self._load_task = None
+
+    async def _load(self, generation: int) -> None:
+        def is_current_request() -> bool:
+            return generation == self._load_generation
+
+        if not is_current_request():
+            return
         self._vm.set_loading(True)
+        self._vm.set_error("")
         try:
             from doremi.ui.screens.stats_data import gather_stats
             data = await gather_stats()
+            if not is_current_request():
+                return
             self._vm.set_data(data)
+            self._vm.set_error(data.get("_error", ""))
         except Exception as e:
             logger.error(f"Error loading stats (QML): {e}")
+            if not is_current_request():
+                return
             self._vm.set_data({})
+            self._vm.set_error("No se pudieron cargar las estadísticas. Inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)

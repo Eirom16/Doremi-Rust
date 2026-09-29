@@ -8,6 +8,20 @@ Item {
 
     // Compatibilidad con la isla actual; MainShell inyectará esta propiedad.
     property var navigationController: null
+    // The sidebar may survive one event-loop turn after its Python controller
+    // has been deleted during shutdown.  Keep all bindings total in that
+    // window instead of dereferencing a null QObject.
+    readonly property bool controllerAvailable: navigationController !== null
+    readonly property bool sidebarCollapsed: controllerAvailable
+                                           ? navigationController.collapsed : false
+    readonly property string activeRoute: controllerAvailable
+                                         ? navigationController.activeRoute : ""
+    readonly property string activePath: controllerAvailable
+                                        ? navigationController.activePath : ""
+    readonly property var playlists: controllerAvailable
+                                   ? navigationController.playlists : []
+    readonly property url appIconSource: controllerAvailable
+                                         ? navigationController.appIconSource : ""
     readonly property var colors: themeBridge.colors
     readonly property color accentColor: colors["accent"]
     readonly property string iconFont: "Material Symbols Rounded"
@@ -33,17 +47,17 @@ Item {
             Image {
                 // El isotipo identifica la navegación contraída. En la barra
                 // expandida el wordmark basta y evita repetir visualmente la “D”.
-                visible: navigationController.collapsed
+                visible: root.sidebarCollapsed
                 width: 44
                 height: 44
                 anchors.centerIn: parent
-                source: navigationController.appIconSource
+                source: root.appIconSource
                 fillMode: Image.PreserveAspectFit
                 asynchronous: true
             }
 
             Label {
-                visible: !navigationController.collapsed
+                visible: !root.sidebarCollapsed
                 text: "Doremi"
                 color: root.colors["accent"]
                 font.family: Theme.fontFamily
@@ -57,7 +71,7 @@ Item {
         }
 
         Label {
-            visible: !navigationController.collapsed
+            visible: !root.sidebarCollapsed
             text: "Navegación"
             color: root.colors["text_secondary"]
             font.family: Theme.fontFamily
@@ -73,9 +87,9 @@ Item {
             route: "home"
             icon: "home"
             label: "Inicio"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         NavigationItem {
@@ -83,9 +97,9 @@ Item {
             route: "library"
             icon: "library_music"
             label: "Biblioteca"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         NavigationItem {
@@ -93,9 +107,9 @@ Item {
             route: "history"
             icon: "history"
             label: "Historial"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         NavigationItem {
@@ -103,9 +117,9 @@ Item {
             route: "stats"
             icon: "bar_chart"
             label: "Estadísticas"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         NavigationItem {
@@ -113,9 +127,9 @@ Item {
             route: "downloads"
             icon: "download"
             label: "Descargas"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         NavigationItem {
@@ -123,19 +137,19 @@ Item {
             route: "settings"
             icon: "settings"
             label: "Ajustes"
-            active: navigationController.activeRoute === route
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.navigate(route)
+            active: root.activeRoute === route
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
         }
 
         ColumnLayout {
-            visible: navigationController.playlists.length > 0
+            visible: root.playlists.length > 0
             Layout.fillWidth: true
             Layout.topMargin: Theme.spacingSm
             spacing: 4
 
             Label {
-                visible: !navigationController.collapsed
+                visible: !root.sidebarCollapsed
                 text: "Tus playlists"
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -145,7 +159,7 @@ Item {
             }
 
             Repeater {
-                model: navigationController.playlists
+                model: root.playlists
 
                 delegate: NavigationItem {
                     required property var modelData
@@ -153,11 +167,9 @@ Item {
                     route: modelData.navigate
                     icon: "playlist_play"
                     label: modelData.title
-                    active: navigationController.activeRoute === route
-                            || (navigationController.activeRoute === "playlist"
-                                && route.indexOf("playlist?") === 0)
-                    collapsed: navigationController.collapsed
-                    onActivated: navigationController.navigate(route)
+                    active: root.controllerAvailable && navigationController.activePath === route
+                    collapsed: root.sidebarCollapsed
+                    onActivated: if (root.controllerAvailable) navigationController.navigate(route)
                 }
             }
         }
@@ -167,10 +179,10 @@ Item {
         NavigationItem {
             Layout.fillWidth: true
             route: "navigationController-toggle"
-            icon: navigationController.collapsed ? "chevron_right" : "chevron_left"
-            label: navigationController.collapsed ? "Expandir barra lateral" : "Contraer barra lateral"
-            collapsed: navigationController.collapsed
-            onActivated: navigationController.toggleCollapsed()
+            icon: root.sidebarCollapsed ? "chevron_right" : "chevron_left"
+            label: root.sidebarCollapsed ? "Expandir barra lateral" : "Contraer barra lateral"
+            collapsed: root.sidebarCollapsed
+            onActivated: if (root.controllerAvailable) navigationController.toggleCollapsed()
         }
     }
 

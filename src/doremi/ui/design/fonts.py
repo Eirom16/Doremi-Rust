@@ -36,7 +36,6 @@ def load_fonts() -> None:
     seen: set[Path] = set()
     for fonts_dir in _font_dirs():
         if not fonts_dir.exists():
-            logger.debug(f"Font directory does not exist: {fonts_dir}")
             continue
         for path in sorted(fonts_dir.iterdir()):
             if path in seen or path.suffix.lower() not in {".ttf", ".otf"}:
@@ -97,4 +96,3 @@ class AppFont:
         font = QFont("JetBrains Mono", size, QFont.Weight.Medium)
         font.setStyleHint(QFont.StyleHint.Monospace)
         return font
-

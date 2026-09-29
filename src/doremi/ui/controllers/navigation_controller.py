@@ -1,5 +1,6 @@
 import asyncio
 import json
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from loguru import logger
 
@@ -27,17 +28,59 @@ class NavigationController:
     def __init__(self, main_window, run_async):
         self.main_window = main_window
         self.run_async = run_async
+        # Artist/album resolution is a separate network request from route
+        # loading.  Keep an explicit intent token so a slow response cannot
+        # navigate after the user has chosen a newer destination.
+        self._resolution_generation = 0
+        self._resolution_task: asyncio.Task | None = None
 
-    async def navigate(self, path: str) -> None:
-        # Parse route and query
-        route = path
-        query = ""
-        if "?" in path:
-            route, query = path.split("?", 1)
+    @staticmethod
+    def _parse_path(path: str) -> tuple[str, dict[str, str]]:
+        """Parse an internal route without treating query text as a route.
 
+        Internal navigation is deliberately URL-shaped.  ``parse_qs`` handles
+        encoded separators, Unicode and repeated parameters correctly, unlike
+        splitting strings on ``?`` and ``=``.
+        """
+        parsed = urlsplit((path or "").strip())
+        route = parsed.path.strip("/")
+        params = {
+            key: values[-1]
+            for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            if values
+        }
+        return route, params
+
+    @staticmethod
+    def _path_for(route: str, params: dict[str, str]) -> str:
+        """Return the canonical form used for route history and sidebar state."""
+        return f"{route}?{urlencode(params)}" if params else route
+
+    async def navigate(self, path: str, *, record_history: bool = True) -> None:
+        route, params = self._parse_path(path)
+        # ``podcast`` intentionally reuses the album screen and remains a
+        # supported deep-link even in lightweight hosts that only declare the
+        # concrete stack routes.
+        known_routes = set(self.main_window.ROUTES) | {"podcast"}
+        if route not in known_routes:
+            logger.warning(f"Ignoring unknown internal route: {path!r}")
+            route, params = "home", {}
+        current_path = getattr(self.main_window, "_current_path", "")
+        if not isinstance(current_path, str) or not current_path:
+            current_path = getattr(self.main_window, "_current_route", "home")
+        if not isinstance(current_path, str) or not current_path:
+            current_path = "home"
+        target_path = self._path_for(route, params)
+        if record_history and current_path and current_path != target_path:
+            self.main_window._nav_history.append(current_path)
+            # Keep history bounded without losing the most recent routes.
+            if len(self.main_window._nav_history) > 30:
+                self.main_window._nav_history = self.main_window._nav_history[-20:]
+
+        self.main_window._current_path = target_path
         self.main_window._current_route = route
         if self.should_show_offline_state(route):
-            self.main_window._offline_blocked_path = path
+            self.main_window._offline_blocked_path = target_path
             self.show_offline_state(route)
             return
         if route not in self.main_window.ONLINE_ROUTES:
@@ -50,11 +93,11 @@ class NavigationController:
         self.set_stack_index(index)
         set_active = getattr(self.main_window.sidebar, "set_active", None)
         if callable(set_active):
-            set_active(route)
+            set_active(target_path)
 
         # Wait for the FadeStackedWidget animation (260ms) to complete before blocking thread with UI updates
         await asyncio.sleep(0.3)
-        await self.load_screen_with_query(route, query)
+        await self.load_screen_with_query(route, params)
 
     def should_show_offline_state(self, route: str) -> bool:
         return (
@@ -72,9 +115,19 @@ class NavigationController:
         if not artist_name:
             return
 
+        self._resolution_generation += 1
+        generation = self._resolution_generation
+        if self._resolution_task and not self._resolution_task.done():
+            self._resolution_task.cancel()
+        current_nav = getattr(self.main_window, "_current_nav_task", None)
+        if current_nav and not current_nav.done():
+            current_nav.cancel()
+
         async def _resolve_task():
             try:
                 results = await self.main_window.yt.search(artist_name, filter="artists")
+                if generation != self._resolution_generation:
+                    return
                 if results and len(results) > 0:
                     artist_id = results[0].get("browseId")
                     if artist_id:
@@ -82,59 +135,83 @@ class NavigationController:
                         return
                 # Fallback to search screen if no ID found
                 self.navigate_to(f"search?query={artist_name}")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
+                if generation != self._resolution_generation:
+                    return
                 logger.error(f"Failed to resolve artist '{artist_name}': {e}")
                 self.navigate_to(f"search?query={artist_name}")
 
-        asyncio.create_task(_resolve_task())
+        self._resolution_task = asyncio.create_task(_resolve_task())
 
     def resolve_and_navigate_album(self, album_name: str) -> None:
         if not album_name:
             return
 
+        self._resolution_generation += 1
+        generation = self._resolution_generation
+        if self._resolution_task and not self._resolution_task.done():
+            self._resolution_task.cancel()
+        current_nav = getattr(self.main_window, "_current_nav_task", None)
+        if current_nav and not current_nav.done():
+            current_nav.cancel()
+
         async def _resolve_task():
             try:
                 results = await self.main_window.yt.search(album_name, filter="albums")
+                if generation != self._resolution_generation:
+                    return
                 if results:
                     album_id = results[0].get("browseId")
                     if album_id:
                         self.navigate_to(f"album?id={album_id}")
                         return
                 self.navigate_to(f"search?query={album_name}")
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
+                if generation != self._resolution_generation:
+                    return
                 logger.error(f"Failed to resolve album '{album_name}': {e}")
                 self.navigate_to(f"search?query={album_name}")
 
-        asyncio.create_task(_resolve_task())
+        self._resolution_task = asyncio.create_task(_resolve_task())
 
-    def navigate_to(self, path: str) -> None:
+    def navigate_to(self, path: str, *, record_history: bool = True) -> None:
+        # Any explicit route selection supersedes an unresolved artist/album
+        # lookup.  Do not cancel a resolver here: it may be the caller that is
+        # now scheduling its resolved route, but its token makes it harmless.
+        self._resolution_generation += 1
         if (
             hasattr(self.main_window, "_current_nav_task")
             and self.main_window._current_nav_task
             and not self.main_window._current_nav_task.done()
         ):
             self.main_window._current_nav_task.cancel()
-        self.main_window._current_nav_task = self.run_async(self.navigate(path))
+        self.main_window._current_nav_task = self.run_async(
+            self.navigate(path, record_history=record_history)
+        )
 
-    async def load_screen_with_query(self, route: str, query: str) -> None:
-        if route == "playlist" and "id=" in query:
-            playlist_id = query.split("=", 1)[1]
+    async def load_screen_with_query(self, route: str, params: dict[str, str]) -> None:
+        if route == "playlist" and params.get("id"):
+            playlist_id = params["id"]
             await self.main_window.playlist_screen.load(playlist_id)
-        elif route == "album" and "id=" in query:
-            album_id = query.split("=", 1)[1]
+        elif route == "album" and params.get("id"):
+            album_id = params["id"]
             await self.main_window.album_screen.load(album_id)
-        elif route == "podcast" and "id=" in query:
-            podcast_id = query.split("=", 1)[1]
+        elif route == "podcast" and params.get("id"):
+            podcast_id = params["id"]
             await self.main_window.album_screen.load(podcast_id)
-        elif route == "artist" and "id=" in query:
-            artist_id = query.split("=", 1)[1]
+        elif route == "artist" and params.get("id"):
+            artist_id = params["id"]
             await self.main_window.artist_screen.load(artist_id)
-        elif route == "search" and "query=" in query:
-            query_param = query.split("=", 1)[1]
+        elif route == "search" and "query" in params:
+            query_param = params["query"]
             self.main_window.search_bar.set_query(query_param, fetch=False)
             await self.main_window.search_screen.search(query_param)
-        elif route == "library" and query.startswith("tab="):
-            tab = query.split("=", 1)[1]
+        elif route == "library" and "tab" in params:
+            tab = params["tab"]
             self.main_window.library_screen.select_tab(tab)
         else:
             await self.load_screen(route)
@@ -246,19 +323,19 @@ class NavigationController:
 
     def on_search_submitted(self, query: str) -> None:
         """Called when user presses Enter or picks a suggestion."""
-        if query:
-            if "?" in query:
-                self.navigate_to(query)
-                return
-            self.navigate_to(f"search?query={query}")
+        query = (query or "").strip()
+        if not query:
+            return
+
+        # Suggestions may intentionally provide one of our known routes.  A
+        # normal search such as ``What Was I Made For?`` must always stay text.
+        route, _ = self._parse_path(query)
+        if route in self.main_window.ROUTES and route != "search":
+            self.navigate_to(query)
+            return
+        self.navigate_to(self._path_for("search", {"query": query}))
 
     def set_stack_index(self, index: int) -> None:
-        current = self.main_window.stack.currentIndex()
-        if current != index:
-            self.main_window._nav_history.append(current)
-            # Keep history bounded
-            if len(self.main_window._nav_history) > 30:
-                self.main_window._nav_history = self.main_window._nav_history[-20:]
         if hasattr(self.main_window.stack, "setCurrentIndexAnimated"):
             self.main_window.stack.setCurrentIndexAnimated(index)
         else:
@@ -283,6 +360,14 @@ class NavigationController:
                     mp.update()
         # Update mini player expand icon based on whether we're on now_playing
         self.main_window.playback_controller._update_expand_icon()
+
+    def go_back(self) -> None:
+        """Restore the complete previous route, including its query parameters."""
+        if not self.main_window._nav_history:
+            self.navigate_to("home", record_history=False)
+            return
+        previous_path = self.main_window._nav_history.pop()
+        self.navigate_to(previous_path, record_history=False)
 
     async def load_screen(self, route: str) -> None:
         screens = {

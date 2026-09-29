@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtWidgets import QApplication
 from loguru import logger
 
@@ -32,10 +32,11 @@ class QueueTabShim(QObject):
     add_to_playlist_requested = Signal(str, str)
     delete_download_requested = Signal(str)
     queue_move_requested = Signal(int, int)
+    queue_remove_requested = Signal(int)
 
-    def set_queue(self, items, liked_ids=None) -> None:
+    def set_queue(self, items, liked_ids=None, current_index=None) -> None:
         if self._vm is not None:
-            self._vm.set_queue(list(items), set(liked_ids or set()))
+            self._vm.set_queue(list(items), set(liked_ids or set()), current_index)
 
 
 class NowPlayingScreenQml(QObject):
@@ -66,14 +67,11 @@ class NowPlayingScreenQml(QObject):
         self.on_back = on_back
         self.settings = settings
         self._play_queue_item_cb = play_queue_item_cb
-        self._video_task: asyncio.Task | None = None
         self._active = False
-        self._video_request_generation = 0
-        self._video_player = None
-        self._video_audio = None
 
         self._vm = NowPlayingViewModel(QApplication.instance())
         self._apply_lyrics_style()
+        self._apply_appearance_settings()
 
         # Shuffle/repeat iniciales
         try:
@@ -113,14 +111,10 @@ class NowPlayingScreenQml(QObject):
         self._vm.minimize_requested.connect(self._mw_back)
         self._vm.queue_play_at.connect(self._mw_play_queue_index)
         self._vm.queue_move_requested.connect(self.queue_tab.queue_move_requested)
+        self._vm.queue_remove_requested.connect(self.queue_tab.queue_remove_requested)
         self._vm.copy_link_requested.connect(self._copy_link)
         self._vm.play_related_requested.connect(self._on_related_play)
         self._vm.details_requested.connect(self._load_track_details)
-        self._vm.video_requested.connect(self._show_video_clip)
-        self._vm.video_closed_requested.connect(self._close_video_clip)
-        self._vm.video_changed.connect(self._sync_video_player)
-        self._vm.playing_changed.connect(self._sync_video_playback)
-        self._vm.position_changed.connect(self._sync_video_position)
 
     @property
     def is_ok(self) -> bool:
@@ -128,17 +122,9 @@ class NowPlayingScreenQml(QObject):
 
     def set_active(self, active: bool) -> None:
         self._active = bool(active)
-        if self._active:
-            self._sync_video_player()
-        elif self._video_player is not None:
-            self._video_player.stop()
 
     def close(self) -> None:
-        """Release video resources retained by the former widget lifecycle."""
-        self._cancel_video_request()
-        self._vm.clear_video()
-        if self._video_player is not None:
-            self._video_player.stop()
+        """Mantiene la API de ciclo de vida de la antigua pantalla widgets."""
 
     # ── Find MainWindow (paridad con versión widgets) ──────────────────────
 
@@ -242,150 +228,14 @@ class NowPlayingScreenQml(QObject):
         else:
             self._vm.set_details_error("No hay créditos disponibles para esta canción.")
 
-    def _show_video_clip(self, video_id: str) -> None:
-        """Carga el stream visual en la isla sin duplicar el audio principal."""
-        if not video_id:
-            return
-        self._cancel_video_request()
-        self._vm.begin_video_loading()
-
-        main = self._find_main_window()
-        extractor = getattr(main, "extractor", None) if main else None
-        if extractor is None or not hasattr(extractor, "get_video_stream_info"):
-            self._vm.set_video_error(_("No se pudo cargar el videoclip."))
-            return
-
-        generation = self._video_request_generation
-        self._video_task = asyncio.ensure_future(
-            self._load_video_stream(video_id, extractor, generation)
-        )
-
-    async def _load_video_stream(self, video_id: str, extractor, generation: int) -> None:
-        try:
-            info = await extractor.get_video_stream_info(video_id)
-        except asyncio.CancelledError:
-            return
-        except Exception as exc:
-            logger.warning(f"No se pudo extraer el videoclip: {exc}")
-            info = {}
-
-        if (
-            generation != self._video_request_generation
-            or video_id != self._vm.videoId
-            or self._vm.mediaMode != "video"
-        ):
-            return
-        stream_url = str((info or {}).get("url", "") or "")
-        if stream_url:
-            self._vm.set_video_stream(stream_url)
-        else:
-            self._vm.set_video_error(_("No se pudo cargar el videoclip."))
-
-    def _ensure_video_player(self) -> bool:
-        if self._video_player is not None:
-            return True
-        try:
-            from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
-
-            self._video_audio = QAudioOutput(self)
-            self._video_audio.setMuted(True)
-            self._video_player = QMediaPlayer(self)
-            self._video_player.setAudioOutput(self._video_audio)
-            self._vm.set_video_player(self._video_player)
-            self._video_player.mediaStatusChanged.connect(self._on_video_media_status)
-            self._video_player.errorOccurred.connect(self._on_video_player_error)
-            return True
-        except Exception as exc:
-            logger.warning(f"No se pudo inicializar el visor de vídeo: {exc}")
-            self._vm.set_video_error(_("No se pudo reproducir el videoclip."))
-            return False
-
-    def _sync_video_player(self) -> None:
-        if not self._active:
-            return
-        if self._vm.mediaMode != "video" or not self._vm.videoStreamUrl:
-            if self._video_player is not None:
-                self._stop_video_player()
-            return
-        if not self._ensure_video_player():
-            return
-        from PySide6.QtCore import QUrl
-
-        source = QUrl(self._vm.videoStreamUrl)
-        if self._video_player.source() != source:
-            self._video_player.setSource(source)
-        self._sync_video_playback()
-
-    def _stop_video_player(self) -> None:
-        if self._vm.mediaMode == "video":
-            return
-        if self._video_player is not None:
-            self._video_player.stop()
-
-    def _sync_video_playback(self) -> None:
-        if self._video_player is None or self._vm.mediaMode != "video":
-            return
-        if not self._vm.videoStreamUrl:
-            return
-        if self._vm.playing:
-            self._video_player.play()
-        else:
-            self._video_player.pause()
-
-    def _sync_video_position(self) -> None:
-        if self._video_player is None or self._vm.mediaMode != "video":
-            return
-        if self._video_player.duration() > 0 and abs(self._video_player.position() - self._vm.positionMs) > 1800:
-            self._video_player.setPosition(max(0, self._vm.positionMs))
-
-    def _on_video_media_status(self, status) -> None:
-        try:
-            from PySide6.QtMultimedia import QMediaPlayer
-
-            loaded = status in (
-                QMediaPlayer.MediaStatus.LoadedMedia,
-                QMediaPlayer.MediaStatus.BufferedMedia,
-            )
-        except Exception:
-            loaded = False
-        if loaded:
-            self._video_player.setPosition(max(0, self._vm.positionMs))
-            self._sync_video_playback()
-
-    def _on_video_player_error(self, _error, error_string: str) -> None:
-        if self._vm.mediaMode == "video":
-            self._vm.report_video_error(error_string or _("No se pudo reproducir el videoclip."))
-
-    def _cancel_video_request(self) -> None:
-        self._video_request_generation += 1
-        task = self._video_task
-        self._video_task = None
-        if task is not None and not task.done():
-            task.cancel()
-
-    def _close_video_clip(self) -> None:
-        self._cancel_video_request()
-        if self._video_player is not None:
-            self._stop_video_player()
-        generation = self._video_request_generation
-        # Conserva el último frame mientras QML completa el crossfade a artwork.
-        QTimer.singleShot(280, lambda: self._clear_video_after_transition(generation))
-
-    def _clear_video_after_transition(self, generation: int) -> None:
-        if generation == self._video_request_generation and self._vm.mediaMode == "audio":
-            self._vm.clear_video()
-
     # ── API pública (llamada por los controllers) ─────────────────────────
 
     def update_track_info(self, title: str, artist: str, thumbnail_url: str) -> None:
         video_id = getattr(self.player.status, "current_video_id", "") if self.player else ""
-        previous_video_id = self._vm.videoId
         album = ""
         if getattr(self.queue, "current", None):
             album = getattr(self.queue.current, "album", "") or ""
         self._vm.set_track_info(title, artist, thumbnail_url, album=album, video_id=video_id)
-        if self._vm.mediaMode == "video" and video_id and video_id != previous_video_id:
-            self._show_video_clip(video_id)
         if thumbnail_url:
             asyncio.ensure_future(self._load_thumbnail(thumbnail_url))
         # Marcar el actual en la cola (set_queue ya conoce _video_id)
@@ -456,6 +306,9 @@ class NowPlayingScreenQml(QObject):
     def update_lyrics_style(self) -> None:
         self._apply_lyrics_style()
 
+    def update_appearance_settings(self) -> None:
+        self._apply_appearance_settings()
+
     def _apply_lyrics_style(self) -> None:
         s = getattr(self.settings, "subtitles", None)
         if s:
@@ -466,6 +319,12 @@ class NowPlayingScreenQml(QObject):
                 auto_scroll=s.auto_scroll,
                 delay_ms=s.delay_ms,
             )
+
+    def _apply_appearance_settings(self) -> None:
+        appearance = getattr(self.settings, "appearance", None)
+        self._vm.set_show_artwork_blur(
+            bool(getattr(appearance, "show_artwork_blur_bg", True))
+        )
 
     def _update_styles(self) -> None:
         """Llamado por theme_manager; QML se rebindea vía themeBridge (no-op)."""

@@ -45,7 +45,7 @@ async def test_database_initialization_uses_alembic_for_file_db(monkeypatch, tmp
 
     async with db.get_session() as session:
         result = await session.execute(text("SELECT version_num FROM alembic_version;"))
-        assert result.scalar_one() == "20260708_0001"
+        assert result.scalar_one() == "20260926_0002"
 
         result = await session.execute(text("PRAGMA table_info(downloads)"))
         download_columns = {row[1] for row in result.fetchall()}
@@ -54,6 +54,13 @@ async def test_database_initialization_uses_alembic_for_file_db(monkeypatch, tmp
         result = await session.execute(text("PRAGMA table_info(notifications)"))
         notification_columns = {row[1] for row in result.fetchall()}
         assert "artist_id" in notification_columns
+
+        result = await session.execute(text("PRAGMA table_info(play_history)"))
+        history_columns = {row[1] for row in result.fetchall()}
+        assert {
+            "listen_time_ms", "completion_ratio", "skip_count", "completed",
+            "was_played", "context_type", "context_id",
+        } <= history_columns
 
 
 @pytest.mark.asyncio

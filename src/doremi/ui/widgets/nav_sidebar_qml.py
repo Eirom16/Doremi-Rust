@@ -8,6 +8,7 @@ class NavSidebarQml(QObject):
 
     on_navigate = Signal(str)
     active_route_changed = Signal()
+    active_path_changed = Signal()
     collapsed_changed = Signal()
     playlists_changed = Signal()
     width_changed = Signal(int)
@@ -19,6 +20,7 @@ class NavSidebarQml(QObject):
         super().__init__(parent)
         self._on_navigate = on_navigate
         self._active_route = "home"
+        self._active_path = "home"
         self._collapsed = False
         self._playlists: list[dict[str, str]] = []
         self._sidebar_width = self.EXPANDED_WIDTH
@@ -31,6 +33,10 @@ class NavSidebarQml(QObject):
     @Property(str, notify=active_route_changed)
     def activeRoute(self) -> str:
         return self._active_route
+
+    @Property(str, notify=active_path_changed)
+    def activePath(self) -> str:
+        return self._active_path
 
     @Property(bool, notify=collapsed_changed)
     def collapsed(self) -> bool:
@@ -69,7 +75,17 @@ class NavSidebarQml(QObject):
         self.toggle_collapse()
 
     def toggle_collapse(self) -> None:
-        self._collapsed = not self._collapsed
+        self.set_collapsed(not self._collapsed)
+
+    @Slot(bool)
+    def setCollapsed(self, collapsed: bool) -> None:
+        self.set_collapsed(collapsed)
+
+    def set_collapsed(self, collapsed: bool) -> None:
+        collapsed = bool(collapsed)
+        if self._collapsed == collapsed:
+            return
+        self._collapsed = collapsed
         self.collapsed_changed.emit()
         self._set_sidebar_width(self.COLLAPSED_WIDTH if self._collapsed else self.EXPANDED_WIDTH)
 
@@ -86,10 +102,14 @@ class NavSidebarQml(QObject):
 
     def set_active(self, route: str) -> None:
         """Reflect programmatic navigation in the QML selection state."""
-        if self._active_route == route:
-            return
-        self._active_route = route
-        self.active_route_changed.emit()
+        path = (route or "home").strip()
+        base_route = path.split("?", 1)[0]
+        if self._active_route != base_route:
+            self._active_route = base_route
+            self.active_route_changed.emit()
+        if self._active_path != path:
+            self._active_path = path
+            self.active_path_changed.emit()
 
     def _update_sidebar_styles(self) -> None:
         """Theme changes bind directly in QML; retained for ThemeManager parity."""

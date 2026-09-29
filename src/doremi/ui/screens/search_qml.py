@@ -40,6 +40,10 @@ class SearchScreenQml(QObject):
         self._current_query = ""
         self._results_by_cat: dict[str, list[dict]] = {}
         self._fetch_task: asyncio.Task | None = None
+        # Each async request owns a monotonically increasing identity. Query
+        # and category alone are insufficient: retrying the same pair can
+        # leave a cancelled task finishing after its replacement.
+        self._fetch_generation = 0
 
         self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "SearchScreen.qml"))
         self._load_ok = True
@@ -62,6 +66,7 @@ class SearchScreenQml(QObject):
 
     def close(self) -> None:
         """Compatibility cleanup for callers from the former widget surface."""
+        self._fetch_generation += 1
         if self._fetch_task and not self._fetch_task.done():
             self._fetch_task.cancel()
 
@@ -99,10 +104,13 @@ class SearchScreenQml(QObject):
             return
         if query == self._current_query and self._vm.category in self._results_by_cat:
             return
+        if self._fetch_task and not self._fetch_task.done():
+            self._fetch_task.cancel()
         self._current_query = query
         self._vm.set_query(query)
         self._results_by_cat = {}
-        await self._fetch(query, self._vm.category)
+        self._fetch_generation += 1
+        await self._fetch(query, self._vm.category, self._fetch_generation)
 
     async def load(self) -> None:
         pass  # paridad con SearchScreen (no-op; la búsqueda la dispara `search()`)
@@ -120,11 +128,26 @@ class SearchScreenQml(QObject):
     def _schedule_fetch(self, query: str, category: str) -> None:
         if self._fetch_task and not self._fetch_task.done():
             self._fetch_task.cancel()
-        self._fetch_task = asyncio.ensure_future(self._fetch(query, category))
+        self._fetch_generation += 1
+        self._fetch_task = asyncio.ensure_future(
+            self._fetch(query, category, self._fetch_generation)
+        )
 
-    async def _fetch(self, query: str, category: str) -> None:
+    async def _fetch(self, query: str, category: str, generation: int | None = None) -> None:
+        if generation is None:
+            self._fetch_generation += 1
+            generation = self._fetch_generation
+
+        def is_current_request() -> bool:
+            return (
+                generation == self._fetch_generation
+                and query == self._current_query
+                and category == self._vm.category
+            )
+
         if category in self._results_by_cat:
-            self._apply_results(category, self._results_by_cat[category])
+            if is_current_request():
+                self._apply_results(category, self._results_by_cat[category])
             return
 
         self._vm.set_loading(True)
@@ -132,20 +155,21 @@ class SearchScreenQml(QObject):
         try:
             from doremi.ui.screens.search_data import gather_search
             items = await gather_search(self.yt, query, category)
-            # El usuario pudo cambiar de categoría/query mientras tanto
-            if query != self._current_query:
+            # El usuario pudo cambiar query/categoría o iniciar un reintento
+            # idéntico mientras tanto. Una respuesta obsoleta no puede tocar
+            # ni los modelos, ni el cache de la solicitud vigente.
+            if not is_current_request():
                 return
             self._results_by_cat[category] = items
-            if category == self._vm.category:
-                self._apply_results(category, items)
+            self._apply_results(category, items)
         except asyncio.CancelledError:
             raise
         except Exception as e:
             logger.error(f"Error en búsqueda QML ({category}): {e}")
-            if category == self._vm.category and query == self._current_query:
+            if is_current_request():
                 self._vm.set_error(_("No se pudieron cargar los resultados"))
         finally:
-            if category == self._vm.category and query == self._current_query:
+            if is_current_request():
                 self._vm.set_loading(False)
 
     def _apply_results(self, category: str, items: list[dict]) -> None:

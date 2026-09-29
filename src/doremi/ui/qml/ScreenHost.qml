@@ -3,23 +3,26 @@ import QtQuick
 Item {
     id: root
 
-    property url screenSource: ""
-    property var screenVm: null
-
-    function applyViewModel() {
-        if (screenLoader.item && "screenVm" in screenLoader.item)
-            screenLoader.item.screenVm = root.screenVm
+    // Source and VM must be delivered as one operation. Updating two bound
+    // properties independently briefly gives the old screen the new VM (or
+    // vice versa), which is particularly destructive for QML routes.
+    function showScreen(source, vm) {
+        if (!source || !vm) {
+            screenLoader.source = ""
+            return
+        }
+        if (screenLoader.item && screenLoader.source === source) {
+            screenLoader.item.screenVm = vm
+            return
+        }
+        screenLoader.setSource(source, { "screenVm": vm })
     }
-
-    onScreenVmChanged: applyViewModel()
 
     Loader {
         id: screenLoader
         objectName: "screenLoader"
         anchors.fill: parent
-        source: root.screenSource
         onLoaded: {
-            root.applyViewModel()
             if (item) {
                 item.opacity = 0
                 fadeIn.target = item

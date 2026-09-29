@@ -88,7 +88,7 @@ class TestStatsData:
             loop.close()
         assert result["total_plays"] == 0 or result["total_plays"] >= 0
         assert set(result.keys()) == {
-            "time_listened", "total_plays", "unique_artists", "top_songs", "chart",
+            "time_listened", "total_plays", "unique_artists", "top_songs", "chart", "_error",
         }
 
     def test_chart_weekday_labels(self):

@@ -67,10 +67,25 @@ Item {
             }
 
             Item {
+                objectName: "clearSearchButton"
                 visible: searchInput.text.length > 0
                 width: 32
                 height: 32
+                activeFocusOnTab: visible
+                Accessible.role: Accessible.Button
+                Accessible.name: "Limpiar búsqueda"
+                Accessible.onPressAction: if (headerController) headerController.clearQuery()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.clearQuery() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.clearQuery() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.clearQuery() }
 
+                Rectangle {
+                    anchors.fill: parent
+                    radius: width / 2
+                    color: "transparent"
+                    border.width: parent.activeFocus ? 2 : 0
+                    border.color: root.colors["accent"]
+                }
                 Text {
                     anchors.centerIn: parent
                     text: "\ue5cd"
@@ -85,6 +100,9 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: if (headerController) headerController.clearQuery()
                 }
+                ToolTip.visible: clearMouse.containsMouse
+                ToolTip.text: "Limpiar búsqueda"
+                ToolTip.delay: 450
             }
         }
     }
@@ -96,16 +114,23 @@ Item {
         spacing: Theme.spacingXs
 
         Item {
+            objectName: "notificationsButton"
             width: 38
             height: 38
+            activeFocusOnTab: visible
             Accessible.role: Accessible.Button
             Accessible.name: "Notificaciones"
             Accessible.onPressAction: if (headerController) headerController.requestNotifications()
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestNotifications() }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestNotifications() }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestNotifications() }
 
             Rectangle {
                 anchors.fill: parent
                 radius: width / 2
                 color: notificationsMouse.containsMouse ? root.colors["bg_elevated"] : "transparent"
+                border.width: parent.activeFocus ? 2 : 0
+                border.color: root.colors["accent"]
             }
             Text {
                 anchors.centerIn: parent
@@ -138,16 +163,23 @@ Item {
         }
 
         Item {
+            objectName: "profileButton"
             width: 38
             height: 38
+            activeFocusOnTab: visible
             Accessible.role: Accessible.Button
             Accessible.name: headerController ? headerController.profileLabel : "Iniciar sesión"
             Accessible.onPressAction: if (headerController) headerController.requestProfile()
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestProfile() }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestProfile() }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.requestProfile() }
 
             Rectangle {
                 anchors.fill: parent
                 radius: width / 2
                 color: profileMouse.containsMouse ? root.colors["bg_elevated"] : "transparent"
+                border.width: parent.activeFocus ? 2 : 0
+                border.color: root.colors["accent"]
             }
             Image {
                 anchors.centerIn: parent

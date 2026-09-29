@@ -4,6 +4,14 @@ from __future__ import annotations
 import pytest
 
 from doremi.api.stream_extractor import StreamExtractor
+from types import SimpleNamespace
+
+
+@pytest.fixture(autouse=True)
+def _avoid_host_keyring_for_stream_extractor_tests(monkeypatch, request):
+    """Video-format tests must not contact the user's desktop keyring."""
+    if request.node.name != "test_get_stream_info_includes_stored_cookies":
+        monkeypatch.setattr(StreamExtractor, "_load_cookie_opts", staticmethod(lambda: {}))
 
 
 class _FakeYoutubeDL:
@@ -30,33 +38,6 @@ class _FakeYoutubeDL:
             "fps": 30,
             "duration": 213.5,
         }
-
-
-@pytest.mark.asyncio
-async def test_get_video_stream_info_prefers_direct_compatible_video(monkeypatch):
-    monkeypatch.setattr("doremi.api.stream_extractor.yt_dlp.YoutubeDL", _FakeYoutubeDL)
-    extractor = StreamExtractor()
-
-    info = await extractor.get_video_stream_info("video-123")
-
-    assert info["url"] == "https://cdn.example/video.mp4"
-    assert info["codec"].startswith("avc1")
-    assert info["height"] == 1080
-    assert "bestvideo[ext=mp4]" in _FakeYoutubeDL.last_options["format"]
-    assert _FakeYoutubeDL.last_options["noplaylist"] is True
-
-
-@pytest.mark.asyncio
-async def test_get_video_stream_info_prefers_progressive_with_audio(monkeypatch):
-    """Los MP4 progresivos (audio+vídeo) deben ir antes que los video-only."""
-    monkeypatch.setattr("doremi.api.stream_extractor.yt_dlp.YoutubeDL", _FakeYoutubeDL)
-    extractor = StreamExtractor()
-
-    await extractor.get_video_stream_info("video-123")
-
-    fmt = _FakeYoutubeDL.last_options["format"]
-    assert fmt.startswith("best[ext=mp4][vcodec^=avc1][acodec!=none]")
-    assert fmt.index("acodec!=none") < fmt.index("bestvideo")
 
 
 class _AltStreamFakeYoutubeDL(_FakeYoutubeDL):
@@ -100,20 +81,6 @@ async def test_get_alternative_stream_falls_back_to_video_only(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_get_video_stream_info_rejects_non_http_urls(monkeypatch):
-    class InvalidYoutubeDL(_FakeYoutubeDL):
-        def extract_info(self, _url, download=False):
-            return {"url": "file:///tmp/not-a-remote-stream.mp4"}
-
-    monkeypatch.setattr("doremi.api.stream_extractor.yt_dlp.YoutubeDL", InvalidYoutubeDL)
-    extractor = StreamExtractor()
-
-    info = await extractor.get_video_stream_info("video-123")
-
-    assert info == {"url": "", "error": "video_unavailable"}
-
-
-@pytest.mark.asyncio
 async def test_get_stream_info_includes_stored_cookies(monkeypatch):
     """Las credenciales del llavero deben llegar a las opciones de yt-dlp."""
     monkeypatch.setattr(
@@ -128,3 +95,23 @@ async def test_get_stream_info_includes_stored_cookies(monkeypatch):
     headers = _FakeYoutubeDL.last_options.get("headers", {})
     assert headers.get("Cookie") == "sid=abc"
     assert headers.get("User-Agent") == "UA-Test"
+
+
+@pytest.mark.asyncio
+async def test_stream_quality_and_proxy_are_applied(monkeypatch):
+    class FormatsFake(_FakeYoutubeDL):
+        def extract_info(self, _url, download=False):
+            return {
+                "formats": [
+                    {"url": "https://cdn.example/64.m4a", "vcodec": "none", "ext": "m4a", "abr": 64},
+                    {"url": "https://cdn.example/192.m4a", "vcodec": "none", "ext": "m4a", "abr": 192},
+                ]
+            }
+
+    monkeypatch.setattr("doremi.api.stream_extractor.yt_dlp.YoutubeDL", FormatsFake)
+    settings = SimpleNamespace(network=SimpleNamespace(stream_quality="low", proxy_url="http://proxy.test:8080"))
+    info = await StreamExtractor(settings).get_stream_info("video-123")
+
+    assert info["url"].endswith("64.m4a")
+    assert info["quality"] == 64
+    assert FormatsFake.last_options["proxy"] == "http://proxy.test:8080"

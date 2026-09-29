@@ -37,6 +37,7 @@ class DownloadsScreenQml(QObject):
 
         self._vm = DownloadsViewModel(QApplication.instance())
         self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "DownloadsScreen.qml"))
         self._load_ok = True
@@ -50,6 +51,7 @@ class DownloadsScreenQml(QObject):
         self._vm.play_local_requested.connect(self._on_vm_play_local)
         self._vm.navigate_requested.connect(self._on_navigate)
         self._vm.batch_delete_requested.connect(self._on_batch_delete)
+        self._vm.download_control_requested.connect(self._on_download_control)
         self._vm.tab_changed.connect(self._schedule_load)
         self._vm.status_filter_changed.connect(self._schedule_load)
 
@@ -79,6 +81,24 @@ class DownloadsScreenQml(QObject):
 
     def _on_batch_delete(self, ids: list, is_group: bool) -> None:
         asyncio.ensure_future(self._batch_delete_async(ids, is_group))
+
+    def _on_download_control(self, video_id: str, action: str) -> None:
+        """Expose DownloadManager lifecycle controls through the QML screen."""
+        manager = DownloadManager.get_instance()
+        if action == "pause":
+            manager.pause_download(video_id)
+            self._vm.update_status(video_id, "paused")
+        elif action in {"resume", "retry"}:
+            manager.resume_download(video_id)
+            self._vm.update_status(video_id, "queued")
+        elif action == "cancel":
+            manager.cancel_download(video_id)
+            self._vm.update_status(video_id, "cancelling")
+        else:
+            return
+        # Manager signals provide the authoritative final state; reload now so
+        # filtering and visible feedback react immediately as well.
+        self._schedule_load()
 
     async def _batch_delete_async(self, ids: list, is_group: bool) -> None:
         from doremi.ui.screens import downloads_data
@@ -120,26 +140,60 @@ class DownloadsScreenQml(QObject):
             self._vm.toggle_selection_mode()
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()
-        self._load_task = asyncio.ensure_future(self.load())
+        self._load_generation += 1
+        tab = self._vm.tab
+        status_filter = self._vm.statusFilter
+        self._load_task = asyncio.ensure_future(
+            self._load(tab, status_filter, self._load_generation)
+        )
 
     async def load(self) -> None:
+        current = asyncio.current_task()
+        if self._load_task and self._load_task is not current and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        generation = self._load_generation
+        self._load_task = current
+        try:
+            await self._load(self._vm.tab, self._vm.statusFilter, generation)
+        finally:
+            if self._load_task is current:
+                self._load_task = None
+
+    async def _load(self, tab: str, status_filter: str, generation: int) -> None:
+        def is_current_request() -> bool:
+            return (
+                generation == self._load_generation
+                and tab == self._vm.tab
+                and status_filter == self._vm.statusFilter
+            )
+
+        if not is_current_request():
+            return
         self._vm.set_loading(True)
         try:
             from doremi.ui.screens import downloads_data
-            if self._vm.tab == "songs":
-                items = await downloads_data.gather_downloaded_songs(self._vm.statusFilter)
+            if tab == "songs":
+                items = await downloads_data.gather_downloaded_songs(status_filter)
+                if not is_current_request():
+                    return
                 self._vm.set_songs(items)
             else:
-                items = await downloads_data.gather_download_groups(self._vm.tab)
+                items = await downloads_data.gather_download_groups(tab)
+                if not is_current_request():
+                    return
                 self._vm.set_groups(items)
         except Exception as e:
             logger.error(f"Error loading downloads (QML): {e}")
-            if self._vm.tab == "songs":
+            if not is_current_request():
+                return
+            if tab == "songs":
                 self._vm.set_songs([])
             else:
                 self._vm.set_groups([])
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)
 
     # ── Live updates del DownloadManager ───────────────────────────────────
 

@@ -62,6 +62,17 @@ class TestLyricsParsing:
 
 
 class TestNowPlayingViewModel:
+    def test_artwork_blur_setting_is_observable(self, qapp):
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        changes: list[bool] = []
+        vm.appearance_changed.connect(lambda: changes.append(vm.showArtworkBlur))
+        vm.set_show_artwork_blur(False)
+        vm.set_show_artwork_blur(False)
+        vm.set_show_artwork_blur(True)
+        assert changes == [False, True]
+
     def test_track_and_position(self, qapp):
         from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
 
@@ -97,6 +108,32 @@ class TestNowPlayingViewModel:
         assert idx() == 1           # 21s > ts L2, < L3
         vm.set_position(59000, 60000)
         assert idx() == 2
+
+    def test_lyrics_style_is_observable_and_delay_changes_active_line(self, qapp):
+        """Los ajustes visibles de letras deben llegar al cálculo y a QML."""
+        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+        vm = NowPlayingViewModel(qapp)
+        vm.set_lyrics("[00:10.00]L1\n[00:20.00]L2")
+        changes: list[tuple[int, str, bool, bool]] = []
+        vm.lyrics_style_changed.connect(
+            lambda: changes.append(
+                (vm.lyricFontSize, vm.lyricAlign, vm.lyricGlow, vm.lyricAutoScroll)
+            )
+        )
+
+        vm.set_lyrics_style(31, "left", False, False, -1_000)
+        assert changes == [(31, "left", False, False)]
+        assert (vm.lyricFontSize, vm.lyricAlign, vm.lyricGlow, vm.lyricAutoScroll) == (
+            31, "left", False, False,
+        )
+
+        vm.set_position(10_500, 60_000)
+        assert vm.lyrics.data(vm.lyrics.index(0, 0), vm.lyrics.ActiveRole) is False
+
+        vm.set_lyrics_style(31, "left", False, True, 0)
+        vm.set_position(10_500, 60_000)
+        assert vm.lyrics.data(vm.lyrics.index(0, 0), vm.lyrics.ActiveRole) is True
 
     def test_queue_and_current_flag(self, qapp):
         from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
@@ -191,63 +228,6 @@ class TestNowPlayingViewModel:
         assert vm.detailUploader == "Canal"
         assert vm.detailLicense == ""
 
-    def test_video_clip_request_uses_the_current_video_id(self, qapp):
-        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
-
-        vm = NowPlayingViewModel(qapp)
-        requested: list[str] = []
-        vm.video_requested.connect(requested.append)
-        vm.request_video_clip()  # sin pista: no abre ningún visor
-        vm.set_track_info("T", "A", "", "", "video-123")
-        vm.request_video_clip()
-        assert requested == ["video-123"]
-
-    def test_audio_video_pill_closes_the_clip_when_returning_to_audio(self, qapp):
-        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
-
-        vm = NowPlayingViewModel(qapp)
-        vm.set_track_info("T", "A", "", "", "video-123")
-        requested: list[str] = []
-        closed: list[bool] = []
-        vm.video_requested.connect(requested.append)
-        vm.video_closed_requested.connect(lambda: closed.append(True))
-
-        vm.set_media_mode("video")
-        assert vm.mediaMode == "video"
-        assert requested == ["video-123"]
-        vm.set_media_mode("audio")
-        assert vm.mediaMode == "audio"
-        assert closed == [True]
-
-    def test_video_state_exposes_loading_stream_and_error(self, qapp):
-        from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
-
-        vm = NowPlayingViewModel(qapp)
-        vm.set_track_info("T", "A", "", "", "video-123")
-        vm.set_position(42000, 180000)
-
-        vm.begin_video_loading()
-        assert vm.videoLoading is True
-        assert vm.videoStreamUrl == ""
-        assert vm.positionMs == 42000
-
-        vm.set_video_stream("https://cdn.example/video.mp4")
-        assert vm.videoLoading is False
-        assert vm.videoStreamUrl.endswith("video.mp4")
-        assert vm.videoError == ""
-
-        vm.report_video_error("Decoder no disponible")
-        assert vm.videoStreamUrl.endswith("video.mp4")
-        assert vm.videoError == ""  # aún está en modo audio
-
-        vm.request_video_clip()
-        assert vm.mediaMode == "video"
-        vm.report_video_error("Decoder no disponible")
-        assert vm.videoError == "Decoder no disponible"
-        vm.set_media_mode("audio")
-        vm.clear_video()
-        assert vm.videoError == ""
-
 
 class TestNowPlayingScreenQml:
     def test_qml_loads(self, qapp):
@@ -257,6 +237,96 @@ class TestNowPlayingScreenQml:
                                      lambda i: None, AppSettings(), lambda: None)
         assert screen.is_ok
         assert screen._qml_island is True
+
+    def test_qml_waits_for_its_viewmodel(self, qapp):
+        """Route construction must not evaluate a null screenVm."""
+        from pathlib import Path
+        from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl
+        from PySide6.QtQml import QQmlComponent, QQmlEngine
+        from doremi.ui.screens.now_playing_qml import QML_DIR, NowPlayingScreenQml
+        from doremi.ui.theme_bridge import theme_bridge
+
+        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
+                                     lambda i: None, AppSettings(), lambda: None)
+        engine = QQmlEngine()
+        engine.addImportPath(str(Path(QML_DIR)))
+        engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+        component = QQmlComponent(
+            engine, QUrl.fromLocalFile(str(Path(QML_DIR) / "NowPlayingScreen.qml")),
+        )
+        root = component.create()
+        assert root is not None, [error.toString() for error in component.errors()]
+        loader = root.findChild(QObject, "nowPlayingContentLoader")
+        assert loader is not None
+        assert loader.property("active") is False
+
+        root.setProperty("screenVm", screen._vm)
+        qapp.processEvents()
+
+        assert loader.property("active") is True
+        assert loader.property("item") is not None
+        root.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+    def test_transport_intents_reach_the_parent_main_window(self, qapp):
+        """QML presenters are QObject islands, not child widgets.
+
+        The transport bridge must therefore retain a MainWindow QObject parent;
+        otherwise play/next/previous/seek/shuffle/repeat silently become no-ops.
+        """
+        from PySide6.QtCore import QObject
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+
+        class MainWindowStub(QObject):
+            def __init__(self):
+                super().__init__()
+                self.calls: list[tuple[str, int | None]] = []
+
+            def _on_play_pause(self): self.calls.append(("play_pause", None))
+            def _on_prev(self): self.calls.append(("previous", None))
+            def _on_next(self): self.calls.append(("next", None))
+            def _on_seek(self, position): self.calls.append(("seek", position))
+
+        main = MainWindowStub()
+        screen = NowPlayingScreenQml(
+            _FakePlayer(), _make_queue(), None, lambda _index: None,
+            AppSettings(), lambda: None,
+        )
+        screen.setParent(main)
+        screen._vm.set_position(0, 100_000)
+
+        screen._vm.toggle_play()
+        screen._vm.prev()
+        screen._vm.next()
+        screen._vm.seek(0.25)
+
+        assert main.calls == [
+            ("play_pause", None), ("previous", None),
+            ("next", None), ("seek", 25_000),
+        ]
+
+    def test_visible_lyrics_preferences_are_applied_on_create_and_update(self, qapp):
+        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+
+        settings = AppSettings()
+        settings.subtitles.font_size = 29
+        settings.subtitles.alignment = "right"
+        settings.subtitles.glow_effect = False
+        settings.subtitles.auto_scroll = False
+        settings.subtitles.delay_ms = 750
+        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
+                                     lambda i: None, settings, lambda: None)
+
+        assert (screen._vm.lyricFontSize, screen._vm.lyricAlign,
+                screen._vm.lyricGlow, screen._vm.lyricAutoScroll) == (37, "right", False, False)
+
+        settings.subtitles.alignment = "left"
+        settings.subtitles.auto_scroll = True
+        screen.update_lyrics_style()
+        assert screen._vm.lyricAlign == "left"
+        assert screen._vm.lyricAutoScroll is True
 
     def test_external_api_surface(self, qapp):
         """Los métodos que los controllers invocan existen y actualizan el VM."""
@@ -330,54 +400,3 @@ class TestNowPlayingScreenQml:
         screen._vm.set_track_info("Nueva", "B", "https://img/new.jpg")
         await screen._load_thumbnail("https://img/current.jpg")
         assert screen._vm.artworkUrl == "https://img/new.jpg"
-
-    @pytest.mark.asyncio
-    async def test_video_stream_result_is_applied_only_to_current_track(self, qapp):
-        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
-
-        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
-                                     lambda i: None, AppSettings(), lambda: None)
-
-        class Extractor:
-            async def get_video_stream_info(self, video_id):
-                return {"url": f"https://cdn.example/{video_id}.mp4"}
-
-        screen._vm.set_track_info("T", "A", "", "", "v1")
-        screen._vm.set_media_mode("video")
-        generation = screen._video_request_generation
-        await screen._load_video_stream("v1", Extractor(), generation)
-        assert screen._vm.videoStreamUrl.endswith("v1.mp4")
-
-        screen._cancel_video_request()
-        screen._vm.set_track_info("Nueva", "B", "", "", "v2")
-        screen._vm.begin_video_loading()
-        await screen._load_video_stream("v1", Extractor(), generation)
-        assert screen._vm.videoStreamUrl == ""
-        assert screen._vm.videoLoading is True
-
-    def test_video_position_sync_uses_qt_methods(self, qapp):
-        from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
-
-        screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
-                                     lambda i: None, AppSettings(), lambda: None)
-        screen._vm.set_track_info("T", "A", "", "", "v1")
-        screen._vm.set_media_mode("video")
-        screen._vm.set_position(42000, 180000)
-
-        class FakeVideoPlayer:
-            def __init__(self):
-                self.seeked_to = None
-
-            def duration(self):
-                return 180000
-
-            def position(self):
-                return 0
-
-            def setPosition(self, position):
-                self.seeked_to = position
-
-        player = FakeVideoPlayer()
-        screen._video_player = player
-        screen._sync_video_position()
-        assert player.seeked_to == 42000

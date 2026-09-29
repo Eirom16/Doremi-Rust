@@ -16,7 +16,14 @@ Item {
         color: root.colors["bg_base"]
     }
 
-    Flickable {
+    // A route can be selected before its Python view model is delivered by
+    // the shell. Do not instantiate bindings that dereference it meanwhile.
+    Loader {
+        objectName: "homeContentLoader"
+        anchors.fill: parent
+        active: root.screenVm !== null
+        sourceComponent: Component {
+            Flickable {
         id: flickable
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingMd
@@ -52,6 +59,26 @@ Item {
                     Layout.alignment: Qt.AlignHCenter
                 }
                 Item { Layout.fillHeight: true }
+            }
+
+            ColumnLayout {
+                visible: !screenVm.loading && screenVm.errorText !== ""
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+
+                Label {
+                    text: screenVm.errorText
+                    color: root.colors["text_primary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeBody
+                    wrapMode: Text.WordWrap
+                    Layout.fillWidth: true
+                }
+                Button {
+                    text: "Reintentar"
+                    Accessible.name: "Reintentar cargar Inicio"
+                    onClicked: screenVm.retry()
+                }
             }
 
             // ── Greeting ──────────────────────────────────────────────
@@ -137,12 +164,24 @@ Item {
                                 width: playBtnLabel.implicitWidth + Theme.spacingLg * 2
                                 height: 34
                                 radius: Theme.radiusPill
-                                color: playBtnMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+                                color: playBtnMa.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Abrir " + screenVm.spotTitle
+                                Accessible.description: "Abre el contenido destacado"
+                                Keys.onReturnPressed: if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
+                                Keys.onSpacePressed: if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
+                                Keys.onPressed: (event) => {
+                                    if (event.key === Qt.Key_Enter) {
+                                        if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
+                                        event.accepted = true
+                                    }
+                                }
 
                                 Label {
                                     id: playBtnLabel
                                     anchors.centerIn: parent
-                                    text: "Reproducir"
+                                    text: "Abrir"
                                     color: root.colors["text_on_accent"]
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.typeLabel
@@ -150,33 +189,6 @@ Item {
                                 }
                                 MouseArea {
                                     id: playBtnMa
-                                    anchors.fill: parent
-                                    hoverEnabled: true
-                                    cursorShape: Qt.PointingHandCursor
-                                    onClicked: {
-                                        if (screenVm.spotNavigate) screenVm.navigate(screenVm.spotNavigate)
-                                    }
-                                }
-                            }
-
-                            Rectangle {
-                                width: exploreBtnLabel.implicitWidth + Theme.spacingLg * 2
-                                height: 34
-                                radius: Theme.radiusPill
-                                color: "transparent"
-                                border.width: 1
-                                border.color: root.colors["border"]
-
-                                Label {
-                                    id: exploreBtnLabel
-                                    anchors.centerIn: parent
-                                    text: "Explorar"
-                                    color: root.colors["text_primary"]
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.typeLabel
-                                    font.weight: Font.DemiBold
-                                }
-                                MouseArea {
                                     anchors.fill: parent
                                     hoverEnabled: true
                                     cursorShape: Qt.PointingHandCursor
@@ -239,6 +251,21 @@ Item {
                         color: tileMa.containsMouse ? root.colors["bg_elevated"] : root.colors["bg_surface"]
                         border.width: 1
                         border.color: tileMa.containsMouse ? root.colors["border_focus"] : root.colors["border"]
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: "Reproducir " + model.title
+                        Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                        Keys.onReturnPressed: screenVm.play_tile(index)
+                        Keys.onSpacePressed: screenVm.play_tile(index)
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Enter) {
+                                screenVm.play_tile(index)
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                tileMenu.popup()
+                                event.accepted = true
+                            }
+                        }
 
                         property bool hovered: tileMa.containsMouse
                                                || tilePlayMa.containsMouse
@@ -306,8 +333,13 @@ Item {
                             // Play button (visible on hover)
                             Rectangle {
                                 width: 32; height: 32; radius: 16
-                                color: tilePlayMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+                                color: tilePlayMa.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
                                 opacity: hovered ? 1.0 : 0.0
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Reproducir " + model.title
+                                Keys.onReturnPressed: screenVm.play_tile(index)
+                                Keys.onSpacePressed: screenVm.play_tile(index)
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
 
                                 Text {
@@ -331,6 +363,11 @@ Item {
                                 width: 32; height: 32; radius: 16
                                 color: tileMenuMa.containsMouse ? root.colors["accent_dim"] : "transparent"
                                 opacity: hovered ? 1.0 : 0.0
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.Button
+                                Accessible.name: "Más acciones para " + model.title
+                                Keys.onReturnPressed: tileMenu.popup()
+                                Keys.onSpacePressed: tileMenu.popup()
                                 Behavior on opacity { NumberAnimation { duration: 150 } }
 
                                 Text {
@@ -431,6 +468,18 @@ Item {
                             color: hCardMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
                             border.width: 1
                             border.color: hCardMa.containsMouse ? root.colors["border_focus"] : root.colors["border"]
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: hCard.modelData.item_title || "Contenido recomendado"
+                            Accessible.description: hCard.modelData.subtitle || "Abrir contenido"
+                            Keys.onReturnPressed: {
+                                var nav = hCard.modelData.navigate || ""
+                                if (nav) screenVm.navigate(nav)
+                            }
+                            Keys.onSpacePressed: {
+                                var nav = hCard.modelData.navigate || ""
+                                if (nav) screenVm.navigate(nav)
+                            }
 
                             ColumnLayout {
                                 anchors.fill: parent
@@ -517,6 +566,21 @@ Item {
                     Layout.preferredHeight: 72
                     radius: Theme.radiusLg
                     color: songMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.ListItem
+                    Accessible.name: "Reproducir " + title + ", " + artist
+                    Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                    Keys.onReturnPressed: screenVm.play_at(index)
+                    Keys.onSpacePressed: screenVm.play_at(index)
+                    Keys.onPressed: (event) => {
+                        if (event.key === Qt.Key_Enter) {
+                            screenVm.play_at(index)
+                            event.accepted = true
+                        } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                            songCtxMenu.popup()
+                            event.accepted = true
+                        }
+                    }
 
                     // Fondo clickeable PRIMERO: queda debajo de play/menú.
                     MouseArea {
@@ -606,6 +670,11 @@ Item {
                                 || songPlayMa.containsMouse || songMenuMa.containsMouse
                             color: songPlayMa.containsMouse ? root.colors["accent"] : "transparent"
                             opacity: rowHovered ? 1.0 : 0.0
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Reproducir " + title
+                            Keys.onReturnPressed: screenVm.play_at(index)
+                            Keys.onSpacePressed: screenVm.play_at(index)
                             Behavior on opacity { NumberAnimation { duration: 120 } }
 
                             Text {
@@ -613,7 +682,10 @@ Item {
                                 text: "\u{e037}"
                                 font.family: root.iconFont
                                 font.pixelSize: 22
-                                color: root.colors["text_on_accent"]
+                                // With the row merely hovered, the button background is
+                                // transparent; use an on-surface colour until its own hover
+                                // supplies the accent background.
+                                color: songPlayMa.containsMouse ? root.colors["text_on_accent"] : root.colors["text_primary"]
                             }
                             MouseArea {
                                 id: songPlayMa
@@ -629,6 +701,11 @@ Item {
                             width: 36; height: 36; radius: 18
                             color: songMenuMa.containsMouse ? root.colors["accent_dim"] : "transparent"
                             opacity: (songMa.containsMouse || songMenuMa.containsMouse) ? 1.0 : 0.0
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Más acciones para " + title
+                            Keys.onReturnPressed: songCtxMenu.popup()
+                            Keys.onSpacePressed: songCtxMenu.popup()
                             Behavior on opacity { NumberAnimation { duration: 120 } }
 
                             Text {
@@ -680,7 +757,7 @@ Item {
 
             // ── Empty offline state ───────────────────────────────────
             Label {
-                visible: !screenVm.loading && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
+                visible: !screenVm.loading && screenVm.errorText === "" && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Aún no hay música disponible sin conexión"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
@@ -691,7 +768,7 @@ Item {
             }
 
             Label {
-                visible: !screenVm.loading && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
+                visible: !screenVm.loading && screenVm.errorText === "" && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Conéctate una vez para que Doremi prepare y rote tus recomendaciones."
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
@@ -699,6 +776,8 @@ Item {
                 Layout.fillWidth: true
                 Layout.topMargin: Theme.spacingSm
             }
+            }
         }
     }
+}
 }

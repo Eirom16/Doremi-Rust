@@ -124,6 +124,7 @@ class ArtistViewModel(QObject):
 
     loading_changed = Signal()
     header_changed = Signal()
+    error_changed = Signal()
 
     # Mismas señales que ArtistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -135,6 +136,7 @@ class ArtistViewModel(QObject):
     play_requested = Signal(str, str, str, int, str)  # videoId, title, artist, duration_ms, thumb
     navigate_requested = Signal(str)
     back_requested = Signal()
+    retry_requested = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -147,6 +149,7 @@ class ArtistViewModel(QObject):
         self._name = ""
         self._subscribers = ""
         self._thumbnail = ""
+        self._error_text = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -186,12 +189,22 @@ class ArtistViewModel(QObject):
     def hasSongs(self) -> bool:
         return self._songs.rowCount() > 0
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     # ── Mutators (Python side) ─────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
         if self._loading != value:
             self._loading = value
             self.loading_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
 
     def set_data(self, data: dict) -> None:
         self._found = bool(data.get("name"))
@@ -204,6 +217,10 @@ class ArtistViewModel(QObject):
         self.header_changed.emit()
 
     # ── Slots called from QML ──────────────────────────────────────────────
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()
 
     @Slot()
     def play_all(self) -> None:
@@ -244,7 +261,7 @@ class ArtistViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
 
     @Slot(str)
     def navigate(self, route: str) -> None:

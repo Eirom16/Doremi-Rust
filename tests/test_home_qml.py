@@ -127,7 +127,7 @@ class TestHomeViewModel:
         assert got["download"] == [("t1", "Tile Uno", "Artista A", "https://x/t1.jpg")]
         assert got["queue"] == [("s1", "Canción Uno", "Artista A", "https://x/s1.jpg")]
         assert got["like"] == [("s1", None)]
-        assert got["playlist"] == [("s1", "https://x/s1.jpg")]
+        assert got["playlist"] == [("s1", "Canción Uno")]
         assert got["next"] == [("s2", "Canción Dos", "Artista B", "")]
         assert got["artist"] == [("Artista B",)]
 
@@ -180,6 +180,37 @@ class TestHomeScreenQml:
         screen = HomeScreenQml(None, lambda *a: None, lambda r: None)
         assert screen.is_ok
         assert screen._qml_island is True
+
+    def test_qml_defers_bindings_until_the_viewmodel_is_available(self, qapp):
+        """Startup may select Home one event-loop turn before its VM arrives."""
+        from pathlib import Path
+        from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl
+        from PySide6.QtQml import QQmlComponent, QQmlEngine
+        from doremi.ui.screens.home_qml import QML_DIR, HomeScreenQml
+        from doremi.ui.theme_bridge import theme_bridge
+
+        screen = HomeScreenQml(None, lambda *args: None, lambda route: None)
+        engine = QQmlEngine()
+        engine.addImportPath(str(Path(QML_DIR)))
+        engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+        component = QQmlComponent(
+            engine, QUrl.fromLocalFile(str(Path(QML_DIR) / "HomeScreen.qml")),
+        )
+        root = component.create()
+        assert root is not None, [error.toString() for error in component.errors()]
+        loader = root.findChild(QObject, "homeContentLoader")
+        assert loader is not None
+        assert loader.property("active") is False
+
+        root.setProperty("screenVm", screen._vm)
+        qapp.processEvents()
+
+        assert loader.property("active") is True
+        assert loader.property("item") is not None
+        root.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
     def test_play_request_reaches_callback(self, qapp):
         from doremi.ui.screens.home_qml import HomeScreenQml

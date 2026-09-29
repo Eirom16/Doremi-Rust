@@ -75,7 +75,7 @@ class TestHistoryViewModel:
         assert got["download"] == [("v1", "Canción Uno", "Artista A", "https://x/1.jpg")]
         assert got["queue"] == [("v1", "Canción Uno", "Artista A", "https://x/1.jpg")]
         assert got["like"] == [("v1", None)]
-        assert got["playlist"] == [("v1", "https://x/1.jpg")]
+        assert got["playlist"] == [("v1", "Canción Uno")]
 
     def test_empty_toggle(self, qapp):
         from doremi.ui.viewmodels.history_vm import HistoryViewModel

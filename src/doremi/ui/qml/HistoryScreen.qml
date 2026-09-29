@@ -61,8 +61,15 @@ Item {
                 height: 40
                 radius: Theme.radiusPill
                 color: hovered ? root.colors["accent_dim"] : "transparent"
-                border.width: 1
+                border.width: activeFocus ? 2 : 1
                 border.color: root.colors["error"]
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Limpiar historial"
+                Accessible.onPressAction: confirmClear.open()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) confirmClear.open() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) confirmClear.open() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) confirmClear.open() }
 
                 Label {
                     id: clearLabel
@@ -100,6 +107,8 @@ Item {
                 height: 64
                 radius: Theme.radiusLg
                 color: rowMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                border.width: activeFocus ? 2 : 0
+                border.color: root.accentColor
 
                 required property int index
                 required property string title
@@ -107,6 +116,19 @@ Item {
                 required property string duration
                 required property string thumbnail
                 required property string videoId
+                activeFocusOnTab: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: row.title + " — " + row.artist
+                Accessible.onPressAction: screenVm.play_at(row.index)
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
+                Keys.onPressed: function(event) {
+                    if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && event.modifiers & Qt.ShiftModifier)) {
+                        rowMenu.popup()
+                        event.accepted = true
+                    }
+                }
 
                 RowLayout {
                     anchors.fill: parent
@@ -244,7 +266,7 @@ Item {
 
             Item { Layout.fillHeight: true }
             Label {
-                text: "Tu historial está vacío"
+                text: screenVm.errorText !== "" ? screenVm.errorText : "Tu historial está vacío"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeTitle
@@ -252,10 +274,18 @@ Item {
                 Layout.alignment: Qt.AlignHCenter
             }
             Label {
+                visible: screenVm.errorText === ""
                 text: "Las canciones que reproduzcas aparecerán aquí"
                 color: root.colors["text_secondary"]
                 font.pixelSize: Theme.typeBody
                 Layout.alignment: Qt.AlignHCenter
+            }
+            Button {
+                visible: screenVm.errorText !== ""
+                text: "Reintentar"
+                Accessible.name: "Reintentar cargar historial"
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: screenVm.retry()
             }
             Item { Layout.fillHeight: true }
         }

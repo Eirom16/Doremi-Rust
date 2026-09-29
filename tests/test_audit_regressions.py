@@ -4,12 +4,13 @@ import os
 import time
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from doremi.audio.player import MusicPlayer, PlayerState
 from doremi.audio.queue import PlayQueue, QueueItem, RepeatMode
+from doremi.audio.listening import ListeningSession
 from doremi.services.download_manager import DownloadManager, DownloadTask
 
 
@@ -67,12 +68,166 @@ async def test_resume_restarts_position_poll_even_before_cancel_delivery():
     await asyncio.sleep(0)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state_name", ["IDLE", "ERROR"])
+async def test_play_control_starts_current_queue_item_when_vlc_cannot_resume(state_name):
+    from doremi.audio.player import PlayerState
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    queue = PlayQueue()
+    queue.add_to_end(QueueItem("first", "First", "Artist", "", 0, ""))
+    controller.queue = queue
+    controller.player = SimpleNamespace(
+        status=SimpleNamespace(state=getattr(PlayerState, state_name)),
+        _player=SimpleNamespace(is_playing=lambda: False),
+        resume=AsyncMock(),
+    )
+    controller._play_task = None
+    controller._restart_after_pause = False
+    controller.crossfade_manager = SimpleNamespace(cancel=lambda: None)
+    controller._play_current = AsyncMock()
+
+    await controller._toggle_play_pause()
+
+    controller._play_current.assert_awaited_once()
+    controller.player.resume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state_name", ["IDLE", "ERROR"])
+async def test_external_play_starts_a_queued_song_when_vlc_is_idle(state_name):
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller.player = SimpleNamespace(
+        status=SimpleNamespace(state=getattr(PlayerState, state_name)),
+        resume=AsyncMock(),
+    )
+    controller._play_current = AsyncMock()
+
+    await controller.resume_or_start()
+
+    controller._play_current.assert_awaited_once()
+    controller.player.resume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_external_stop_finalizes_listening_before_stopping_vlc():
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller._current_play_id = 7
+    controller._play_task = None
+    controller._restart_after_pause = True
+    controller.crossfade_manager = SimpleNamespace(cancel=Mock())
+    controller._finalize_listening = Mock()
+    controller.player = SimpleNamespace(stop=AsyncMock())
+
+    await controller.stop_playback()
+
+    assert controller._current_play_id == 8
+    assert controller._restart_after_pause is False
+    controller.crossfade_manager.cancel.assert_called_once_with()
+    controller._finalize_listening.assert_called_once_with("stopped")
+    controller.player.stop.assert_awaited_once_with()
+
+
+@pytest.mark.asyncio
+async def test_previous_on_first_track_restarts_without_recording_a_skip():
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller.queue = PlayQueue()
+    controller.queue.add_to_end(QueueItem("first", "First", "Artist", "", 0, ""))
+    controller.player = SimpleNamespace(status=SimpleNamespace(position_ms=1_500), seek=AsyncMock())
+    controller._finalize_listening = Mock()
+    controller._play_current = AsyncMock()
+
+    await controller._go_prev()
+
+    controller.player.seek.assert_awaited_once_with(0)
+    controller._finalize_listening.assert_not_called()
+    controller._play_current.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_previous_before_three_seconds_on_later_track_marks_current_as_skipped():
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller.queue = PlayQueue()
+    controller.queue.set_queue([
+        QueueItem("first", "First", "Artist", "", 0, ""),
+        QueueItem("second", "Second", "Artist", "", 0, ""),
+    ], start_index=1)
+    controller.player = SimpleNamespace(status=SimpleNamespace(position_ms=1_500), seek=AsyncMock())
+    controller._finalize_listening = Mock()
+    controller._play_current = AsyncMock()
+
+    await controller._go_prev()
+
+    assert controller.queue.current.video_id == "first"
+    controller._finalize_listening.assert_called_once_with("skipped")
+    controller._play_current.assert_awaited_once()
+    controller.player.seek.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_next_on_last_track_stops_manual_playback_when_no_autoplay_exists():
+    from doremi.ui.controllers.playback_controller import PlaybackController
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller.queue = PlayQueue()
+    controller.queue.add_to_end(QueueItem("only", "Only", "Artist", "", 0, ""))
+    controller.network_monitor = SimpleNamespace(is_connected=False)
+    controller.player = SimpleNamespace(stop=AsyncMock())
+    controller._finalize_listening = Mock()
+
+    await controller._advance_queue(manual=True)
+
+    controller._finalize_listening.assert_called_once_with("skipped")
+    controller.player.stop.assert_awaited_once()
+
+
 def test_repeat_one_only_repeats_on_natural_end():
     queue = PlayQueue()
     queue.set_queue([QueueItem(x, x, "", "", 0, "") for x in ("a", "b")])
     queue.repeat_mode = RepeatMode.ONE
     assert queue.advance().video_id == "a"
     assert queue.advance(ignore_repeat_one=True).video_id == "b"
+
+
+def test_listening_session_records_real_time_not_media_duration_for_skip():
+    item = QueueItem("song", "Song", "Artist", "", 120_000, "")
+    session = ListeningSession()
+    session.start(item)
+    session.observe(0, 120_000, True)
+    session.observe(5_000, 120_000, True)
+    # A seek near the end must update completion position but not pretend the
+    # skipped 100 seconds were listened.
+    session.observe(110_000, 120_000, True)
+    result = session.finish("skipped")
+
+    assert result.listen_time_ms == 5_000
+    assert result.completion_ratio == pytest.approx(110_000 / 120_000)
+    assert result.skip_count == 0  # >=90% completion is a completion, not a skip
+    assert result.completed is True
+    assert result.was_played is True
+
+
+def test_listening_session_marks_early_next_as_skip_not_play():
+    item = QueueItem("song", "Song", "Artist", "", 180_000, "")
+    session = ListeningSession()
+    session.start(item)
+    session.observe(0, 180_000, True)
+    session.observe(4_000, 180_000, True)
+    result = session.finish("skipped")
+
+    assert result.listen_time_ms == 4_000
+    assert result.skip_count == 1
+    assert not result.completed
+    assert not result.was_played
 
 
 def test_cancel_queued_download_allows_readding(manager):
@@ -168,6 +323,102 @@ async def test_failed_unlink_preserves_database_entry(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_clear_all_downloads_cancels_tasks_and_clears_db_nested_and_orphan_files(tmp_path, monkeypatch):
+    import doremi.db.repository as repository
+    from doremi.config.paths import AppDirs
+    from doremi.ui.screens.downloads_data import clear_all_downloads
+
+    root = tmp_path / "downloads"
+    managed = root / "playlist" / "song.mp3"
+    orphan = root / "old" / "orphan.mp3"
+    managed.parent.mkdir(parents=True)
+    orphan.parent.mkdir(parents=True)
+    managed.write_bytes(b"audio")
+    orphan.write_bytes(b"audio")
+    monkeypatch.setattr(type(AppDirs), "downloads", property(lambda self: root))
+
+    repo = SimpleNamespace(
+        get_downloads=AsyncMock(return_value=[SimpleNamespace(video_id="song", file_path=str(managed))]),
+        remove_download=AsyncMock(),
+    )
+    monkeypatch.setattr(repository, "DownloadRepository", lambda: repo)
+
+    class Manager:
+        def __init__(self):
+            self._tasks = {"active": object()}
+            self.cancelled = []
+
+        def cancel_download(self, video_id):
+            self.cancelled.append(video_id)
+            self._tasks.pop(video_id)
+
+    manager = Manager()
+    deleted = await clear_all_downloads(manager)
+
+    assert manager.cancelled == ["active"]
+    assert deleted == 2
+    repo.remove_download.assert_awaited_once_with("song")
+    assert not managed.exists()
+    assert not orphan.exists()
+
+
+@pytest.mark.asyncio
+async def test_download_listing_reconciles_record_for_externally_deleted_file(monkeypatch):
+    import doremi.db.repository as repository
+    from doremi.ui.screens.downloads_data import gather_downloaded_songs
+
+    downloads = SimpleNamespace(
+        get_downloads=AsyncMock(return_value=[
+            SimpleNamespace(
+                video_id="gone", title="Gone", artist="Artist", file_path="/does/not/exist",
+                parent_playlist_title="", thumbnail_url="",
+            ),
+        ]),
+        remove_download=AsyncMock(),
+    )
+    songs = SimpleNamespace(get_liked_video_ids=AsyncMock(return_value=set()))
+    monkeypatch.setattr(repository, "DownloadRepository", lambda: downloads)
+    monkeypatch.setattr(repository, "SongRepository", lambda: songs)
+
+    rows = await gather_downloaded_songs()
+
+    assert rows == []
+    downloads.remove_download.assert_awaited_once_with("gone")
+
+
+@pytest.mark.asyncio
+async def test_download_group_listing_reconciles_records_for_deleted_files(monkeypatch):
+    import doremi.db.repository as repository
+    from doremi.ui.screens.downloads_data import gather_download_groups
+
+    downloads = SimpleNamespace(
+        get_downloads=AsyncMock(return_value=[
+            SimpleNamespace(
+                video_id="gone", title="Gone", artist="Artist", file_path="/does/not/exist",
+                parent_playlist_id="local-playlist", parent_playlist_title="Missing",
+                thumbnail_url="", parent_playlist_thumbnail_url="",
+            ),
+        ]),
+        remove_download=AsyncMock(),
+    )
+    monkeypatch.setattr(repository, "DownloadRepository", lambda: downloads)
+
+    groups = await gather_download_groups("playlists")
+
+    assert groups == []
+    downloads.remove_download.assert_awaited_once_with("gone")
+
+
+def test_header_button_has_a_visible_and_non_interactive_disabled_state():
+    from pathlib import Path
+
+    source = (Path(__file__).parents[1] / "src/doremi/ui/qml/Doremi/HeaderButton.qml").read_text()
+    assert "opacity: enabled ? 1.0 : 0.5" in source
+    assert "color: !btn.enabled ? themeBridge.colors[\"text_disabled\"]" in source
+    assert "enabled: btn.enabled" in source
+
+
+@pytest.mark.asyncio
 async def test_search_failure_can_retry_identical_query(qapp):
     from doremi.ui.screens.search_qml import SearchScreenQml
     client = SimpleNamespace(search=AsyncMock(side_effect=[RuntimeError("offline"), []]))
@@ -182,6 +433,340 @@ async def test_search_failure_can_retry_identical_query(qapp):
     assert screen._results_by_cat["album"] == []
     assert not screen._vm.errorText
     screen.close()
+
+
+@pytest.mark.asyncio
+async def test_search_retry_ignores_cancelled_request_loading_state(qapp, monkeypatch):
+    from doremi.ui.screens.search_qml import SearchScreenQml
+    from doremi.ui.screens import search_data
+
+    first_started = asyncio.Event()
+    release_second = asyncio.Event()
+    calls = 0
+
+    async def gather(_client, _query, _category):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                # A third-party request can unwind after a replacement is
+                # already loading; it must not clear the new request's state.
+                return []
+        await release_second.wait()
+        return []
+
+    monkeypatch.setattr(search_data, "gather_search", gather)
+    screen = SearchScreenQml(SimpleNamespace(), None)
+    screen._current_query = "same"
+    screen._vm.set_query("same")
+    screen._schedule_fetch("same", "song")
+    await asyncio.wait_for(first_started.wait(), 1)
+    screen._schedule_fetch("same", "song")
+    await asyncio.sleep(0)
+
+    assert screen._vm.loading is True
+    release_second.set()
+    await screen._fetch_task
+    assert screen._vm.loading is False
+    screen.close()
+
+
+@pytest.mark.asyncio
+async def test_home_failure_has_error_state_and_retry_clears_it(qapp, monkeypatch):
+    from doremi.ui.screens.home_qml import HomeScreenQml
+    from doremi.ui.screens import home_data
+
+    screen = HomeScreenQml(SimpleNamespace(), None)
+    calls = 0
+
+    async def gather(_client):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("offline")
+        return {"greeting": "Hola", "spotlight": [], "tiles": [], "horizontal": [], "songs": []}
+
+    monkeypatch.setattr(home_data, "gather_home", gather)
+    await screen.load()
+    assert screen._vm.errorText
+    assert not screen._loaded
+
+    screen.force_reload()
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert screen._vm.errorText == ""
+    assert screen._loaded
+
+
+@pytest.mark.asyncio
+async def test_home_reload_ignores_cancelled_response_state(qapp, monkeypatch):
+    from doremi.ui.screens.home_qml import HomeScreenQml
+    from doremi.ui.screens import home_data
+
+    first_started = asyncio.Event()
+    release_second = asyncio.Event()
+    calls = 0
+
+    async def gather(_client):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            first_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return {"greeting": "old", "spotlight": [], "tiles": [], "horizontal": [], "songs": []}
+        await release_second.wait()
+        return {"greeting": "new", "spotlight": [], "tiles": [], "horizontal": [], "songs": []}
+
+    monkeypatch.setattr(home_data, "gather_home", gather)
+    screen = HomeScreenQml(SimpleNamespace(), None)
+    first = asyncio.create_task(screen.load())
+    await asyncio.wait_for(first_started.wait(), 1)
+    screen.force_reload()
+    await asyncio.sleep(0)
+
+    assert screen._vm.loading is True
+    release_second.set()
+    await screen._load_task
+    await first
+    assert screen._vm.greeting == "new"
+    assert screen._vm.loading is False
+
+
+@pytest.mark.asyncio
+async def test_library_tab_switch_ignores_cancelled_loading_state(qapp, monkeypatch):
+    from doremi.ui.screens.library_qml import LibraryScreenQml
+    from doremi.ui.screens import library_data
+
+    first_started = asyncio.Event()
+    release_second = asyncio.Event()
+
+    async def songs(_client):
+        first_started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            return [{"videoId": "old"}]
+
+    async def albums(_client):
+        await release_second.wait()
+        return [{"browseId": "new", "title": "New"}]
+
+    monkeypatch.setattr(library_data, "gather_liked_songs", songs)
+    monkeypatch.setattr(library_data, "gather_library_albums", albums)
+    screen = LibraryScreenQml(SimpleNamespace(is_authenticated=True), None)
+    screen._schedule_load()
+    await asyncio.wait_for(first_started.wait(), 1)
+    screen._vm.set_tab("albums")
+    await asyncio.sleep(0)
+
+    assert screen._vm.loading is True
+    release_second.set()
+    await screen._load_task
+    assert screen._vm.tab == "albums"
+    assert screen._vm.albums.rowCount() == 1
+    assert screen._vm.loading is False
+
+
+@pytest.mark.asyncio
+async def test_history_retry_keeps_loading_until_current_request_finishes(qapp, monkeypatch):
+    from doremi.ui.screens.history_qml import HistoryScreenQml
+    from doremi.ui.screens import history_data
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def gather(_client):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return [], set(), 0
+        await release.wait()
+        return [], set(), 0
+
+    monkeypatch.setattr(history_data, "gather_history", gather)
+    screen = HistoryScreenQml(None, None)
+    screen._schedule_load()
+    await asyncio.wait_for(started.wait(), 1)
+    screen._schedule_load()
+    await asyncio.sleep(0)
+    assert screen._vm.loading is True
+    release.set()
+    await screen._load_task
+    assert screen._vm.loading is False
+
+
+@pytest.mark.asyncio
+async def test_stats_retry_keeps_loading_until_current_request_finishes(qapp, monkeypatch):
+    from doremi.ui.screens.stats_qml import StatsScreenQml
+    from doremi.ui.screens import stats_data
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls = 0
+
+    async def gather():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return {"_error": ""}
+        await release.wait()
+        return {"_error": ""}
+
+    monkeypatch.setattr(stats_data, "gather_stats", gather)
+    screen = StatsScreenQml(None, None)
+    screen._schedule_load()
+    await asyncio.wait_for(started.wait(), 1)
+    screen._schedule_load()
+    await asyncio.sleep(0)
+    assert screen._vm.loading is True
+    release.set()
+    await screen._load_task
+    assert screen._vm.loading is False
+
+
+@pytest.mark.asyncio
+async def test_playlist_navigation_ignores_cancelled_response(qapp, monkeypatch):
+    from doremi.ui.screens.playlist_qml import PlaylistScreenQml
+    from doremi.ui.screens import playlist_data
+
+    first_started = asyncio.Event()
+    release_second = asyncio.Event()
+
+    async def gather(_client, playlist_id):
+        if playlist_id == "A":
+            first_started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                return {"playlist_id": "A", "title": "Old", "tracks": []}
+        await release_second.wait()
+        return {"playlist_id": "B", "title": "Current", "tracks": []}
+
+    monkeypatch.setattr(playlist_data, "gather_playlist", gather)
+    screen = PlaylistScreenQml(SimpleNamespace(), None)
+    first = asyncio.create_task(screen.load("A"))
+    await asyncio.wait_for(first_started.wait(), 1)
+    second = asyncio.create_task(screen.load("B"))
+    await asyncio.sleep(0)
+
+    assert screen._vm.loading is True
+    release_second.set()
+    await asyncio.gather(first, second)
+    assert screen._vm.title == "Current"
+    assert screen._vm.loading is False
+
+
+@pytest.mark.asyncio
+async def test_library_failure_has_error_instead_of_empty_state(qapp, monkeypatch):
+    from doremi.ui.screens.library_qml import LibraryScreenQml
+    from doremi.ui.screens import library_data
+
+    client = SimpleNamespace(is_authenticated=True)
+    screen = LibraryScreenQml(client, None)
+
+    async def fail(_client):
+        raise RuntimeError("offline")
+
+    monkeypatch.setattr(library_data, "gather_liked_songs", fail)
+    await screen.load()
+
+    assert screen._vm.errorText
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "screen_module,data_module,screen_class,identifier",
+    [
+        ("doremi.ui.screens.playlist_qml", "doremi.ui.screens.playlist_data", "PlaylistScreenQml", "PL1"),
+        ("doremi.ui.screens.album_qml", "doremi.ui.screens.album_data", "AlbumScreenQml", "AL1"),
+        ("doremi.ui.screens.artist_qml", "doremi.ui.screens.artist_data", "ArtistScreenQml", "AR1"),
+    ],
+)
+async def test_detail_load_failure_has_explicit_error_and_retry(
+    qapp, monkeypatch, screen_module, data_module, screen_class, identifier
+):
+    import importlib
+
+    async def fail(*_args):
+        raise OSError("offline")
+
+    monkeypatch.setattr(importlib.import_module(data_module), "gather_" + data_module.rsplit(".", 1)[-1].replace("_data", ""), fail)
+    cls = getattr(importlib.import_module(screen_module), screen_class)
+    if screen_class == "PlaylistScreenQml":
+        screen = cls(SimpleNamespace(), lambda *_: None, lambda *_: None, lambda: None)
+    elif screen_class == "AlbumScreenQml":
+        screen = cls(SimpleNamespace(), lambda *_: None, lambda: None)
+    else:
+        screen = cls(SimpleNamespace(), lambda *_: None, lambda *_: None, lambda: None)
+
+    await screen.load(identifier)
+    assert screen._vm.loading is False
+    assert screen._vm.found is False
+    assert screen._vm.errorText
+    assert not screen._vm.loading
+
+
+def test_queue_remove_action_never_emits_download_deletion(qapp):
+    from doremi.audio.queue import QueueItem
+    from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+    vm = NowPlayingViewModel()
+    vm.set_queue([QueueItem("v1", "Song", "Artist", "", 0, "")], set())
+    removed, download_deletions = [], []
+    vm.queue_remove_requested.connect(removed.append)
+    vm.delete_download_requested.connect(download_deletions.append)
+
+    vm.queue_action(0, "remove_from_queue")
+
+    assert removed == [0]
+    assert download_deletions == []
+
+
+def test_now_playing_add_to_playlist_uses_song_title_not_artwork(qapp):
+    from doremi.audio.queue import QueueItem
+    from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+    vm = NowPlayingViewModel()
+    vm.set_queue([QueueItem("v1", "Correct title", "Artist", "", 0, "https://art")], set())
+    received = []
+    vm.add_to_playlist_requested.connect(lambda *payload: received.append(payload))
+
+    vm.queue_action(0, "add_to_playlist")
+
+    assert received == [("v1", "Correct title")]
+
+
+def test_queue_model_marks_only_current_duplicate_occurrence(qapp):
+    from doremi.audio.queue import QueueItem
+    from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+    vm = NowPlayingViewModel()
+    vm.set_queue(
+        [
+            QueueItem("same", "First", "Artist", "", 0, ""),
+            QueueItem("same", "Second", "Artist", "", 0, ""),
+        ],
+        set(),
+        current_index=1,
+    )
+    role = vm.queueModel.IsCurrentRole
+
+    assert vm.queueModel.data(vm.queueModel.index(0, 0), role) is False
+    assert vm.queueModel.data(vm.queueModel.index(1, 0), role) is True
 
 
 @pytest.mark.asyncio
@@ -226,6 +811,49 @@ def test_shared_qml_components_instantiate(qapp, component):
     instance = qml.create()
     assert instance is not None, [error.toString() for error in qml.errors()]
     instance.setParent(engine)
+
+
+@pytest.mark.parametrize("accent", [
+    "#A78BFA", "#7C4DFF", "#60A5FA", "#34D399", "#F472B6",
+    "#FB923C", "#FBBF24", "#22D3EE", "#F87171",
+])
+def test_text_on_accent_uses_the_best_available_aa_contrast(accent):
+    from PySide6.QtGui import QColor
+    from doremi.native_rs import compute_color_variants
+    from doremi.ui.theme_manager import _contrast_ratio, _text_on_accent
+
+    background = QColor(accent)
+    hover_background = QColor(compute_color_variants(accent, "dark").dark_hex)
+    selected = QColor(_text_on_accent(accent))
+    white = QColor("#FFFFFF")
+    dark = QColor("#0A0A14")
+
+    assert _contrast_ratio(background, selected) == pytest.approx(
+        max(_contrast_ratio(background, white), _contrast_ratio(background, dark))
+    )
+    assert _contrast_ratio(background, selected) >= 4.5
+    assert _contrast_ratio(hover_background, selected) >= 4.5
+
+
+@pytest.mark.parametrize("scheme, expected", [
+    ("Light", "light"),
+    ("Dark", "dark"),
+])
+def test_system_theme_uses_qt_color_scheme_before_gsettings(monkeypatch, scheme, expected):
+    import doremi.ui.theme_manager as theme_manager
+    from PySide6.QtCore import Qt
+
+    class Hints:
+        def colorScheme(self):
+            return getattr(Qt.ColorScheme, scheme)
+
+    class App:
+        @staticmethod
+        def styleHints():
+            return Hints()
+
+    monkeypatch.setattr(theme_manager.QApplication, "instance", lambda: App())
+    assert theme_manager._system_theme_mode() == expected
 
 
 @pytest.mark.asyncio
@@ -322,6 +950,102 @@ def test_buttons_support_keyboard_and_disabled_state(qapp, name):
     widget.close()
 
 
+def test_empty_state_action_supports_keyboard_and_accessible_focus(qapp):
+    from PySide6.QtCore import QObject, QUrl, Qt
+    from PySide6.QtQuickWidgets import QQuickWidget
+    from PySide6.QtTest import QSignalSpy, QTest
+    from doremi.ui.theme_bridge import theme_bridge
+
+    directory = Path(__file__).parents[1] / "src/doremi/ui/qml"
+    widget = QQuickWidget()
+    widget.engine().addImportPath(str(directory))
+    widget.rootContext().setContextProperty("themeBridge", theme_bridge())
+    widget.setSource(QUrl.fromLocalFile(str(directory / "Doremi" / "EmptyStateView.qml")))
+    widget.resize(360, 260)
+    widget.show()
+    root = widget.rootObject()
+    root.setProperty("actionText", "Reintentar")
+    qapp.processEvents()
+    action = root.findChild(QObject, "emptyStateAction")
+    assert action is not None
+    assert action.property("activeFocusOnTab") is True
+    spy = QSignalSpy(root.actionClicked)
+    action.forceActiveFocus()
+    QTest.keyClick(widget, Qt.Key_Return)
+    QTest.keyClick(widget, Qt.Key_Space)
+    assert spy.count() == 2
+    widget.close()
+
+
+def test_header_actions_support_keyboard_and_have_accessible_names(qapp):
+    from PySide6.QtCore import QObject, Property, QUrl, Slot, Qt
+    from PySide6.QtQuickWidgets import QQuickWidget
+    from PySide6.QtTest import QTest
+    from doremi.ui.theme_bridge import theme_bridge
+
+    class HeaderController(QObject):
+        def __init__(self):
+            super().__init__()
+            self.clear_calls = self.notification_calls = self.profile_calls = 0
+
+        @Property(bool, constant=True)
+        def notificationsOpen(self):
+            return False
+
+        @Property(bool, constant=True)
+        def hasUnread(self):
+            return False
+
+        @Property(str, constant=True)
+        def profileLabel(self):
+            return "Perfil"
+
+        @Property(str, constant=True)
+        def avatarUrl(self):
+            return ""
+
+        @Slot()
+        def clearQuery(self):
+            self.clear_calls += 1
+
+        @Slot()
+        def requestNotifications(self):
+            self.notification_calls += 1
+
+        @Slot()
+        def requestProfile(self):
+            self.profile_calls += 1
+
+    directory = Path(__file__).parents[1] / "src/doremi/ui/qml"
+    controller = HeaderController()
+    widget = QQuickWidget()
+    widget.engine().addImportPath(str(directory))
+    widget.rootContext().setContextProperty("themeBridge", theme_bridge())
+    widget.setInitialProperties({"headerController": controller})
+    widget.setSource(QUrl.fromLocalFile(str(directory / "HeaderBar.qml")))
+    widget.resize(800, 70)
+    widget.show()
+    widget.setFocus()
+    root = widget.rootObject()
+    search = root.findChild(QObject, "searchInput")
+    search.setProperty("text", "query")
+    qapp.processEvents()
+
+    for name, expected in (
+        ("clearSearchButton", "clear_calls"),
+        ("notificationsButton", "notification_calls"),
+        ("profileButton", "profile_calls"),
+    ):
+        control = root.findChild(QObject, name)
+        assert control is not None
+        assert control.property("activeFocusOnTab") is True
+        control.forceActiveFocus()
+        qapp.processEvents()
+        assert control.property("activeFocus") is True
+        QTest.keyClick(widget, Qt.Key_Return)
+        assert getattr(controller, expected) == 1
+    widget.close()
+
 @pytest.mark.asyncio
 async def test_window_close_waits_for_async_cleanup(qapp, monkeypatch):
     from unittest.mock import Mock
@@ -357,6 +1081,29 @@ async def test_window_close_waits_for_async_cleanup(qapp, monkeypatch):
     assert final.isAccepted()
 
 
+def test_close_to_tray_honors_stop_on_close(qapp):
+    from unittest.mock import Mock
+    from PySide6.QtGui import QCloseEvent
+    from doremi.ui.main_window import MainWindow
+
+    playback = SimpleNamespace(stop_for_window_close=Mock())
+    window = SimpleNamespace(
+        _save_playback_session=Mock(),
+        _save_window_state=Mock(),
+        settings=SimpleNamespace(player=SimpleNamespace(minimize_to_tray=True, stop_on_close=True)),
+        tray=SimpleNamespace(isVisible=lambda: True),
+        playback_controller=playback,
+        hide=Mock(),
+    )
+    event = QCloseEvent()
+
+    MainWindow.closeEvent(window, event)
+
+    playback.stop_for_window_close.assert_called_once()
+    window.hide.assert_called_once()
+    assert not event.isAccepted()
+
+
 @pytest.mark.asyncio
 async def test_pause_cancels_pending_extraction_and_resume_retries():
     from unittest.mock import Mock
@@ -381,3 +1128,29 @@ async def test_pause_cancels_pending_extraction_and_resume_retries():
     await controller._toggle_play_pause()
     controller._play_current.assert_awaited_once()
     controller.player.resume.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_stop_on_close_cancels_pending_play_request():
+    from doremi.ui.controllers.playback_controller import PlaybackController
+    from doremi.audio.crossfade import CrossfadeManager
+
+    controller = PlaybackController.__new__(PlaybackController)
+    controller._current_play_id = 7
+    controller._play_task = asyncio.create_task(asyncio.sleep(60))
+    controller._restart_after_pause = True
+    controller.crossfade_manager = CrossfadeManager()
+    controller.player = SimpleNamespace(stop=AsyncMock())
+    controller._finalize_listening = Mock()
+    spawned = []
+    controller.run_async = lambda coro: spawned.append(asyncio.create_task(coro))
+
+    controller.stop_for_window_close()
+
+    assert controller._current_play_id == 8
+    assert controller._restart_after_pause is False
+    with pytest.raises(asyncio.CancelledError):
+        await controller._play_task
+    await asyncio.gather(*spawned)
+    controller.player.stop.assert_awaited_once()
+    controller._finalize_listening.assert_called_once_with("stopped")

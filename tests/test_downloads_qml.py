@@ -84,6 +84,21 @@ class TestDownloadsViewModel:
         assert got["del"] == [("d2",)]
         assert got["like"] == [("d1", None)]
 
+    def test_active_download_actions_emit_lifecycle_intents(self, qapp):
+        from doremi.ui.viewmodels.downloads_vm import DownloadsViewModel
+
+        vm = DownloadsViewModel(qapp)
+        vm.set_songs(SONGS)
+        controls: list[tuple] = []
+        vm.download_control_requested.connect(lambda *payload: controls.append(payload))
+
+        for action in ("pause", "resume", "retry", "cancel"):
+            vm.item_action(1, action)
+
+        assert controls == [
+            ("d2", "pause"), ("d2", "resume"), ("d2", "retry"), ("d2", "cancel"),
+        ]
+
     def test_selection_flow(self, qapp):
         from doremi.ui.viewmodels.downloads_vm import DownloadsViewModel
 
@@ -164,6 +179,14 @@ class TestDownloadsData:
 
 
 class TestDownloadsScreenQml:
+    def test_group_cards_call_the_viewmodel_navigation_slot(self):
+        """The QML API must match DownloadsViewModel.group_navigate()."""
+        from pathlib import Path
+
+        source = (Path(__file__).parents[1] / "src/doremi/ui/qml/DownloadsScreen.qml").read_text()
+        assert "screenVm.group_navigate(gridCell.index)" in source
+        assert "screenVm.navigate(gridCell.navigate)" not in source
+
     def test_qml_loads(self, qapp):
         from doremi.ui.screens.downloads_qml import DownloadsScreenQml
 

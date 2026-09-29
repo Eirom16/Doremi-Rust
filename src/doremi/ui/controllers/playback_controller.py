@@ -15,9 +15,8 @@ from doremi.api.stream_extractor import StreamExtractor
 from doremi.services.download_manager import DownloadManager
 from doremi.system.tray import SystemTray
 from doremi.system.mpris import MprisPlayer
-from doremi.api.lastfm import LastFmScrobbler
-from doremi.api.discord_rpc import DiscordRPC
 from doremi.audio.crossfade import CrossfadeManager
+from doremi.audio.listening import ListenResult, ListeningSession
 from doremi.system.network import NetworkMonitor
 from doremi.api.lyrics import LyricsClient
 from doremi.audio.sleep_timer import SleepTimer
@@ -34,7 +33,7 @@ class PlaybackController:
     Dependencies are injected through the constructor; ``run_async`` is a callable
     (MainWindow._run_async) used to launch coroutines as asyncio tasks.
     ``main_window`` is kept as a reference for a small set of tightly-coupled
-    navigation/lastfm concerns that remain on MainWindow.
+    navigation concerns that remain on MainWindow.
     """
 
     def __init__(
@@ -50,8 +49,6 @@ class PlaybackController:
         now_playing_screen: NowPlayingScreenQml,
         tray: SystemTray,
         mpris: MprisPlayer,
-        scrobbler: LastFmScrobbler | None,
-        discord: DiscordRPC | None,
         crossfade_manager: CrossfadeManager,
         network_monitor: NetworkMonitor,
         lyrics_client: LyricsClient,
@@ -69,8 +66,6 @@ class PlaybackController:
         self.now_playing_screen = now_playing_screen
         self.tray = tray
         self.mpris = mpris
-        self.scrobbler = scrobbler
-        self.discord = discord
         self.crossfade_manager = crossfade_manager
         self.network_monitor = network_monitor
         self.lyrics_client = lyrics_client
@@ -83,6 +78,7 @@ class PlaybackController:
         self._starting_media = False
         self._recovering_id = None
         self._failed_video_ids: set[str] = set()
+        self._listen_session = ListeningSession()
 
     async def _play_song(
         self,
@@ -96,6 +92,7 @@ class PlaybackController:
         queue_index: int = 0,
     ) -> None:
         logger.info(f"_play_song called: {title[:30]} video_id={video_id}")
+        self._finalize_listening("replaced")
         if queue_items:
             self.queue.set_queue(queue_items, queue_index)
         else:
@@ -231,7 +228,10 @@ class PlaybackController:
         play_id = self._current_play_id
         self._starting_media = True
         try:
-            return await self.player.play_url(url, item.video_id)
+            success = await self.player.play_url(url, item.video_id)
+            if success:
+                self._start_listening(item)
+            return success
         finally:
             if play_id == self._current_play_id:
                 self._starting_media = False
@@ -278,6 +278,7 @@ class PlaybackController:
     async def handle_playback_failure(self, item: QueueItem, message: str) -> None:
         if self.queue.current is not item:
             return
+        self._finalize_listening("failed")
         from doremi.ui.widgets.toast import ToastNotification
         from doremi.utils.i18n import _
         ToastNotification.show(self.main_window, _(message), "error")
@@ -375,7 +376,6 @@ class PlaybackController:
         self.run_async(_check_liked_state())
 
         self.main_window._stream_recovery_attempts.discard(item.video_id)
-        self.main_window._reset_lastfm_scrobble_state(item)
 
         # Immediate visual feedback for lyrics and related suggestions
         self.now_playing_screen.set_lyrics_loading()
@@ -423,17 +423,8 @@ class PlaybackController:
                 if not is_current():
                     return
                 if success:
-                    self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
                         self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
-                    if self.scrobbler:
-                        await self.scrobbler.update_now_playing(
-                            item.artist, item.title, item.album
-                        )
-                    if self.discord:
-                        await self.discord.update(
-                            item.title, item.artist, item.album, True, item.thumbnail_url
-                        )
                     if self.mpris:
                         self.mpris.update_metadata(
                             item.title, item.artist, item.album,
@@ -471,7 +462,6 @@ class PlaybackController:
                 if not is_current():
                     return
                 if success:
-                    self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
                         self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                     # Ensure queue panel shows correct duration (preloaded during _preload_next)
@@ -499,14 +489,6 @@ class PlaybackController:
             if getattr(getattr(self.settings, 'network', None), 'preload_next', True):
                 self.run_async(self._preload_next())
 
-            if self.scrobbler:
-                await self.scrobbler.update_now_playing(
-                    item.artist, item.title, item.album
-                )
-            if self.discord:
-                await self.discord.update(
-                    item.title, item.artist, item.album, True, item.thumbnail_url
-                )
             if self.mpris:
                 self.mpris.update_metadata(
                     item.title, item.artist, item.album,
@@ -560,7 +542,6 @@ class PlaybackController:
                 if not is_current():
                     return
                 if success:
-                    self.run_async(self._save_play_history(item))
                     if self.settings.player.crossfade_enabled:
                         self.run_async(self.crossfade_manager.fade_in(self.player, self.settings.player.volume, is_current=is_current))
                 else:
@@ -586,14 +567,6 @@ class PlaybackController:
             if getattr(getattr(self.settings, 'network', None), 'preload_next', True):
                 self.run_async(self._preload_next())
 
-            if self.scrobbler:
-                await self.scrobbler.update_now_playing(
-                    item.artist, item.title, item.album
-                )
-            if self.discord:
-                await self.discord.update(
-                    item.title, item.artist, item.album, True, item.thumbnail_url
-                )
             if self.mpris:
                 self.mpris.update_metadata(
                     item.title, item.artist, item.album,
@@ -689,19 +662,84 @@ class PlaybackController:
             if self._current_play_id == play_id:
                 self.now_playing_screen.set_related([], None)
 
-    async def _save_play_history(self, item: QueueItem) -> None:
+    def observe_listen_position(self, status) -> None:
+        """Receive player position polling without counting seeks as listening."""
+        self._listening_session().observe(
+            getattr(status, "position_ms", 0),
+            getattr(status, "duration_ms", 0),
+            getattr(status, "state", None) == PlayerState.PLAYING,
+        )
+
+    def _start_listening(self, item: QueueItem) -> None:
+        session = self._listening_session()
+        if session.item is item:
+            return
+        # A completed media start is the boundary between a merely requested
+        # track and a track that actually began playing.
+        session.start(item)
+        self.run_async(self._upsert_listened_song(item))
+
+    def _finalize_listening(self, reason: str) -> None:
+        result = self._listening_session().finish(reason)
+        if result is not None:
+            self.run_async(self._persist_listen(result))
+
+    def stop_for_window_close(self) -> None:
+        """Stop a tray-minimized session when the user opted into it."""
+        # ``player.stop()`` by itself is not enough while the URL/extractor
+        # request is pending: that coroutine could complete afterwards and
+        # start media again in the hidden window.  Invalidate the request and
+        # cancel its task before stopping VLC.
+        self._current_play_id += 1
+        pending = getattr(self, "_play_task", None)
+        if pending is not None and not pending.done():
+            pending.cancel()
+        self._restart_after_pause = False
+        self.crossfade_manager.cancel()
+        self._finalize_listening("stopped")
+        self.run_async(self.player.stop())
+
+    async def stop_playback(self) -> None:
+        """Stop initiated by a playback control (for example MPRIS).
+
+        VLC's ``stop`` only changes the engine state.  The controller owns the
+        listening session and any in-flight stream request, so external stop
+        controls must go through this boundary too.
+        """
+        self._current_play_id += 1
+        pending = getattr(self, "_play_task", None)
+        if pending is not None and pending is not asyncio.current_task() and not pending.done():
+            pending.cancel()
+        self._restart_after_pause = False
+        self.crossfade_manager.cancel()
+        self._finalize_listening("stopped")
+        await self.player.stop()
+
+    async def resume_or_start(self) -> None:
+        """Implement MPRIS Play without treating an idle engine as paused."""
+        if self.player.status.state in (PlayerState.IDLE, PlayerState.ERROR):
+            await self._play_current()
+        else:
+            await self.player.resume()
+
+    async def finalize_listening_for_shutdown(self) -> None:
+        """Persist the active session before shutdown cancels background work."""
+        result = self._listening_session().finish("stopped")
+        if result is not None:
+            await self._persist_listen(result)
+
+    def _listening_session(self) -> ListeningSession:
+        """Lazily provide state for lightweight controller test doubles too."""
+        session = getattr(self, "_listen_session", None)
+        if session is None:
+            session = ListeningSession()
+            self._listen_session = session
+        return session
+
+    async def _upsert_listened_song(self, item: QueueItem) -> None:
         try:
-            from doremi.db.repository import HistoryRepository, SongRepository
-            history_repo = HistoryRepository()
+            from doremi.db.repository import SongRepository
             song_repo = SongRepository()
-
-            await history_repo.add_entry(
-                video_id=item.video_id,
-                title=item.title,
-                artist=item.artist,
-                duration_ms=item.duration_ms
-            )
-
             await song_repo.upsert_song(
                 video_id=item.video_id,
                 title=item.title,
@@ -710,11 +748,34 @@ class PlaybackController:
                 duration_ms=item.duration_ms,
                 thumbnail_url=item.thumbnail_url,
             )
-
-            await song_repo.record_play(item.video_id)
-            logger.debug(f"Saved play history for: {item.title}")
         except Exception as e:
-            logger.debug(f"Failed to save play history: {e}")
+            logger.debug(f"Failed to save track metadata for listening session: {e}")
+
+    async def _persist_listen(self, result: ListenResult) -> None:
+        item = result.item
+        try:
+            from doremi.db.repository import HistoryRepository, SongRepository
+            history_repo = HistoryRepository()
+            song_repo = SongRepository()
+
+            await self._upsert_listened_song(item)
+            await history_repo.add_entry(
+                video_id=item.video_id,
+                title=item.title,
+                artist=item.artist,
+                duration_ms=item.duration_ms,
+                listen_time_ms=result.listen_time_ms,
+                completion_ratio=result.completion_ratio,
+                skip_count=result.skip_count,
+                completed=result.completed,
+                was_played=result.was_played,
+                context_type="queue",
+            )
+            if result.was_played:
+                await song_repo.record_play(item.video_id)
+            logger.debug(f"Saved listening session for: {item.title}")
+        except Exception as e:
+            logger.debug(f"Failed to save listening session: {e}")
 
     async def _preload_next(self) -> None:
         next_item = self.queue.next_item
@@ -744,6 +805,7 @@ class PlaybackController:
                 logger.debug(f"Failed to preload next stream: {e}")
 
     async def _advance_queue(self, *, manual: bool = False) -> None:
+        self._finalize_listening("skipped" if manual else "completed")
         item = self.queue.advance(ignore_repeat_one=manual)
         if item:
             self._update_queue_panel()
@@ -776,6 +838,12 @@ class PlaybackController:
                         await self._play_current()
                 except Exception as e:
                     logger.warning(f"Autoplay failed: {e}")
+            # A manual Next is an explicit request to leave the current media.
+            # At the end of a finite/offline queue there may be no autoplay
+            # candidate; without this stop VLC kept playing the track just
+            # marked as skipped.
+            if manual and self.queue.current is current:
+                await self.player.stop()
 
     async def _play_local(self, path: str, metadata: dict) -> None:
         title = metadata.get("title", "Unknown")
@@ -794,6 +862,7 @@ class PlaybackController:
         except Exception as e:
             logger.debug(f"Could not get duration from DB: {e}")
 
+        self._finalize_listening("replaced")
         # Set queue to a single local item so queue controls and state work properly
         item = QueueItem(
             video_id=video_id,
@@ -826,6 +895,7 @@ class PlaybackController:
             queue_items.append(item)
 
         if queue_items:
+            self._finalize_listening("replaced")
             self.queue.set_queue(queue_items, start_index)
             self._update_queue_panel()
             self.run_async(self._play_current())
@@ -858,7 +928,11 @@ class PlaybackController:
                 self._restart_after_pause = False
                 await self._play_current()
             else:
-                await self.player.resume()
+                # A first item added through “Añadir a la cola” has a valid
+                # queue current but VLC has nothing to resume yet. Starting
+                # the queue here makes the visible Play control honour its
+                # promise instead of silently calling ``resume()`` on IDLE.
+                await self.resume_or_start()
 
     def _on_next(self) -> None:
         self.run_async(self._advance_queue(manual=True))
@@ -867,11 +941,12 @@ class PlaybackController:
         self.run_async(self._go_prev())
 
     async def _go_prev(self) -> None:
-        if self.player.status.position_ms > 3000:
+        if self.player.status.position_ms > 3000 or self.queue.current_index <= 0:
             await self.player.seek(0)
         else:
             item = self.queue.go_back()
             if item:
+                self._finalize_listening("skipped")
                 await self._play_current()
 
     def _on_seek(self, position_ms: int) -> None:
@@ -888,9 +963,13 @@ class PlaybackController:
             from doremi.db.repository import SongRepository
             repo = SongRepository()
             liked_ids = await repo.get_liked_video_ids()
-            self.now_playing_screen.queue_tab.set_queue(self.queue.items, liked_ids)
+            self.now_playing_screen.queue_tab.set_queue(
+                self.queue.items, liked_ids, self.queue.current_index
+            )
 
     def _play_queue_item(self, index: int) -> None:
+        if index != self.queue.current_index:
+            self._finalize_listening("replaced")
         item = self.queue.jump_to(index)
         if item:
             self._update_queue_panel()
@@ -899,6 +978,22 @@ class PlaybackController:
     def _on_queue_move_requested(self, from_index: int, to_index: int) -> None:
         self.queue.move_item(from_index, to_index)
         self._update_queue_panel()
+
+    def _on_queue_remove_requested(self, index: int) -> None:
+        """Remove an occurrence from the play queue, never from downloads."""
+        was_current = index == self.queue.current_index
+        if was_current:
+            self._finalize_listening("skipped")
+        removed = self.queue.remove_at(index)
+        if removed is None:
+            return
+        self._update_queue_panel()
+        self.main_window.statusBar().showMessage(f"Quitado de la cola: {removed.title}", 3000)
+        if was_current:
+            if self.queue.current is not None:
+                self.run_async(self._play_current())
+            else:
+                self.run_async(self.player.stop())
 
     def _show_full_player(self) -> None:
         now_playing_index = self.main_window.ROUTES.get("now_playing", 8)
@@ -909,28 +1004,14 @@ class PlaybackController:
             self.main_window._navigate_to("now_playing")
 
     def _go_back(self) -> None:
-        """Navigate back to the previous screen in the history stack."""
+        """Navigate back to the previous full route in the history stack."""
         if hasattr(self.main_window, '_current_nav_task') and self.main_window._current_nav_task and not self.main_window._current_nav_task.done():
             self.main_window._current_nav_task.cancel()
-
-        if self.main_window._nav_history:
-            prev_index = self.main_window._nav_history.pop()
-            if hasattr(self.main_window.stack, "setCurrentIndexAnimated"):
-                self.main_window.stack.setCurrentIndexAnimated(prev_index)
-            else:
-                self.main_window.stack.setCurrentIndex(prev_index)
-            # _go_back evita NavigationController.set_stack_index; restaura el
-            # mini-player explícitamente sólo si ya había una pista activa.
-            mini_player = getattr(self.main_window, "mini_player", None)
-            if mini_player is not None and getattr(mini_player, "_is_visible", False):
-                mini_player.show()
-                from doremi.ui.theme_bridge import theme_bridge
-                theme_bridge().set_mini_player_visible(True)
-                self.main_window._position_mini_player()
-                mini_player.raise_()
-            self._update_expand_icon()
+        navigation = getattr(self.main_window, "navigation_controller", None)
+        if navigation is not None:
+            navigation.go_back()
         else:
-            # Fallback to home
+            # Compatibility fallback for hosts created before NavigationController.
             self.main_window._navigate_to("home")
 
     def _update_expand_icon(self) -> None:

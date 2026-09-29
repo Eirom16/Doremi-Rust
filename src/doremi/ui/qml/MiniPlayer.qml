@@ -113,6 +113,13 @@ Item {
                     font.letterSpacing: -0.2
                     elide: Text.ElideRight
                     Layout.fillWidth: true
+                    activeFocusOnTab: playerController.artist !== ""
+                    Accessible.role: Accessible.Link
+                    Accessible.name: "Ir al artista " + playerController.artist
+                    Accessible.onPressAction: playerController.emit_artist_clicked(playerController.artist)
+                    Keys.onReturnPressed: if (!event.isAutoRepeat) playerController.emit_artist_clicked(playerController.artist)
+                    Keys.onEnterPressed: if (!event.isAutoRepeat) playerController.emit_artist_clicked(playerController.artist)
+                    Keys.onSpacePressed: if (!event.isAutoRepeat) playerController.emit_artist_clicked(playerController.artist)
                 }
                 Label {
                     text: playerController.artist
@@ -152,6 +159,12 @@ Item {
                     Layout.fillWidth: true
                     Layout.preferredHeight: 24
                     Layout.alignment: Qt.AlignVCenter
+                    Accessible.role: Accessible.Slider
+                    Accessible.name: "Posición de reproducción"
+                    Accessible.description: Math.round(playerController.progress * 100) + "%"
+                    activeFocusOnTab: true
+                    Keys.onLeftPressed: playerController.emit_seek(Math.max(0, playerController.progress - 0.05))
+                    Keys.onRightPressed: playerController.emit_seek(Math.min(1, playerController.progress + 0.05))
 
                     Rectangle {
                         id: track
@@ -205,6 +218,13 @@ Item {
                 // Prev
                 Rectangle {
                     width: 42; height: 42; radius: 21
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Pista anterior"
+                    Accessible.onPressAction: playerController.emit_prev()
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: if (!event.isAutoRepeat) playerController.emit_prev()
+                    Keys.onEnterPressed: if (!event.isAutoRepeat) playerController.emit_prev()
+                    Keys.onSpacePressed: if (!event.isAutoRepeat) playerController.emit_prev()
                     color: prevMa.containsMouse ? root.colors["bg_high"] : "transparent"
                     Text {
                         anchors.centerIn: parent
@@ -223,7 +243,14 @@ Item {
                 // Play/Pause — acento, círculo completo (acción primaria)
                 Rectangle {
                     width: 52; height: 52; radius: 26
-                    color: playMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+                    Accessible.role: Accessible.Button
+                    Accessible.name: playerController.playing ? "Pausar" : "Reproducir"
+                    Accessible.onPressAction: playerController.emit_play_pause()
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: if (!event.isAutoRepeat) playerController.emit_play_pause()
+                    Keys.onEnterPressed: if (!event.isAutoRepeat) playerController.emit_play_pause()
+                    Keys.onSpacePressed: if (!event.isAutoRepeat) playerController.emit_play_pause()
+                    color: playMa.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
                     scale: playMa.pressed ? 0.95 : 1.0
                     Behavior on scale { NumberAnimation { duration: 100 } }
 
@@ -245,6 +272,13 @@ Item {
                 // Next
                 Rectangle {
                     width: 42; height: 42; radius: 21
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Siguiente pista"
+                    Accessible.onPressAction: playerController.emit_next()
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: if (!event.isAutoRepeat) playerController.emit_next()
+                    Keys.onEnterPressed: if (!event.isAutoRepeat) playerController.emit_next()
+                    Keys.onSpacePressed: if (!event.isAutoRepeat) playerController.emit_next()
                     color: nextMa.containsMouse ? root.colors["bg_high"] : "transparent"
                     Text {
                         anchors.centerIn: parent
@@ -263,6 +297,13 @@ Item {
                 // Expand
                 Rectangle {
                     width: 38; height: 38; radius: 19
+                    Accessible.role: Accessible.Button
+                    Accessible.name: playerController.expandLess ? "Minimizar reproductor" : "Abrir reproducción actual"
+                    Accessible.onPressAction: playerController.emit_expand()
+                    activeFocusOnTab: true
+                    Keys.onReturnPressed: if (!event.isAutoRepeat) playerController.emit_expand()
+                    Keys.onEnterPressed: if (!event.isAutoRepeat) playerController.emit_expand()
+                    Keys.onSpacePressed: if (!event.isAutoRepeat) playerController.emit_expand()
                     color: expandMa.containsMouse ? root.colors["bg_high"] : "transparent"
                     Text {
                         anchors.centerIn: parent

@@ -1,6 +1,7 @@
 """Shared data loading for Downloads screen — used by both widget and QML versions."""
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from loguru import logger
@@ -40,6 +41,17 @@ async def gather_downloaded_songs(status_filter: str = "all") -> list[dict]:
     # Completadas (más recientes primero — paridad con widgets: reversed())
     if status_filter in {"all", "completed"}:
         for d in reversed(downloads):
+            # A file can disappear outside Doremi.  Do not leave a completed
+            # row that later fails in the player; repair the stale DB record
+            # while loading the offline library.
+            path = Path(d.file_path or "")
+            if not d.file_path or not path.is_file():
+                logger.warning(f"Removing stale download record for {d.video_id}: {d.file_path!r}")
+                try:
+                    await DownloadRepository().remove_download(d.video_id)
+                except Exception as exc:
+                    logger.error(f"Could not remove stale download record {d.video_id}: {exc}")
+                continue
             seen.add(d.video_id)
             items.append({
                 "videoId": d.video_id,
@@ -91,6 +103,18 @@ async def gather_download_groups(kind: str) -> list[dict]:
 
     groups: dict[str, dict] = {}
     for d in downloads:
+        # La vista de canciones ya reconcilia estos registros.  Los grupos
+        # deben respetar la misma fuente de verdad: de otro modo un archivo
+        # borrado fuera de Doremi deja una tarjeta de álbum/playlist local que
+        # promete contenido que ya no existe.
+        path = Path(d.file_path or "")
+        if not d.file_path or not path.is_file():
+            logger.warning(f"Removing stale download record for {d.video_id}: {d.file_path!r}")
+            try:
+                await DownloadRepository().remove_download(d.video_id)
+            except Exception as exc:
+                logger.error(f"Could not remove stale download record {d.video_id}: {exc}")
+            continue
         pid = d.parent_playlist_id
         if not pid:
             continue
@@ -133,6 +157,62 @@ class DownloadDeletionError(Exception):
         self.deleted = deleted
         self.failed = failed
         super().__init__(f"{deleted} deleted, {failed} failed")
+
+
+class DownloadClearError(Exception):
+    """The all-downloads operation could not reach a safe finished state."""
+
+
+async def clear_all_downloads(manager=None, *, cancel_timeout: float = 5.0) -> int:
+    """Clear downloads from both the database and download directory.
+
+    Active worker tasks are cancelled first and must actually leave the manager
+    before files are touched.  This prevents a downloader from recreating a
+    file after its database row was removed.  Orphan files are removed too, so
+    a previous crash cannot make Settings report a successful clear while disk
+    space remains occupied.
+    """
+    if manager is not None:
+        active_ids = list(getattr(manager, "_tasks", {}).keys())
+        for video_id in active_ids:
+            manager.cancel_download(video_id)
+
+        if active_ids:
+            deadline = asyncio.get_running_loop().time() + cancel_timeout
+            while any(video_id in getattr(manager, "_tasks", {}) for video_id in active_ids):
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise DownloadClearError(
+                        "No se pudieron cancelar todas las descargas activas. Inténtalo de nuevo."
+                    )
+                await asyncio.sleep(0.05)
+
+    from doremi.config.paths import AppDirs
+    from doremi.db.repository import DownloadRepository
+
+    downloads = await DownloadRepository().get_downloads()
+    deleted = await delete_download_files([download.video_id for download in downloads])
+
+    # A managed download can live in a playlist subdirectory.  Delete any
+    # remaining orphan payloads inside the configured root, never following a
+    # directory symlink outside that root.
+    root = AppDirs.downloads
+    if not root.exists():
+        return deleted
+    orphan_deleted = 0
+    failures = 0
+    for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
+        try:
+            if path.is_symlink() or path.is_file():
+                path.unlink()
+                orphan_deleted += 1
+            elif path.is_dir():
+                path.rmdir()
+        except OSError as exc:
+            failures += 1
+            logger.error(f"No se pudo borrar {path}: {exc}")
+    if failures:
+        raise DownloadDeletionError(deleted + orphan_deleted, failures)
+    return deleted + orphan_deleted
 
 
 async def delete_download_files(video_ids: list[str]) -> int:

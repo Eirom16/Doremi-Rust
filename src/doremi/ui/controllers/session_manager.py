@@ -24,16 +24,20 @@ class PlaybackSessionManager:
 
     async def initialize(self) -> None:
         await self.main_window._navigate("home")
-        # No restaurar ni mostrar una pista anterior salvo que el usuario lo
-        # haya habilitado expresamente en Ajustes.
-        if not self.main_window.settings.player.resume_on_startup:
-            return
+        # La cola es estado de sesión, no una orden de reproducción. Debe
+        # sobrevivir a un reinicio aunque el usuario no quiera que el audio
+        # arranque solo; ``resume_on_startup`` controla exclusivamente el
+        # autoplay y el seek posterior.
         self.restore_playback_session()
-        if self.main_window.queue.current:
-            self.main_window.playback_controller._update_queue_panel()
-            item = self.main_window.queue.current
-            self.main_window.mini_player.update_track_info(item.title, item.artist, item.thumbnail_url)
-            self.main_window.now_playing_screen.update_track_info(item.title, item.artist, item.thumbnail_url)
+        if not self.main_window.queue.current:
+            return
+
+        self.main_window.playback_controller._update_queue_panel()
+        # Restaurar la cola permite continuarla más tarde, pero no debe
+        # convertir la sesión anterior en una reproducción visible. El
+        # miniplayer se llena y se muestra únicamente desde _play_current(),
+        # cuando realmente se inicia una pista.
+        if self.main_window.settings.player.resume_on_startup:
             self.run_async(self.resume_playback_after_startup())
 
     async def resume_playback_after_startup(self) -> None:

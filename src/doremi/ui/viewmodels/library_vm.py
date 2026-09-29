@@ -208,6 +208,8 @@ class LibraryViewModel(QObject):
     filter_changed = Signal()
     sort_changed = Signal()
     auth_required_changed = Signal()
+    error_changed = Signal()
+    creating_playlist_changed = Signal()
 
     # Mismas señales que LibraryScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -221,6 +223,7 @@ class LibraryViewModel(QObject):
     play_requested = Signal(str, str, str, int, str)  # videoId, title, artist, duration_ms, thumb
     navigate_requested = Signal(str)
     create_playlist_requested = Signal(str, str)  # title, description
+    retry_requested = Signal()
 
     TABS = ("songs", "albums", "artists", "playlists")
 
@@ -235,6 +238,8 @@ class LibraryViewModel(QObject):
         self._filter = ""
         self._sort = "recent"
         self._auth_required = False
+        self._error_text = ""
+        self._creating_playlist = False
         self._raw: dict[str, list[dict]] = {}
 
     # ── Properties ─────────────────────────────────────────────────────────
@@ -275,6 +280,15 @@ class LibraryViewModel(QObject):
     def authRequired(self) -> bool:
         return self._auth_required
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
+    @Property(bool, notify=creating_playlist_changed)
+    def creatingPlaylist(self) -> bool:
+        """Evita que el diálogo cree la misma playlist más de una vez."""
+        return self._creating_playlist
+
     # ── Mutators (Python side) ─────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
@@ -286,6 +300,17 @@ class LibraryViewModel(QObject):
         if self._auth_required != value:
             self._auth_required = value
             self.auth_required_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
+
+    def set_creating_playlist(self, value: bool) -> None:
+        if self._creating_playlist != value:
+            self._creating_playlist = value
+            self.creating_playlist_changed.emit()
 
     def set_tab_data(self, tab: str, items: list[dict]) -> None:
         self._raw[tab] = items
@@ -370,7 +395,7 @@ class LibraryViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "go_artist":
             self.artist_clicked.emit(artist)
 
@@ -382,5 +407,10 @@ class LibraryViewModel(QObject):
     @Slot(str, str)
     def create_playlist(self, title: str, description: str) -> None:
         title = (title or "").strip()
-        if title:
+        if title and not self._creating_playlist:
+            self.set_creating_playlist(True)
             self.create_playlist_requested.emit(title, (description or "").strip())
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()

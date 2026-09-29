@@ -36,6 +36,7 @@ class ArtistScreenQml(QObject):
         self.on_back = on_back
         self._channel_id = None
         self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self._vm = ArtistViewModel(QApplication.instance())
 
@@ -52,6 +53,7 @@ class ArtistScreenQml(QObject):
         self._vm.play_requested.connect(self._on_vm_play)
         self._vm.navigate_requested.connect(self._on_navigate)
         self._vm.back_requested.connect(self._on_back)
+        self._vm.retry_requested.connect(self._retry)
 
     @property
     def is_ok(self) -> bool:
@@ -72,20 +74,42 @@ class ArtistScreenQml(QObject):
         if self.on_back:
             self.on_back()
 
+    def _retry(self) -> None:
+        if self._channel_id:
+            asyncio.ensure_future(self.load(self._channel_id))
+
     async def load(self, channel_id: str) -> None:
         if not channel_id:
             return
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()
-        self._load_task = asyncio.current_task()
+        current = asyncio.current_task()
+        self._load_task = current
+        self._load_generation += 1
+        generation = self._load_generation
         self._channel_id = channel_id
+
+        def is_current_request() -> bool:
+            return generation == self._load_generation and channel_id == self._channel_id
+
         self._vm.set_loading(True)
+        self._vm.set_error("")
         try:
             from doremi.ui.screens.artist_data import gather_artist
             data = await gather_artist(self.yt, channel_id)
+            if not is_current_request():
+                return
             self._vm.set_data(data)
+        except asyncio.CancelledError:
+            raise
         except Exception as e:
             logger.error(f"Error loading artist (QML): {e}")
+            if not is_current_request():
+                return
             self._vm.set_data({})
+            self._vm.set_error("No se pudo cargar el artista. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)
+            if self._load_task is current:
+                self._load_task = None

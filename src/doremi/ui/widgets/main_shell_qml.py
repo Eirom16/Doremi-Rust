@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl
+from PySide6.QtCore import QObject, QUrl
 from PySide6.QtGui import QColor
 from PySide6.QtQuickWidgets import QQuickWidget
 from loguru import logger
@@ -56,8 +56,14 @@ class MainShellQml(QQuickWidget):
         root = self.rootObject()
         if root is None:
             return
-        root.setProperty("screenVm", getattr(screen, "_vm", screen))
-        root.setProperty("screenSource", screen.qml_source)
+        host = root.findChild(QObject, "screenHost")
+        if host is None:
+            logger.error("QML ScreenHost no está disponible para navegar")
+            return
+        # A single QML call makes the URL and its view model atomic. Setting
+        # them as separate root properties temporarily cross-wired adjacent
+        # routes (e.g. HomeViewModel inside NowPlayingScreen).
+        host.showScreen(screen.qml_source, getattr(screen, "_vm", screen))
 
     def set_notifications_open(self, is_open: bool) -> None:
         root = self.rootObject()

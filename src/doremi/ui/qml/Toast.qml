@@ -60,6 +60,12 @@ Item {
                 font.pixelSize: 13
                 font.weight: Font.DemiBold
                 Layout.alignment: Qt.AlignVCenter
+                activeFocusOnTab: visible
+                Accessible.role: Accessible.Button
+                Accessible.name: text
+                Accessible.onPressAction: if (toastVm) toastVm.triggerAction()
+                Keys.onReturnPressed: if (toastVm) toastVm.triggerAction()
+                Keys.onSpacePressed: if (toastVm) toastVm.triggerAction()
 
                 MouseArea {
                     anchors.fill: parent

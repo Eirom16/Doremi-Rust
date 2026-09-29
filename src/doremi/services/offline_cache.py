@@ -150,6 +150,36 @@ class OfflineCacheManager:
         limit = max(1, int(getattr(offline, "song_limit", 25)))
         self._sync_task = asyncio.create_task(self.sync_from_feed(feed, limit))
 
+    def cancel_sync(self) -> bool:
+        """Stop an in-flight automatic cache refresh.
+
+        Disabling the visible intelligent-cache preference must stop work that
+        was already scheduled, not merely prevent the next Home refresh from
+        adding another task. Existing completed files intentionally remain
+        available for offline playback.
+        """
+        task = self._sync_task
+        if task is None or task.done():
+            return False
+        task.cancel()
+        return True
+
+    def enforce_limit(self, limit: int) -> int:
+        """Apply a changed cache limit immediately, including after restart.
+
+        Previously the limit only took effect if Home later fetched a fresh
+        feed.  That made lowering it look saved while stale offline files
+        continued occupying disk indefinitely.
+        """
+        self._setup()
+        manifest = self._manifest()
+        self._prune(manifest, max(1, int(limit)))
+        try:
+            self._write_json(self.manifest_path, manifest)
+        except OSError as exc:
+            logger.warning(f"No se pudo aplicar el límite de caché offline: {exc}")
+        return len(manifest)
+
     @staticmethod
     def _candidates(feed: dict) -> list[dict]:
         candidates: list[dict] = []
@@ -222,47 +252,53 @@ class OfflineCacheManager:
             manifest.pop(video_id, None)
 
     async def _download_track(self, video_id: str) -> Path | None:
-        # Sin cookies YouTube rechaza gran parte de los formatos. Las
-        # credenciales viven en el llavero; se pasan como header Cookie
-        # (un archivo --cookies Netscape pierde las cookies de otros dominios
-        # de Google y YouTube devuelve "The page needs to be reloaded").
-        # El proceso es efímero y sólo legible por el propio usuario.
+        # yt-dlp no admite de forma fiable un encabezado Cookie crudo: las
+        # versiones recientes lo marcan como inseguro y YouTube suele rechazar
+        # después esa sesión con "The page needs to be reloaded". La caché
+        # automática sólo contiene recomendaciones públicas, así que conserva
+        # el user-agent para compatibilidad pero nunca inyecta cookies del
+        # llavero en un proceso hijo.
         from doremi.utils.secure_storage import SecureStorage
         headers = SecureStorage.load_youtube_headers() or {}
         auth_args: list[str] = []
-        cookie = headers.get("cookie", "")
-        if cookie:
-            auth_args += ["--add-headers", f"Cookie:{cookie}"]
         user_agent = headers.get("user-agent", "")
         if user_agent:
             auth_args += ["--user-agent", user_agent]
 
         template = str(self.audio_dir / f"{video_id}.%(ext)s")
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, "-m", "yt_dlp",
-            "--quiet", "--no-warnings", "--no-playlist",
-            "--socket-timeout", "10", "--retries", "2",
-            *auth_args,
-            # Algunos vídeos sólo publican un formato combinado; `best` es el
-            # último recurso para que la caché siga siendo reproducible.
-            "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
-            "-o", template,
-            f"https://www.youtube.com/watch?v={video_id}",
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        try:
-            _, stderr = await process.communicate()
-        except asyncio.CancelledError:
-            process.kill()
-            await process.wait()
-            raise
-        if process.returncode != 0:
+
+        async def run_download(args: list[str]) -> tuple[Path | None, str]:
+            process = await asyncio.create_subprocess_exec(
+                sys.executable, "-m", "yt_dlp",
+                "--quiet", "--no-warnings", "--no-playlist",
+                "--socket-timeout", "10", "--retries", "2",
+                *args,
+                # Algunos vídeos sólo publican un formato combinado; `best` es el
+                # último recurso para que la caché siga siendo reproducible.
+                "-f", "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
+                "-o", template,
+                f"https://www.youtube.com/watch?v={video_id}",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            try:
+                _, stderr = await process.communicate()
+            except asyncio.CancelledError:
+                process.kill()
+                await process.wait()
+                raise
             message = stderr.decode(errors="replace").strip()[-300:]
-            logger.debug(f"No se pudo cachear {video_id}: {message}")
-            return None
-        matches = [path for path in self.audio_dir.glob(f"{video_id}.*") if path.is_file()]
-        return max(matches, key=lambda path: path.stat().st_mtime) if matches else None
+            if process.returncode != 0:
+                return None, message
+            matches = [path for path in self.audio_dir.glob(f"{video_id}.*") if path.is_file()]
+            return (max(matches, key=lambda path: path.stat().st_mtime) if matches else None), message
+
+        result, message = await run_download(auth_args)
+        if result is not None:
+            return result
+
+        logger.debug(f"No se pudo cachear {video_id}: {message}")
+        return None
 
     async def _cache_artwork(self, video_id: str, url: str) -> Path | None:
         if not url.startswith(("http://", "https://")):

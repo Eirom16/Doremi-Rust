@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+from types import SimpleNamespace
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock
@@ -9,10 +10,10 @@ from unittest.mock import MagicMock, AsyncMock
 # imports QMessageBox at module level). Headless-friendly.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from doremi.audio.player import PlayerState
 from doremi.audio.queue import PlayQueue, QueueItem, RepeatMode
 from doremi.config.settings import AppSettings
 from doremi.config import paths as paths_mod
-from doremi.api.lastfm import LastFmScrobbler
 
 from doremi.ui.controllers.navigation_controller import NavigationController
 from doremi.ui.controllers.queue_controller import QueueController
@@ -75,8 +76,6 @@ def _make_stub_mw():
     # Shared state accessed by controllers
     mw.queue = PlayQueue()
     mw.settings = AppSettings()
-    mw.scrobbler = None
-    mw._lastfm_session_key = None
 
     mw.ROUTES = {
         "home": 0, "library": 1, "history": 2, "stats": 3, "search": 4,
@@ -120,6 +119,37 @@ class TestNavigation:
         mw.search_screen.search.assert_called_with("hello")
 
     @pytest.mark.asyncio
+    async def test_search_route_decodes_reserved_and_unicode_characters(self):
+        nav, mw = self._nav()
+        await nav.navigate("search?query=What+Was+I+Made+For%3F+%26+%F0%9F%8E%B5")
+        mw.search_screen.search.assert_called_with("What Was I Made For? & 🎵")
+
+    @pytest.mark.asyncio
+    async def test_back_restores_full_deep_link_not_only_screen_index(self):
+        nav, mw = self._nav()
+        await nav.navigate("playlist?id=playlist-a")
+        await nav.navigate("playlist?id=playlist-b")
+
+        nav.go_back()
+        await mw._current_nav_task
+
+        assert mw._current_path == "playlist?id=playlist-a"
+        assert mw._current_route == "playlist"
+        assert mw._nav_history == ["home"]
+        assert [call.args[0] for call in mw.playlist_screen.load.call_args_list] == [
+            "playlist-a", "playlist-b", "playlist-a",
+        ]
+
+    @pytest.mark.asyncio
+    async def test_question_mark_in_text_search_is_not_a_deep_link(self):
+        nav, mw = self._nav()
+        nav.on_search_submitted("What Was I Made For?")
+        await mw._current_nav_task
+
+        assert mw._current_path == "search?query=What+Was+I+Made+For%3F"
+        mw.search_screen.search.assert_called_once_with("What Was I Made For?")
+
+    @pytest.mark.asyncio
     async def test_navigate_library_playlist_tab_reuses_library_screen(self):
         nav, mw = self._nav()
         await nav.navigate("library?tab=playlists")
@@ -144,6 +174,25 @@ class TestNavigation:
         assert [item["title"] for item in shown] == [
             "Playlist 0", "Playlist 1", "Playlist 2", "Playlist 3",
         ]
+
+    def test_sidebar_tracks_deep_link_path_separately_from_section(self):
+        from doremi.ui.widgets.nav_sidebar_qml import NavSidebarQml
+
+        sidebar = NavSidebarQml(lambda _: None)
+        sidebar.set_active("playlist?id=playlist-a")
+
+        assert sidebar.activeRoute == "playlist"
+        assert sidebar.activePath == "playlist?id=playlist-a"
+
+    def test_sidebar_restores_compact_state_idempotently(self):
+        from doremi.ui.widgets.nav_sidebar_qml import NavSidebarQml
+
+        sidebar = NavSidebarQml(lambda _: None)
+        sidebar.set_collapsed(True)
+        sidebar.set_collapsed(True)
+
+        assert sidebar.collapsed is True
+        assert sidebar.sidebar_width == sidebar.COLLAPSED_WIDTH
 
     @pytest.mark.asyncio
     async def test_offline_route_shows_offline_state(self):
@@ -202,6 +251,53 @@ class TestNavigation:
                 pass
 
         mw.artist_screen.load.assert_called_with("ART123")
+
+    @pytest.mark.asyncio
+    async def test_new_artist_resolution_cancels_an_older_slow_one(self):
+        nav, mw = self._nav()
+        first_started = asyncio.Event()
+        never = asyncio.Event()
+
+        async def search(name, filter):
+            if name == "Primero":
+                first_started.set()
+                await never.wait()
+            return [{"browseId": "SECOND"}]
+
+        mw.yt.search = search
+        nav.navigate_to = MagicMock()
+        nav.resolve_and_navigate_artist("Primero")
+        await first_started.wait()
+        first_task = nav._resolution_task
+
+        nav.resolve_and_navigate_artist("Segundo")
+        await nav._resolution_task
+
+        assert first_task.cancelled()
+        nav.navigate_to.assert_called_once_with("artist?id=SECOND")
+
+    @pytest.mark.asyncio
+    async def test_explicit_navigation_invalidates_a_slow_artist_resolution(self):
+        nav, mw = self._nav()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def search(name, filter):
+            started.set()
+            await release.wait()
+            return [{"browseId": "STALE"}]
+
+        mw.yt.search = search
+        nav.resolve_and_navigate_artist("Lento")
+        await started.wait()
+
+        nav.navigate_to("downloads")
+        release.set()
+        await nav._resolution_task
+        await mw._current_nav_task
+
+        mw.downloads_screen.load.assert_awaited_once()
+        mw.artist_screen.load.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
@@ -325,20 +421,6 @@ class TestSettings:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("isolated_settings_file")
-    async def test_lastfm_scrobbler_created_when_enabled(self):
-        sc, mw = self._sc()
-        settings = AppSettings()
-        settings.integrations.lastfm_enabled = True
-        settings.integrations.lastfm_session_key = "K"
-        settings.integrations.lastfm_api_key = "AK"
-        settings.integrations.lastfm_api_secret = "SK"
-        sc.on_settings_changed(settings)
-        assert mw.scrobbler is not None
-        assert isinstance(mw.scrobbler, LastFmScrobbler)
-        assert mw._lastfm_session_key == "K"
-
-    @pytest.mark.asyncio
-    @pytest.mark.usefixtures("isolated_settings_file")
     async def test_equalizer_reset_when_disabled(self):
         sc, mw = self._sc()
         settings = AppSettings()
@@ -349,6 +431,37 @@ class TestSettings:
         mw.player.reset_equalizer.assert_called()
         mw.player.apply_equalizer.assert_not_called()
 
+    @pytest.mark.usefixtures("isolated_settings_file")
+    def test_disabling_offline_cache_cancels_its_current_sync(self, monkeypatch):
+        from doremi.services.offline_cache import OfflineCacheManager
+
+        sc, _ = self._sc()
+        cache = MagicMock()
+        monkeypatch.setattr(OfflineCacheManager, "get_instance", lambda: cache)
+        settings = AppSettings()
+        settings.offline.enabled = False
+
+        sc.on_settings_changed(settings)
+
+        cache.cancel_sync.assert_called_once_with()
+        cache.enforce_limit.assert_called_once_with(settings.offline.song_limit)
+
+    @pytest.mark.asyncio
+    async def test_persisted_sleep_timer_starts_on_new_window(self):
+        mw = _make_stub_mw()
+        mw.settings.player.sleep_timer_minutes = 30
+        mw.sleep_timer = MagicMock()
+        mw.sleep_timer.is_running = False
+        mw.sleep_timer.start = AsyncMock()
+        scheduled = []
+        controller = SettingsController(mw, scheduled.append)
+
+        controller.restore_persisted_sleep_timer()
+
+        assert len(scheduled) == 1
+        await scheduled[0]
+        mw.sleep_timer.start.assert_awaited_once_with(1800, mw._on_sleep_timer_expired)
+
 
 # ---------------------------------------------------------------------------
 # PlaybackSessionManager
@@ -356,7 +469,7 @@ class TestSettings:
 
 class TestSession:
     @pytest.mark.asyncio
-    async def test_initialize_does_not_restore_a_track_by_default(self):
+    async def test_initialize_restores_queue_but_does_not_autoplay_by_default(self):
         mw = _make_stub_mw()
         mw._navigate = AsyncMock()
         mw.settings.player.resume_on_startup = False
@@ -366,7 +479,36 @@ class TestSession:
         await sm.initialize()
 
         mw._navigate.assert_awaited_once_with("home")
-        sm.restore_playback_session.assert_not_called()
+        sm.restore_playback_session.assert_called_once()
+        mw.playback_controller._update_queue_panel.assert_not_called()
+        mw.mini_player.update_track_info.assert_not_called()
+        mw.now_playing_screen.update_track_info.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_initialize_restores_queue_without_autoplay_when_resume_is_off(self, tmp_path):
+        mw = _make_stub_mw()
+        mw._navigate = AsyncMock()
+        mw.settings.player.resume_on_startup = False
+        sm = PlaybackSessionManager(mw, real_run_async)
+        sm._queue_state_file = tmp_path / "queue_state.json"
+        sm._queue_state_file.write_text(json.dumps({
+            "queue": {"items": [{
+                "video_id": "saved", "title": "Guardada", "artist": "Artista",
+                "album": "", "duration_ms": 1_000, "thumbnail_url": "cover",
+            }]},
+            "position_ms": 12_000,
+        }), encoding="utf-8")
+
+        await sm.initialize()
+
+        assert mw.queue.current is not None
+        assert mw.queue.current.video_id == "saved"
+        mw.playback_controller._update_queue_panel.assert_called_once()
+        # La cola se conserva, pero el arranque no muestra una canción previa
+        # ni activa el miniplayer hasta que se pulse reproducir.
+        mw.mini_player.update_track_info.assert_not_called()
+        mw.now_playing_screen.update_track_info.assert_not_called()
+        mw.playback_controller._play_current.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_restore_playback_session(self, tmp_path):
@@ -406,6 +548,104 @@ class TestSession:
 # ---------------------------------------------------------------------------
 
 class TestIntegrations:
+    def test_runtime_mpris_toggle_starts_and_stops_service(self):
+        from doremi.ui.controllers.integrations_controller import IntegrationsController
+
+        mpris = MagicMock()
+        main = MagicMock()
+        main.playback_controller = MagicMock()
+        controller = IntegrationsController(
+            MagicMock(), PlayQueue(), mpris, AppSettings(), MagicMock(), lambda _: None, main
+        )
+
+        controller.reconfigure_mpris(True)
+        mpris.start.assert_called_once()
+        mpris.update_shuffle.assert_called_once_with(False)
+        controller.reconfigure_mpris(False)
+        mpris.stop.assert_called_once()
+
+    def test_enabling_mpris_publishes_the_current_playback_snapshot(self):
+        mpris = MagicMock()
+        main = MagicMock()
+        main.playback_controller = MagicMock()
+        queue = PlayQueue()
+        item = QueueItem("current", "Current", "Artist", "Album", 123_000, "cover")
+        queue.add_to_end(item)
+        player = SimpleNamespace(
+            status=SimpleNamespace(state=PlayerState.PLAYING, position_ms=4_000, volume=73)
+        )
+        controller = IntegrationsController(
+            player, queue, mpris, AppSettings(), MagicMock(), lambda _: None, main
+        )
+
+        controller.reconfigure_mpris(True)
+
+        mpris.update_playback_status.assert_called_once_with("playing")
+        mpris.update_position.assert_called_once_with(4_000)
+        mpris.update_volume.assert_called_once_with(73)
+        mpris.update_shuffle.assert_called_once_with(False)
+        mpris.update_metadata.assert_called_once_with(
+            "Current", "Artist", "Album", 123_000_000, "cover", "current",
+        )
+
+    @pytest.mark.asyncio
+    async def test_mpris_play_and_stop_use_playback_state_boundaries(self):
+        mpris = MagicMock()
+        playback = SimpleNamespace(
+            resume_or_start=AsyncMock(),
+            stop_playback=AsyncMock(),
+            _on_seek=MagicMock(),
+        )
+        main = MagicMock()
+        main.playback_controller = playback
+        main._on_play_pause = MagicMock()
+        main._on_next = MagicMock()
+        main._on_prev = MagicMock()
+        player = SimpleNamespace(status=SimpleNamespace(position_ms=0))
+        tasks = []
+        controller = IntegrationsController(
+            player, PlayQueue(), mpris, AppSettings(), MagicMock(),
+            lambda coro: tasks.append(asyncio.create_task(coro)), main,
+        )
+
+        controller._wire_mpris_callbacks()
+        mpris.on_play()
+        mpris.on_stop()
+        await asyncio.gather(*tasks)
+
+        playback.resume_or_start.assert_awaited_once_with()
+        playback.stop_playback.assert_awaited_once_with()
+
+    def test_mpris_start_is_idempotent_when_dbus_is_available(self, monkeypatch):
+        import doremi.system.mpris as module
+
+        monkeypatch.setattr(module, "_DBUS_OK", True)
+        player = module.MprisPlayer(MagicMock(), PlayQueue())
+        player._active = True
+        player.start()
+        assert player._active is True
+
+    def test_mpris_retains_complete_playback_state_while_inactive(self):
+        from doremi.system.mpris import MprisPlayer
+
+        mpris = MprisPlayer(MagicMock(), PlayQueue())
+        mpris.update_playback_status("idle")
+        assert mpris.playback_status == "Stopped"
+        mpris.update_playback_status("paused")
+        assert mpris.playback_status == "Paused"
+        mpris.update_playback_status("playing")
+        assert mpris.playback_status == "Playing"
+
+    def test_mpris_receives_stopped_not_paused_when_player_is_idle(self):
+        ic, mw, _, _ = self._ic()
+        mw.mini_player = MagicMock()
+        mw.now_playing_screen = MagicMock()
+        status = SimpleNamespace(state=PlayerState.IDLE)
+
+        ic.on_state_changed_callback(status)
+
+        ic.mpris.update_playback_status.assert_called_once_with("idle")
+
     def _ic(self):
         mw = MagicMock()
         player = MagicMock()
@@ -415,66 +655,10 @@ class TestIntegrations:
         extractor = MagicMock()
         run_async = MagicMock()
         ic = IntegrationsController(
-            player, queue, mpris, None, None, settings, extractor,
+            player, queue, mpris, settings, extractor,
             run_async, mw,
         )
         return ic, mw, queue, run_async
-
-    def test_reset_lastfm_scrobble_state(self):
-        ic, mw, queue, run_async = self._ic()
-        item = QueueItem(
-            video_id="v1", title="T", artist="A", album="",
-            duration_ms=1000, thumbnail_url="",
-        )
-        ic.reset_lastfm_scrobble_state(item)
-        assert ic._lastfm_track_key == ("v1", "T", "A")
-        assert isinstance(ic._lastfm_started_at, int)
-        assert ic._lastfm_scrobbled is False
-
-    @pytest.mark.asyncio
-    async def test_maybe_scrobble_triggers_when_threshold_met(self):
-        ic, mw, queue, _ = self._ic()
-        ic.scrobbler = MagicMock()
-        ic.scrobbler.scrobble = AsyncMock(return_value=True)
-        # Use a real runner that records the coroutine and actually schedules it,
-        # so the scrobble coroutine is awaited (no ResourceWarning).
-        calls = []
-        ic.run_async = lambda c: (calls.append(c) or asyncio.ensure_future(c))
-        item = QueueItem(
-            video_id="v1", title="T", artist="A", album="",
-            duration_ms=1000, thumbnail_url="",
-        )
-        ic.reset_lastfm_scrobble_state(item)
-        queue.current = item
-
-        class Status:
-            duration_ms = 200000
-            position_ms = 150000
-
-        ic.maybe_scrobble_lastfm(Status())
-        assert ic._lastfm_scrobble_pending is True
-        assert len(calls) == 1
-        # Drain so the scheduled scrobble coroutine actually runs.
-        await asyncio.sleep(0)
-        assert ic._lastfm_scrobbled is True
-
-    def test_maybe_scrobble_skipped_when_pending(self):
-        ic, mw, queue, run_async = self._ic()
-        ic.scrobbler = MagicMock()
-        ic._lastfm_scrobble_pending = True
-        item = QueueItem(
-            video_id="v1", title="T", artist="A", album="",
-            duration_ms=1000, thumbnail_url="",
-        )
-        ic._lastfm_track_key = (item.video_id, item.title, item.artist)
-        queue.current = item
-
-        class Status:
-            duration_ms = 200000
-            position_ms = 150000
-
-        ic.maybe_scrobble_lastfm(Status())
-        run_async.assert_not_called()
 
     def test_on_track_ended_callback_advances_queue(self):
         ic, mw, queue, run_async = self._ic()

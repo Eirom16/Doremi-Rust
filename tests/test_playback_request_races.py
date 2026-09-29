@@ -51,7 +51,7 @@ async def test_late_playback_request_cannot_replace_newer_track(monkeypatch, del
     controller.tray = MagicMock()
     controller.main_window = MagicMock()
     controller.main_window._handle_playback_failure = AsyncMock()
-    controller.scrobbler = controller.discord = controller.mpris = None
+    controller.mpris = None
     controller.network_monitor = SimpleNamespace(is_connected=True)
     # Las tareas auxiliares no forman parte de esta carrera.
     controller.run_async = lambda coro: coro.close()

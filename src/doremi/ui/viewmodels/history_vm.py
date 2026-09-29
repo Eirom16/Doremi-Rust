@@ -70,6 +70,7 @@ class HistoryViewModel(QObject):
 
     loading_changed = Signal()
     empty_changed = Signal()
+    error_changed = Signal()
 
     # Mismas señales que HistoryScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -82,12 +83,14 @@ class HistoryViewModel(QObject):
     album_clicked = Signal(str)
     play_requested = Signal(str, str, str, int, str)  # videoId, title, artist, duration_ms, thumb
     clear_requested = Signal()
+    retry_requested = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._model = HistoryListModel(self)
         self._loading = False
         self._empty = False
+        self._error_text = ""
 
     # ── Properties consumed by QML ────────────────────────────────────────
 
@@ -103,6 +106,10 @@ class HistoryViewModel(QObject):
     def empty(self) -> bool:
         return self._empty
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     # ── Mutators (Python side) ────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
@@ -116,6 +123,12 @@ class HistoryViewModel(QObject):
         if self._empty != empty:
             self._empty = empty
             self.empty_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
 
     # ── Slots called from QML ─────────────────────────────────────────────
 
@@ -145,10 +158,14 @@ class HistoryViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(video_id, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(video_id, thumb)
+            self.add_to_playlist_requested.emit(video_id, title)
         elif action == "go_artist":
             self.artist_clicked.emit(artist)
 
     @Slot()
     def clear(self) -> None:
         self.clear_requested.emit()
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()

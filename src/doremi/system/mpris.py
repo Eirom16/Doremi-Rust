@@ -179,6 +179,10 @@ class MprisPlayer:
         return "None"
 
     def start(self) -> None:
+        # Settings are applied as a complete snapshot.  Re-applying an
+        # unrelated preference must not register the same DBus service twice.
+        if self._active:
+            return
         if not _DBUS_OK:
             return
         try:
@@ -228,12 +232,26 @@ class MprisPlayer:
         except Exception as e:
             logger.debug(f"MPRIS2 metadata notify failed: {e}")
 
-    def update_playback_status(self, is_playing: bool) -> None:
+    def update_playback_status(self, state: str | bool) -> None:
+        """Update MPRIS state from the complete player state, not just a bool.
+
+        ``False`` historically meant ``Paused``; accept it for compatibility,
+        but callers that know ``idle``/``error`` can now accurately publish
+        ``Stopped``.
+        """
+        if isinstance(state, bool):
+            status = "Playing" if state else "Paused"
+        else:
+            status = {
+                "playing": "Playing",
+                "paused": "Paused",
+            }.get(str(state).lower(), "Stopped")
+        changed = status != self.playback_status
+        if changed:
+            self.playback_status = status
         if not self._active or not _DBUS_OK:
             return
-        status = "Playing" if is_playing else "Paused"
-        if status != self.playback_status:
-            self.playback_status = status
+        if changed:
             try:
                 self._service.notify_properties_changed(PLAYER_IFACE, {"PlaybackStatus": dbus.String(status)})
             except Exception as e:

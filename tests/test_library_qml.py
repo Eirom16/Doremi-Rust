@@ -146,7 +146,7 @@ class TestLibraryViewModelSignals:
         assert got["next"] == [("s1", "Beta Song", "ZZ Top", "https://x/1.jpg")]
         assert got["queue"] == [("s1", "Beta Song", "ZZ Top", "https://x/1.jpg")]
         assert got["like"] == [("s1", None)]
-        assert got["pl"] == [("s1", "https://x/1.jpg")]
+        assert got["pl"] == [("s1", "Beta Song")]
         assert got["artist"] == [("ZZ Top",)]
 
     def test_navigate_and_create_playlist(self, qapp):
@@ -161,10 +161,12 @@ class TestLibraryViewModelSignals:
         vm.navigate("playlist?id=P1")
         vm.navigate("")
         vm.create_playlist("  Mi Mix  ", " desc ")
+        vm.create_playlist("Otra", "duplicada")  # ignorada mientras la primera está en curso
         vm.create_playlist("   ", "x")  # sin título: no emite
 
         assert nav == ["playlist?id=P1"]
         assert created == [("Mi Mix", "desc")]
+        assert vm.creatingPlaylist is True
 
 
 class TestThemeBridgeColors:

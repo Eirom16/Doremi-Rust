@@ -81,7 +81,15 @@ Item {
                     color: active ? root.accentWithAlpha(0.15)
                                   : (tabMa.containsMouse ? root.colors["bg_elevated"] : "transparent")
                     border.width: 1
-                    border.color: active ? root.accentWithAlpha(0.3) : "transparent"
+                    border.color: active ? root.accentWithAlpha(0.3) : (activeFocus ? root.accentColor : "transparent")
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: tabPill.modelData.label
+                    Accessible.checked: active
+                    Accessible.onPressAction: screenVm.set_tab(tabPill.modelData.key)
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
 
                     Label {
                         id: tabLabel
@@ -215,6 +223,30 @@ Item {
             Item { Layout.fillHeight: true }
         }
 
+        // ── Error recuperable ─────────────────────────────────────────
+        ColumnLayout {
+            Layout.fillWidth: true
+            Layout.fillHeight: true
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText !== ""
+            spacing: Theme.spacingMd
+            Item { Layout.fillHeight: true }
+            Label {
+                text: screenVm.errorText
+                color: root.colors["text_primary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeBody
+                wrapMode: Text.WordWrap
+                Layout.alignment: Qt.AlignHCenter
+            }
+            Button {
+                text: "Reintentar"
+                Accessible.name: "Reintentar cargar biblioteca"
+                Layout.alignment: Qt.AlignHCenter
+                onClicked: screenVm.retry()
+            }
+            Item { Layout.fillHeight: true }
+        }
+
         // ── Sin autenticación ─────────────────────────────────────────
         ColumnLayout {
             Layout.fillWidth: true
@@ -236,7 +268,7 @@ Item {
         ColumnLayout {
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && !screenVm.authRequired && root.currentModel().rowCount() === 0
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && root.currentModel().rowCount() === 0
             spacing: Theme.spacingMd
             Item { Layout.fillHeight: true }
             Label {
@@ -262,7 +294,7 @@ Item {
             id: songsList
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && !screenVm.authRequired && screenVm.tab === "songs" && screenVm.songs.rowCount() > 0
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && screenVm.tab === "songs" && screenVm.songs.rowCount() > 0
             model: screenVm.songs
             clip: true
             spacing: Theme.spacingXxs
@@ -274,6 +306,21 @@ Item {
                 height: 64
                 radius: Theme.radiusLg
                 color: songMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                activeFocusOnTab: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: "Reproducir " + songRow.title + ", " + songRow.artist
+                Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                Keys.onReturnPressed: screenVm.play_at(songRow.index)
+                Keys.onSpacePressed: screenVm.play_at(songRow.index)
+                Keys.onPressed: (event) => {
+                    if (event.key === Qt.Key_Enter) {
+                        screenVm.play_at(songRow.index)
+                        event.accepted = true
+                    } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                        songMenu.popup()
+                        event.accepted = true
+                    }
+                }
 
                 required property int index
                 required property string title
@@ -397,7 +444,7 @@ Item {
             id: grid
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && !screenVm.authRequired && screenVm.tab !== "songs"
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && screenVm.tab !== "songs"
                      && root.currentModel().rowCount() > 0
             clip: true
             cacheBuffer: 400
@@ -412,6 +459,7 @@ Item {
                 id: gridCell
                 width: grid.cellWidth
                 height: grid.cellHeight
+                activeFocusOnTab: true
 
                 required property int index
                 required property string thumbnail
@@ -427,6 +475,11 @@ Item {
                            + (typeof year !== "undefined" && year !== "" ? " · " + year : ""))
                         : (typeof subtitle !== "undefined" ? subtitle : ""))
                 property bool isDl: (typeof isDownloaded !== "undefined") ? isDownloaded : false
+                Accessible.role: Accessible.ListItem
+                Accessible.name: "Abrir " + gridCell.cardTitle
+                Accessible.description: gridCell.cardSubtitle
+                Keys.onReturnPressed: if (gridCell.navigate) screenVm.navigate(gridCell.navigate)
+                Keys.onSpacePressed: if (gridCell.navigate) screenVm.navigate(gridCell.navigate)
 
                 Rectangle {
                     anchors.fill: parent
@@ -538,7 +591,7 @@ Item {
     // ── FAB crear playlist ────────────────────────────────────────────
     Rectangle {
         id: fab
-        visible: screenVm.tab === "playlists" && !screenVm.loading && !screenVm.authRequired
+        visible: screenVm.tab === "playlists" && !screenVm.loading && !screenVm.authRequired && screenVm.errorText === ""
         anchors.right: parent.right
         anchors.bottom: parent.bottom
         anchors.rightMargin: Theme.spacingLg
@@ -546,7 +599,16 @@ Item {
         width: 56
         height: 56
         radius: 28
-        color: fabMa.containsMouse ? root.colors["accent_bright"] : root.accentColor
+        color: fabMa.containsMouse ? Qt.darker(root.accentColor, 1.2) : root.accentColor
+        border.width: activeFocus ? 2 : 0
+        border.color: root.colors["text_primary"]
+        activeFocusOnTab: visible
+        Accessible.role: Accessible.Button
+        Accessible.name: "Crear playlist"
+        Accessible.onPressAction: createDialog.open()
+        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) createDialog.open() }
+        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) createDialog.open() }
+        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) createDialog.open() }
 
         Text {
             anchors.centerIn: parent
@@ -617,6 +679,7 @@ Item {
             TextField {
                 id: plTitle
                 Layout.fillWidth: true
+                enabled: !screenVm.creatingPlaylist
                 placeholderText: "Nombre de la playlist"
                 color: root.colors["text_primary"]
                 placeholderTextColor: root.colors["text_secondary"]
@@ -634,6 +697,7 @@ Item {
             TextField {
                 id: plDesc
                 Layout.fillWidth: true
+                enabled: !screenVm.creatingPlaylist
                 placeholderText: "Descripción (opcional)"
                 color: root.colors["text_primary"]
                 placeholderTextColor: root.colors["text_secondary"]
@@ -647,6 +711,15 @@ Item {
                     border.color: plDesc.activeFocus ? root.accentColor : root.colors["border"]
                 }
             }
+            Label {
+                visible: screenVm.errorText !== ""
+                Layout.fillWidth: true
+                text: screenVm.errorText
+                color: root.colors["error"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeCaption
+                wrapMode: Text.Wrap
+            }
         }
 
         footer: RowLayout {
@@ -659,6 +732,14 @@ Item {
                 Layout.preferredHeight: 40
                 radius: Theme.radiusPill
                 color: cancelMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_elevated"]
+                enabled: !screenVm.creatingPlaylist
+                activeFocusOnTab: visible && enabled
+                Accessible.role: Accessible.Button
+                Accessible.name: "Cancelar crear playlist"
+                Accessible.onPressAction: if (enabled) createDialog.close()
+                Keys.onReturnPressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.close() }
+                Keys.onEnterPressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.close() }
+                Keys.onSpacePressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.close() }
 
                 Label {
                     id: cancelLbl
@@ -673,7 +754,8 @@ Item {
                     id: cancelMa
                     anchors.fill: parent
                     hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
+                    enabled: !screenVm.creatingPlaylist
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: createDialog.close()
                 }
             }
@@ -682,12 +764,20 @@ Item {
                 Layout.preferredWidth: createLbl.implicitWidth + Theme.spacingLg * 1.5
                 Layout.preferredHeight: 40
                 radius: Theme.radiusPill
-                color: createMa.containsMouse ? root.colors["accent_bright"] : root.accentColor
+                color: createMa.containsMouse ? Qt.darker(root.accentColor, 1.2) : root.accentColor
+                enabled: !screenVm.creatingPlaylist
+                activeFocusOnTab: visible && enabled
+                Accessible.role: Accessible.Button
+                Accessible.name: "Crear playlist"
+                Accessible.onPressAction: if (enabled) createDialog.acceptIfValid()
+                Keys.onReturnPressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.acceptIfValid() }
+                Keys.onEnterPressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.acceptIfValid() }
+                Keys.onSpacePressed: function(event) { if (enabled && !event.isAutoRepeat) createDialog.acceptIfValid() }
 
                 Label {
                     id: createLbl
                     anchors.centerIn: parent
-                    text: "Crear"
+                    text: screenVm.creatingPlaylist ? "Creando…" : "Crear"
                     color: root.colors["text_on_accent"]
                     font.family: Theme.fontFamily
                     font.pixelSize: Theme.typeLabel
@@ -697,17 +787,25 @@ Item {
                     id: createMa
                     anchors.fill: parent
                     hoverEnabled: true
-                    cursorShape: Qt.PointingHandCursor
+                    enabled: !screenVm.creatingPlaylist
+                    cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                     onClicked: createDialog.acceptIfValid()
                 }
             }
         }
 
         function acceptIfValid() {
-            if (plTitle.text.trim() !== "") {
+            if (!screenVm.creatingPlaylist && plTitle.text.trim() !== "") {
                 screenVm.create_playlist(plTitle.text, plDesc.text)
-                createDialog.close()
             }
+        }
+    }
+
+    Connections {
+        target: screenVm
+        function onCreatingPlaylistChanged() {
+            if (!screenVm.creatingPlaylist && screenVm.errorText === "")
+                createDialog.close()
         }
     }
 }

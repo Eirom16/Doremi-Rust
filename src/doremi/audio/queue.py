@@ -41,8 +41,11 @@ class PlayQueue:
 
     @property
     def next_item(self) -> QueueItem | None:
-        if self.repeat_mode == RepeatMode.ONE and self._queue:
-            return self._queue[self._index]
+        current = self.current
+        if current is None:
+            return None
+        if self.repeat_mode == RepeatMode.ONE:
+            return current
         next_i = self._index + 1
         if next_i < len(self._queue):
             return self._queue[next_i]
@@ -82,6 +85,7 @@ class PlayQueue:
             self._index = start_index
 
     def add_next(self, item: QueueItem) -> None:
+        was_empty = not self._queue
         current = self.current
         pos = self._index + 1
         self._queue.insert(pos, item)
@@ -90,12 +94,24 @@ class PlayQueue:
             len(self._original),
         )
         self._original.insert(original_pos, item)
+        if was_empty:
+            self._index = 0
 
     def add_to_end(self, item: QueueItem) -> None:
+        was_empty = not self._queue
         self._queue.append(item)
         self._original.append(item)
+        if was_empty:
+            self._index = 0
 
-    def remove_at(self, index: int) -> None:
+    def remove_at(self, index: int) -> QueueItem | None:
+        """Remove one queue occurrence and keep a sensible current item.
+
+        When the current item is removed, the next upcoming item becomes
+        current whenever one exists.  This matters for UI actions: retaining
+        the previous item would make the player and queue disagree about what
+        should play next.
+        """
         if 0 <= index < len(self._queue):
             removed = self._queue.pop(index)
             # Quitar la misma ocurrencia, incluso si hay canciones repetidas.
@@ -103,10 +119,16 @@ class PlayQueue:
                 if item is removed:
                     self._original.pop(original_index)
                     break
-            if index <= self._index and self._index > 0:
+            if index < self._index:
                 self._index -= 1
+            elif index == self._index and index >= len(self._queue):
+                # Removing the last current item: there is no next item, so
+                # retain the preceding one as the current queue position.
+                self._index = len(self._queue) - 1
             if not self._queue:
                 self._index = -1
+            return removed
+        return None
 
     def move_item(self, from_index: int, to_index: int) -> None:
         if not (0 <= from_index < len(self._queue) and 0 <= to_index < len(self._queue)):
@@ -158,10 +180,19 @@ class PlayQueue:
         self.shuffle_enabled = not self.shuffle_enabled
         current = self.current
         if self.shuffle_enabled:
-            remaining = [i for i in self._queue if i is not current]
-            random.shuffle(remaining)
-            self._queue = ([current] + remaining) if current else remaining
-            self._index = 0
+            # Keep the already traversed part of the session behind the
+            # current item.  Only upcoming tracks are shuffled, so enabling
+            # shuffle halfway through an album cannot immediately replay a
+            # song the listener just heard.
+            if current is not None:
+                history = self._queue[:self._index]
+                upcoming = self._queue[self._index + 1:]
+                random.shuffle(upcoming)
+                self._queue = history + [current] + upcoming
+                self._index = len(history)
+            else:
+                random.shuffle(self._queue)
+                self._index = -1
         else:
             self._queue = self._original.copy()
             if current:

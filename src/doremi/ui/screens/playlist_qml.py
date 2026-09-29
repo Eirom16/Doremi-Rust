@@ -39,6 +39,7 @@ class PlaylistScreenQml(QObject):
         self.on_back = on_back
         self._playlist_id: str | None = None  # leído por download_controller (paridad widgets)
         self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self._vm = PlaylistViewModel(QApplication.instance())
 
@@ -57,6 +58,7 @@ class PlaylistScreenQml(QObject):
         self._vm.play_local_requested.connect(self._on_vm_play_local)
         self._vm.remove_track_requested.connect(self._on_remove_track)
         self._vm.back_requested.connect(self._on_back)
+        self._vm.retry_requested.connect(self._retry)
 
         # Progreso de descarga de la playlist (paridad widgets)
         dm = DownloadManager.get_instance()
@@ -70,6 +72,10 @@ class PlaylistScreenQml(QObject):
     def _on_back(self) -> None:
         if self.on_back:
             self.on_back()
+
+    def _retry(self) -> None:
+        if self._playlist_id:
+            asyncio.ensure_future(self.load(self._playlist_id))
 
     def _on_vm_play_local(self, meta_list: list, start_index: int) -> None:
         if self.on_play_local_playlist and meta_list:
@@ -133,12 +139,22 @@ class PlaylistScreenQml(QObject):
             return
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()
-        self._load_task = asyncio.current_task()
+        current = asyncio.current_task()
+        self._load_task = current
+        self._load_generation += 1
+        generation = self._load_generation
         self._playlist_id = playlist_id
+
+        def is_current_request() -> bool:
+            return generation == self._load_generation and playlist_id == self._playlist_id
+
         self._vm.set_loading(True)
+        self._vm.set_error("")
         try:
             from doremi.ui.screens.playlist_data import gather_playlist
             data = await gather_playlist(self.yt, playlist_id)
+            if not is_current_request():
+                return
             self._vm.set_data(data)
             if self._vm.found and not self._vm.isLocal:
                 self._refresh_download_state()
@@ -146,9 +162,15 @@ class PlaylistScreenQml(QObject):
             raise
         except Exception as e:
             logger.error(f"Error loading playlist (QML): {e}")
+            if not is_current_request():
+                return
             self._vm.set_data({"playlist_id": playlist_id})
+            self._vm.set_error("No se pudo cargar la playlist. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)
+            if self._load_task is current:
+                self._load_task = None
 
     # ── Estado del botón de descarga ───────────────────────────────────────
 

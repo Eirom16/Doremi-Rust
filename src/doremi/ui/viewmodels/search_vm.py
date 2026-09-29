@@ -364,6 +364,6 @@ class SearchViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "delete_download":
             self.delete_download_requested.emit(vid)

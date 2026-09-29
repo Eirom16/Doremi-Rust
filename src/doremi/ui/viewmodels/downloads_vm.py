@@ -196,6 +196,7 @@ class DownloadsViewModel(QObject):
     play_local_requested = Signal(str, dict)      # file_path, metadata
     navigate_requested = Signal(str)
     batch_delete_requested = Signal(list, bool)   # ids, es_grupo
+    download_control_requested = Signal(str, str)  # video_id, pause|resume|retry|cancel
 
     TABS = ("songs", "albums", "playlists")
     STATUS_FILTERS = ("all", "completed", "active", "error")
@@ -356,6 +357,8 @@ class DownloadsViewModel(QObject):
             self.delete_download_requested.emit(vid)
         elif action == "like":
             self.like_requested.emit(vid, None)
+        elif action in {"pause", "resume", "retry", "cancel"}:
+            self.download_control_requested.emit(vid, action)
 
     @Slot(int)
     def group_navigate(self, index: int) -> None:

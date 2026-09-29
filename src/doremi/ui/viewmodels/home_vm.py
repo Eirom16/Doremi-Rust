@@ -301,6 +301,7 @@ class HomeViewModel(QObject):
     """
 
     loading_changed = Signal()
+    error_changed = Signal()
     greeting_changed = Signal()
     spotlight_changed = Signal()
 
@@ -316,10 +317,12 @@ class HomeViewModel(QObject):
     play_requested = Signal(str, str, str, int, str)  # videoId, title, artist, duration_ms, thumb
     navigate_requested = Signal(str)  # navegación interna (playlist/artist/album)
     search_navigate = Signal(str)     # navegación a buscar con query
+    retry_requested = Signal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._loading = True
+        self._error_text = ""
         self._greeting = ""
         self._spotlight = SpotlightModel(self)
         self._spot_title = ""
@@ -366,6 +369,10 @@ class HomeViewModel(QObject):
     def loading(self) -> bool:
         return self._loading
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     # Spotlight como properties notificadas (los bindings de texto QML no se
     # re-evalúan con modelos constantes + métodos data() sin NOTIFY).
     @Property(bool, notify=spotlight_changed)
@@ -394,6 +401,12 @@ class HomeViewModel(QObject):
         if self._loading != value:
             self._loading = value
             self.loading_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
 
     def set_greeting(self, value: str) -> None:
         if self._greeting != value:
@@ -464,7 +477,7 @@ class HomeViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
 
     @Slot(int, str)
     def song_action(self, index: int, action: str) -> None:
@@ -484,7 +497,7 @@ class HomeViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "go_artist":
             self.artist_clicked.emit(artist)
 
@@ -495,3 +508,7 @@ class HomeViewModel(QObject):
     @Slot(str)
     def navigate(self, route: str) -> None:
         self.navigate_requested.emit(route)
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()

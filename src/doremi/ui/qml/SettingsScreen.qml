@@ -63,6 +63,15 @@ Item {
                         radius: Theme.radiusMd
                         color: active ? root.accentWithAlpha(0.15)
                                       : (catMa.containsMouse ? root.accentWithAlpha(0.09) : "transparent")
+                        border.width: activeFocus ? 2 : 0
+                        border.color: root.accentColor
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.Button
+                        Accessible.name: catBtn.modelData.label
+                        Accessible.onPressAction: screenVm.set_category(catBtn.index)
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(catBtn.index) }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(catBtn.index) }
+                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(catBtn.index) }
 
                         RowLayout {
                             anchors.fill: parent
@@ -212,6 +221,19 @@ Item {
                                         visible: rowDelegate.rowType === "toggle"
                                         width: 44; height: 26; radius: 13
                                         color: rowDelegate.value ? root.accentColor : root.colors["bg_high"]
+                                        border.width: activeFocus ? 2 : 0
+                                        border.color: root.colors["text_primary"]
+                                        activeFocusOnTab: visible
+                                        Accessible.role: Accessible.CheckBox
+                                        Accessible.name: rowDelegate.label
+                                        // Section/action rows do not carry a
+                                        // value. QML evaluates this binding
+                                        // even while the toggle is invisible.
+                                        Accessible.checked: Boolean(rowDelegate.value)
+                                        Accessible.onPressAction: screenVm.set_value(rowDelegate.rowId, !rowDelegate.value)
+                                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, !rowDelegate.value) }
+                                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, !rowDelegate.value) }
+                                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, !rowDelegate.value) }
 
                                         Rectangle {
                                             width: 20; height: 20; radius: 10
@@ -234,6 +256,8 @@ Item {
                                         model: rowDelegate.options
                                         textRole: "text"
                                         valueRole: "value"
+                                        Accessible.name: rowDelegate.label
+                                        Accessible.description: rowDelegate.desc
 
                                         Component.onCompleted: {
                                             var idx = findIndexOfValue(rowDelegate.value)
@@ -312,6 +336,8 @@ Item {
                                             stepSize: 1
                                             value: (typeof rowDelegate.value === "number") ? rowDelegate.value : 0
                                             enabled: rowDelegate.rowEnabled
+                                            Accessible.name: rowDelegate.label
+                                            Accessible.description: rowDelegate.desc
                                             onMoved: screenVm.set_value(rowDelegate.rowId, Math.round(value))
 
                                             background: Rectangle {
@@ -355,6 +381,8 @@ Item {
 
                                         HeaderButton {
                                             text: "−"
+                                            accessibleName: "Reducir " + rowDelegate.label
+                                            enabled: rowDelegate.value - rowDelegate.stepV >= rowDelegate.minV
                                             onClicked: {
                                                 var v = rowDelegate.value - rowDelegate.stepV
                                                 if (v >= rowDelegate.minV)
@@ -371,6 +399,8 @@ Item {
                                         }
                                         HeaderButton {
                                             text: "+"
+                                            accessibleName: "Aumentar " + rowDelegate.label
+                                            enabled: rowDelegate.value + rowDelegate.stepV <= rowDelegate.maxV
                                             onClicked: {
                                                 var v = rowDelegate.value + rowDelegate.stepV
                                                 if (v <= rowDelegate.maxV)
@@ -393,7 +423,15 @@ Item {
                                                 color: modelData
                                                 border.width: 2
                                                 border.color: String(rowDelegate.value).toLowerCase() === String(modelData).toLowerCase()
-                                                              ? root.colors["text_primary"] : "transparent"
+                                                              ? root.colors["text_primary"] : (activeFocus ? root.colors["accent"] : "transparent")
+                                                activeFocusOnTab: visible
+                                                Accessible.role: Accessible.RadioButton
+                                                Accessible.name: "Seleccionar color " + modelData
+                                                Accessible.checked: String(rowDelegate.value).toLowerCase() === String(modelData).toLowerCase()
+                                                Accessible.onPressAction: screenVm.set_value(rowDelegate.rowId, modelData)
+                                                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, modelData) }
+                                                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, modelData) }
+                                                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_value(rowDelegate.rowId, modelData) }
                                                 MouseArea {
                                                     anchors.fill: parent
                                                     cursorShape: Qt.PointingHandCursor
@@ -428,6 +466,8 @@ Item {
                                         Layout.preferredWidth: 220
                                         text: String(rowDelegate.value)
                                         echoMode: rowDelegate.password ? TextInput.Password : TextInput.Normal
+                                        Accessible.name: rowDelegate.label
+                                        Accessible.description: rowDelegate.desc
                                         color: root.colors["text_primary"]
                                         placeholderText: rowDelegate.desc
                                         placeholderTextColor: root.colors["text_secondary"]
@@ -539,6 +579,7 @@ Item {
 
     ModalDialog {
         id: logoutDialog
+        visible: screenVm.logoutConfirmationPending
         dialogTitle: "Cerrar sesión"
         confirmText: "Cerrar sesión"
         cancelText: "Cancelar"
@@ -556,12 +597,29 @@ Item {
         ]
 
         onConfirmed: screenVm.confirm_logout()
+        onCancelled: screenVm.dismiss_logout_confirmation()
     }
 
-    Connections {
-        target: screenVm
-        function onLogoutConfirmationRequested() {
-            logoutDialog.open()
-        }
+    ModalDialog {
+        id: clearDownloadsDialog
+        visible: screenVm.downloadClearConfirmationPending
+        dialogTitle: "Eliminar descargas"
+        confirmText: "Eliminar"
+        cancelText: "Cancelar"
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        contentItemData: [
+            Text {
+                width: 360
+                text: "Se cancelarán las descargas activas y se eliminarán todos los archivos descargados. Esta acción no se puede deshacer."
+                wrapMode: Text.WordWrap
+                color: root.colors["text_secondary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeBody
+            }
+        ]
+
+        onConfirmed: screenVm.confirm_clear_downloads()
+        onCancelled: screenVm.dismiss_download_clear_confirmation()
     }
 }

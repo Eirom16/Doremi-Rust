@@ -11,8 +11,6 @@ from doremi.config.settings import AppSettings
 from doremi.api.youtube_music import YouTubeMusicClient
 from doremi.api.stream_extractor import StreamExtractor
 from doremi.api.lyrics import LyricsClient
-from doremi.api.lastfm import LastFmScrobbler
-from doremi.api.discord_rpc import DiscordRPC
 from doremi.audio.player import MusicPlayer, PlayerState
 from doremi.audio.queue import PlayQueue, QueueItem, RepeatMode
 from doremi.system.mpris import MprisPlayer
@@ -55,7 +53,9 @@ class MainWindow(QMainWindow):
         self._pending_tasks: set[asyncio.Task] = set()
         self._current_nav_task: asyncio.Task | None = None
         self._current_play_id = 0
-        self._nav_history: list[int] = []  # stack of previous screen indices for back navigation
+        # History stores full internal paths (for example ``playlist?id=abc``),
+        # not stack indices.  Multiple deep links may share a screen index.
+        self._nav_history: list[str] = []
         self.theme_manager = ThemeManager(self)
 
         
@@ -78,14 +78,13 @@ class MainWindow(QMainWindow):
         except ValueError:
             self.queue.repeat_mode = RepeatMode.OFF
         self.mpris = MprisPlayer(self.player, self.queue)
-        self.scrobbler: LastFmScrobbler | None = None
-        self.discord: DiscordRPC | None = None
         self._force_close = False
         self._close_confirmation_pending = False
         self._skip_download_close_prompt = False
         from doremi.config.paths import AppDirs
         self._window_state_file = AppDirs.data / "window_state.json"
         self._current_route = "home"
+        self._current_path = "home"
         self._offline_blocked_path: str | None = None
         self._stream_recovery_attempts: set[str] = set()
         self.sleep_timer = SleepTimer()
@@ -103,8 +102,8 @@ class MainWindow(QMainWindow):
         self._setup_window()
         self._build_ui()
         self.integrations_controller = IntegrationsController(
-            self.player, self.queue, self.mpris, self.scrobbler,
-            self.discord, self.settings, self.extractor, self._run_async, self,
+            self.player, self.queue, self.mpris, self.settings,
+            self.extractor, self._run_async, self,
         )
         self.integrations_controller.connect_player_callbacks()
         self.integrations_controller.setup_integrations()
@@ -120,14 +119,13 @@ class MainWindow(QMainWindow):
             now_playing_screen=self.now_playing_screen,
             tray=self.tray,
             mpris=self.mpris,
-            scrobbler=self.scrobbler,
-            discord=self.discord,
             crossfade_manager=self.crossfade_manager,
             network_monitor=self.network_monitor,
             lyrics_client=self.lyrics_client,
             sleep_timer=self.sleep_timer,
             main_window=self,
         )
+        self.settings_controller.restore_persisted_sleep_timer()
         self._setup_shortcuts()
         
         # Apply initial theme properly (immediately on startup to prevent flash)
@@ -274,6 +272,7 @@ class MainWindow(QMainWindow):
 
         from doremi.ui.widgets.nav_sidebar_qml import NavSidebarQml
         self.sidebar = self._require_qml("navegacion", NavSidebarQml(on_navigate=self._navigate_to))
+        self.sidebar.set_collapsed(bool(self.settings.appearance.compact_sidebar))
         self._profile_name = ""
         self._profile_avatar = ""
         
@@ -432,6 +431,7 @@ class MainWindow(QMainWindow):
             self.now_playing_screen.queue_tab.artist_clicked.connect(self.resolve_and_navigate_artist)
             self.now_playing_screen.queue_tab.album_clicked.connect(self.resolve_and_navigate_album)
             self.now_playing_screen.queue_tab.queue_move_requested.connect(self._on_queue_move_requested)
+            self.now_playing_screen.queue_tab.queue_remove_requested.connect(self._on_queue_remove_requested)
 
         if hasattr(self, 'mini_player'):
             self.mini_player.artist_clicked.connect(self.resolve_and_navigate_artist)
@@ -532,12 +532,17 @@ class MainWindow(QMainWindow):
 
     def _build_now_playing_qml(self):
         from doremi.ui.screens.now_playing_qml import NowPlayingScreenQml
+        # Unlike a QWidget, this QML presenter is not parented by the visual
+        # Loader.  Its transport callbacks deliberately walk QObject parents
+        # to reach MainWindow, so it must be owned by this window.
+        screen = NowPlayingScreenQml(
+            self.player, self.queue, self.yt, self._play_queue_item,
+            self.settings, on_back=self._go_back,
+        )
+        screen.setParent(self)
         return self._require_qml(
             "Now Playing",
-            NowPlayingScreenQml(
-                self.player, self.queue, self.yt, self._play_queue_item,
-                self.settings, on_back=self._go_back,
-            ),
+            screen,
         )
 
     def _build_notifications_qml(self):
@@ -584,9 +589,6 @@ class MainWindow(QMainWindow):
     def _build_history_qml(self):
         from doremi.ui.screens.history_qml import HistoryScreenQml
         return self._require_qml("Historial", HistoryScreenQml(self.yt, self._play_song_sync))
-
-    def _reset_lastfm_scrobble_state(self, item: QueueItem) -> None:
-        self.integrations_controller.reset_lastfm_scrobble_state(item)
 
     async def _handle_playback_failure(self, item: QueueItem, message: str) -> None:
         await self.integrations_controller.handle_playback_failure(item, message)
@@ -698,6 +700,14 @@ class MainWindow(QMainWindow):
         """Async cleanup for graceful shutdown - call after event loop is still running."""
         if getattr(self, "_shutdown_complete", False):
             return
+        # Persist a partial listen before cancelling queued work or releasing
+        # VLC.  This is intentionally awaited, unlike routine UI updates.
+        playback = getattr(self, "playback_controller", None)
+        if playback is not None:
+            try:
+                await playback.finalize_listening_for_shutdown()
+            except Exception as exc:
+                logger.error(f"Error finalizing listening session on shutdown: {exc}")
         self._cleanup_on_close()
         # Wait for all pending tasks to complete/cancel
         if self._pending_tasks:
@@ -729,16 +739,11 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Error stopping download manager: {e}")
         
-        # Stop Discord RPC
-        if self.discord:
-            try:
-                await self.discord.disconnect()
-            except Exception as e:
-                logger.error(f"Error disconnecting Discord RPC: {e}")
-        
         # Release player resources
         if hasattr(self, 'player') and self.player:
             self.player.release()
+        if hasattr(self, "extractor") and self.extractor:
+            self.extractor.close()
         self._shutdown_complete = True
 
     async def _finish_close(self) -> None:
@@ -838,6 +843,9 @@ class MainWindow(QMainWindow):
     def _on_queue_move_requested(self, from_index: int, to_index: int) -> None:
         self.playback_controller._on_queue_move_requested(from_index, to_index)
 
+    def _on_queue_remove_requested(self, index: int) -> None:
+        self.playback_controller._on_queue_remove_requested(index)
+
     def _on_settings_changed(self, settings: AppSettings) -> None:
         self.settings_controller.on_settings_changed(settings)
 
@@ -900,7 +908,17 @@ class MainWindow(QMainWindow):
             return
         self._save_playback_session()
         self._save_window_state()
-        if getattr(self.settings.player, "minimize_to_tray", True) and not getattr(self, "_force_close", False) and hasattr(self, "tray") and self.tray.isVisible():
+        minimize_to_tray = (
+            getattr(self.settings.player, "minimize_to_tray", True)
+            and not getattr(self, "_force_close", False)
+            and hasattr(self, "tray")
+            and self.tray.isVisible()
+        )
+        if minimize_to_tray:
+            if getattr(self.settings.player, "stop_on_close", False):
+                playback = getattr(self, "playback_controller", None)
+                if playback is not None:
+                    playback.stop_for_window_close()
             self.hide()
             event.ignore()
         else:

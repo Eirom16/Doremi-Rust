@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float
 from doremi.db.database import Base
 from datetime import datetime, timezone
 
@@ -37,6 +37,13 @@ class PlayHistory(Base):
     artist = Column(String, nullable=False)
     played_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
     duration_ms = Column(Integer, default=0)
+    listen_time_ms = Column(Integer, default=0)
+    completion_ratio = Column(Float, default=0.0)
+    skip_count = Column(Integer, default=0)
+    completed = Column(Boolean, default=False)
+    was_played = Column(Boolean, default=True, index=True)
+    context_type = Column(String, default="queue")
+    context_id = Column(String, default="")
 
 
 class Download(Base):

@@ -9,6 +9,7 @@ CATEGORIES = [
     {"key": "player", "label": "Reproductor", "icon": ""},          # graphic_eq
     {"key": "equalizer", "label": "Ecualizador", "icon": ""},       # equalizer
     {"key": "subtitles", "label": "Letras y Subtítulos", "icon": ""},  # lyrics
+    {"key": "network", "label": "Red y streaming", "icon": ""},       # network_check
     {"key": "accounts", "label": "Cuentas", "icon": ""},            # person
     {"key": "storage", "label": "Almacenamiento", "icon": ""},      # storage
     {"key": "about", "label": "Acerca de", "icon": ""},             # info
@@ -132,6 +133,9 @@ class SettingsViewModel(QObject):
     action_requested = Signal(str)       # botones que requieren diálogos/widgets
     logout_confirmation_requested = Signal(name="logoutConfirmationRequested")
     logout_confirmed = Signal()
+    download_clear_confirmation_requested = Signal(name="downloadClearConfirmationRequested")
+    download_clear_confirmed = Signal()
+    confirmation_changed = Signal()
     eq_bands_changed = Signal()
 
     def __init__(self, settings, yt_client=None, parent: QObject | None = None) -> None:
@@ -139,6 +143,8 @@ class SettingsViewModel(QObject):
         self._settings = settings
         self._yt = yt_client
         self._category = 0
+        self._logout_confirmation_pending = False
+        self._download_clear_confirmation_pending = False
         self._rows = SettingsRowsModel(self)
         self._eq_timer = QTimer(self)
         self._eq_timer.setSingleShot(True)
@@ -257,8 +263,6 @@ class SettingsViewModel(QObject):
             self._section(_("Tema")),
             self._color("appearance.accent_color", _("Color de acento"),
                         _("Color principal de la interfaz")),
-            self._toggle("appearance.use_dynamic_color", _("Color dinámico"),
-                         _("Cambia el acento según el artwork actual")),
             self._combo("appearance.theme_mode", _("Tema"), _("Modo visual preferido"),
                         [{"text": "dark", "value": "dark"},
                          {"text": "light", "value": "light"},
@@ -278,17 +282,11 @@ class SettingsViewModel(QObject):
             self._section("Audio"),
             self._slider("player.volume", "Volumen", "Volumen inicial del reproductor",
                          0, 200, "%"),
-            self._toggle("player.normalize_audio", "Normalizar volumen",
-                         "Iguala el volumen entre canciones"),
-            self._toggle("player.skip_silence", "Saltar silencios",
-                         "Omite fragmentos silenciosos"),
             self._toggle("player.crossfade_enabled", "Crossfade",
                          "Transición suave entre canciones"),
             self._slider("player.crossfade_duration_sec", "Duración de Crossfade",
                          "Tiempo de transición entre canciones", 1, 15, " s",
                          enabled=crossfade_on),
-            self._toggle("player.gapless_playback", "Reproducción sin gaps",
-                         "Evita pausas entre canciones compatibles"),
             self._toggle("player.resume_on_startup", "Reanudar al iniciar",
                          "Continúa la última sesión al abrir la app"),
             self._toggle("player.stop_on_close", "Parar al cerrar",
@@ -329,9 +327,6 @@ class SettingsViewModel(QObject):
                          {"text": "Derecha", "value": "right"}]),
             self._stepper("subtitles.font_size", "Tamaño de letra",
                           "Tamaño de la fuente de las letras", 1, " pt", 10, 36),
-            {"type": "stepper", "id": "subtitles.line_spacing", "label": "Espacio entre líneas",
-             "desc": "Ajusta la separación entre párrafos de letra", "value": s.line_spacing,
-             "min": 1.0, "max": 3.0, "step": 0.1, "unit": "x", "decimals": 1},
             self._section("Sincronización"),
             self._stepper("subtitles.delay_ms", "Retraso de letras",
                           "Retrasa/adelanta manualmente las letras respecto al audio",
@@ -339,15 +334,28 @@ class SettingsViewModel(QObject):
             self._toggle("subtitles.auto_scroll", "Auto-desplazamiento",
                          "Desplaza verticalmente de manera automática al cantar"),
             self._section("Efectos"),
-            self._combo("subtitles.animation_style", "Efecto de Desplazamiento",
-                        "Estilo de la animación al pasar de línea",
-                        [{"text": "Ninguno", "value": "none"},
-                         {"text": "Desvanecer", "value": "fade"},
-                         {"text": "Brillar", "value": "glow"},
-                         {"text": "Slide", "value": "slide"},
-                         {"text": "Karaoke", "value": "karaoke"}]),
             self._toggle("subtitles.glow_effect", "Efecto de Brillo Activo",
                          "Resalta e ilumina la línea que se está cantando"),
+        ]
+
+    def _page_network(self) -> list[dict]:
+        return [
+            self._section("Streaming"),
+            self._combo(
+                "network.stream_quality", "Calidad de audio",
+                "Limita el bitrate cuando la fuente ofrece varias calidades",
+                [
+                    {"text": "Mejor disponible", "value": "best"},
+                    {"text": "Alta (hasta 192 kbps)", "value": "high"},
+                    {"text": "Media (hasta 128 kbps)", "value": "medium"},
+                    {"text": "Ahorro de datos (hasta 64 kbps)", "value": "low"},
+                ],
+            ),
+            self._toggle("network.preload_next", "Precargar siguiente",
+                         "Prepara artwork y stream de la siguiente pista"),
+            self._section("Proxy"),
+            self._input("network.proxy_url", "URL del proxy",
+                        "Opcional. Se usa para las nuevas extracciones de stream"),
         ]
 
     def _page_accounts(self) -> list[dict]:
@@ -360,30 +368,9 @@ class SettingsViewModel(QObject):
                                      "Autoriza YouTube Music en el navegador",
                                      variant="primary"))
 
-        rows.append(self._section("Last.fm"))
-        rows.append(self._toggle("integrations.lastfm_enabled", "Scrobbling",
-                                 "Registra las canciones escuchadas en Last.fm"))
-        if self._settings.integrations.lastfm_enabled:
-            if self._settings.integrations.lastfm_session_key:
-                rows.append(self._button("accounts.lastfm_disconnect", "Desconectar",
-                                         "Sesión de Last.fm activa y autorizada",
-                                         variant="danger"))
-            else:
-                rows.append(self._input("integrations.lastfm_api_key", "API Key",
-                                        "Credencial pública de Last.fm"))
-                rows.append(self._input("integrations.lastfm_api_secret", "API Secret",
-                                        "Credencial privada de Last.fm", password=True))
-                rows.append(self._input("integrations.lastfm_username", "Usuario",
-                                        "Tu nombre de usuario en Last.fm"))
-                rows.append(self._input("integrations.lastfm_password", "Contraseña",
-                                        "Tu contraseña de Last.fm", password=True))
-                rows.append(self._button("accounts.lastfm_auth", "Autenticar en Last.fm",
-                                         "Conecta e inicia sesión de forma segura",
-                                         variant="primary"))
-
-        rows.append(self._section("Discord"))
-        rows.append(self._toggle("integrations.discord_rpc_enabled", "Rich Presence",
-                                 "Muestra lo que escuchas en tu perfil"))
+        rows.append(self._section("Controles del sistema"))
+        rows.append(self._toggle("integrations.mpris_enabled", "MPRIS",
+                                 "Permite controlar Doremi desde los controles multimedia del sistema"))
         return rows
 
     def _page_storage(self) -> list[dict]:
@@ -508,7 +495,7 @@ class SettingsViewModel(QObject):
         if row_id.startswith("equalizer."):
             self.eq_bands_changed.emit()
         # Refrescar página cuando se requiere (p.ej. crossfade activa su slider)
-        if row_id in ("player.crossfade_enabled", "integrations.lastfm_enabled"):
+        if row_id == "player.crossfade_enabled":
             self.refresh()
 
     @Slot(int, float)
@@ -528,10 +515,49 @@ class SettingsViewModel(QObject):
             self.set_value("equalizer.preset_name", "Flat")
             return
         if action_id == "accounts.logout":
+            self._logout_confirmation_pending = True
+            self.confirmation_changed.emit()
             self.logout_confirmation_requested.emit()
+            return
+        if action_id == "storage.clear_downloads":
+            self._download_clear_confirmation_pending = True
+            self.confirmation_changed.emit()
+            self.download_clear_confirmation_requested.emit()
             return
         self.action_requested.emit(action_id)
 
+    @Property(bool, notify=confirmation_changed)
+    def logoutConfirmationPending(self) -> bool:
+        return self._logout_confirmation_pending
+
+    @Property(bool, notify=confirmation_changed)
+    def downloadClearConfirmationPending(self) -> bool:
+        return self._download_clear_confirmation_pending
+
     @Slot()
     def confirm_logout(self) -> None:
+        if not self._logout_confirmation_pending:
+            return
+        self._logout_confirmation_pending = False
+        self.confirmation_changed.emit()
         self.logout_confirmed.emit()
+
+    @Slot()
+    def confirm_clear_downloads(self) -> None:
+        if not self._download_clear_confirmation_pending:
+            return
+        self._download_clear_confirmation_pending = False
+        self.confirmation_changed.emit()
+        self.download_clear_confirmed.emit()
+
+    @Slot()
+    def dismiss_logout_confirmation(self) -> None:
+        if self._logout_confirmation_pending:
+            self._logout_confirmation_pending = False
+            self.confirmation_changed.emit()
+
+    @Slot()
+    def dismiss_download_clear_confirmation(self) -> None:
+        if self._download_clear_confirmation_pending:
+            self._download_clear_confirmation_pending = False
+            self.confirmation_changed.emit()

@@ -45,6 +45,15 @@ Item {
                 Layout.preferredHeight: 36
                 radius: Theme.radiusSm
                 color: backMa.containsMouse ? root.colors["bg_elevated"] : "transparent"
+                border.width: activeFocus ? 2 : 0
+                border.color: root.accentColor
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Volver"
+                Accessible.onPressAction: screenVm.go_back()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
 
                 Row {
                     anchors.centerIn: parent
@@ -87,15 +96,28 @@ Item {
                 Item { Layout.fillHeight: true }
             }
 
-            // ── No encontrado ─────────────────────────────────────────
-            Label {
+            // ── Error / no encontrado ─────────────────────────────────
+            ColumnLayout {
                 visible: !screenVm.loading && !screenVm.found
-                text: "Artista no encontrado"
-                color: root.colors["text_secondary"]
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.typeTitle
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 120
+                spacing: Theme.spacingSm
+                Label {
+                    text: screenVm.errorText !== "" ? screenVm.errorText : "Artista no encontrado"
+                    color: root.colors["text_secondary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeTitle
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.maximumWidth: 440
+                }
+                Button {
+                    visible: screenVm.errorText !== ""
+                    text: "Reintentar"
+                    Accessible.name: "Reintentar cargar artista"
+                    Layout.alignment: Qt.AlignHCenter
+                    onClicked: screenVm.retry()
+                }
             }
 
             // ── Hero ──────────────────────────────────────────────────
@@ -181,8 +203,13 @@ Item {
                             height: 44
                             radius: Theme.radiusPill
                             enabled: screenVm.hasSongs
-                            color: enabled ? (ma1.containsMouse ? root.colors["accent_bright"] : root.accentColor)
+                            color: enabled ? (ma1.containsMouse ? Qt.darker(root.accentColor, 1.2) : root.accentColor)
                                            : root.colors["bg_high"]
+                            activeFocusOnTab: enabled
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Reproducir canciones de " + screenVm.artistName
+                            Keys.onReturnPressed: if (enabled) screenVm.play_all()
+                            Keys.onSpacePressed: if (enabled) screenVm.play_all()
 
                             Row {
                                 anchors.centerIn: parent
@@ -221,6 +248,11 @@ Item {
                             color: ma2.containsMouse && enabled ? root.colors["bg_high"] : root.colors["bg_elevated"]
                             border.width: 1
                             border.color: ma2.containsMouse ? root.accentColor : root.colors["border"]
+                            activeFocusOnTab: enabled
+                            Accessible.role: Accessible.Button
+                            Accessible.name: "Reproducir aleatoriamente canciones de " + screenVm.artistName
+                            Keys.onReturnPressed: if (enabled) screenVm.play_shuffle()
+                            Keys.onSpacePressed: if (enabled) screenVm.play_shuffle()
 
                             Row {
                                 anchors.centerIn: parent
@@ -285,6 +317,21 @@ Item {
                         Layout.preferredHeight: 72
                         radius: Theme.radiusLg
                         color: songMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: "Reproducir " + songRow.title + ", " + songRow.artist
+                        Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                        Keys.onReturnPressed: screenVm.play_at(songRow.index)
+                        Keys.onSpacePressed: screenVm.play_at(songRow.index)
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Enter) {
+                                screenVm.play_at(songRow.index)
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                songMenu.popup()
+                                event.accepted = true
+                            }
+                        }
 
                         // Fondo clickeable PRIMERO: queda debajo del menú.
                         MouseArea {
@@ -426,6 +473,12 @@ Item {
                             color: albumMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
                             border.width: 1
                             border.color: albumMa.containsMouse ? root.colors["border_focus"] : root.colors["border"]
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: "Abrir álbum " + albumCard.title
+                            Accessible.description: albumCard.subtitle
+                            Keys.onReturnPressed: if (albumCard.navigate) screenVm.navigate(albumCard.navigate)
+                            Keys.onSpacePressed: if (albumCard.navigate) screenVm.navigate(albumCard.navigate)
 
                             ColumnLayout {
                                 id: cardCol
@@ -523,6 +576,11 @@ Item {
 
                         width: 140
                         spacing: Theme.spacingXs
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: "Abrir artista " + relCard.title
+                        Keys.onReturnPressed: if (relCard.navigate) screenVm.navigate(relCard.navigate)
+                        Keys.onSpacePressed: if (relCard.navigate) screenVm.navigate(relCard.navigate)
 
                         Item {
                             Layout.preferredWidth: 140

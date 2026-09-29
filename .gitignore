@@ -67,9 +67,9 @@ Thumbs.db
 *.MD
 !README.md
 !README.MD
+!AUDIT_POLISH.md
 
 # Módulos nativos compilados (se recompilan localmente / en CI)
 src/pyrolist/native_rs/target/
 src/pyrolist/native_rs/native_rs*.so
 src/pyrolist/native_rs/native_rs*.pyd
-

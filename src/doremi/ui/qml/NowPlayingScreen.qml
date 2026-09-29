@@ -1,7 +1,6 @@
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
-import QtMultimedia
 import Qt5Compat.GraphicalEffects
 import Doremi 1.0
 
@@ -19,6 +18,18 @@ Item {
         return Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, a)
     }
 
+    // ScreenHost provides this as an initial property.  Keep the visual tree
+    // unloaded until then so no binding observes a transient null VM.
+    Loader {
+        objectName: "nowPlayingContentLoader"
+        anchors.fill: parent
+        active: root.screenVm !== null
+        sourceComponent: Component {
+            Item {
+                id: content
+                anchors.fill: parent
+                property int lastActiveLyricIndex: -1
+
     // ── Fondo ambiental: artwork difuminado ──────────────────────────────
     Rectangle {
         anchors.fill: parent
@@ -27,7 +38,7 @@ Item {
     Image {
         id: ambientImg
         anchors.fill: parent
-        source: screenVm.artworkUrl
+        source: screenVm.showArtworkBlur ? screenVm.artworkUrl : ""
         asynchronous: true
         cache: true
         fillMode: Image.PreserveAspectCrop
@@ -37,13 +48,13 @@ Item {
         anchors.fill: parent
         source: ambientImg
         radius: 96
-        visible: ambientImg.status === Image.Ready
+        visible: screenVm.showArtworkBlur && ambientImg.status === Image.Ready
         opacity: 0.45
     }
     Rectangle {
         anchors.fill: parent
         color: root.colors["bg_base"]
-        opacity: ambientImg.status === Image.Ready ? 0.4 : 0.0
+        opacity: screenVm.showArtworkBlur && ambientImg.status === Image.Ready ? 0.4 : 0.0
     }
 
     ColumnLayout {
@@ -62,6 +73,13 @@ Item {
                 Layout.preferredHeight: 34
                 radius: Theme.radiusSm
                 color: collapseMa.containsMouse ? root.colors["bg_elevated"] : "transparent"
+                Accessible.role: Accessible.Button
+                Accessible.name: "Minimizar reproductor"
+                Accessible.onPressAction: screenVm.minimize()
+                activeFocusOnTab: true
+                Keys.onReturnPressed: if (!event.isAutoRepeat) screenVm.minimize()
+                Keys.onEnterPressed: if (!event.isAutoRepeat) screenVm.minimize()
+                Keys.onSpacePressed: if (!event.isAutoRepeat) screenVm.minimize()
 
                 Row {
                     anchors.centerIn: parent
@@ -88,64 +106,6 @@ Item {
                     onClicked: screenVm.minimize()
                 }
             }
-            Rectangle {
-                Layout.leftMargin: 60
-                Layout.preferredWidth: 212
-                Layout.preferredHeight: 38
-                radius: Theme.radiusPill
-                color: root.colors["bg_elevated"]
-                border.width: 1
-                border.color: root.colors["border"]
-
-                Row {
-                    anchors.fill: parent
-                    anchors.margins: 3
-                    spacing: 3
-
-                    Repeater {
-                        model: [
-                            { key: "audio", label: "Audio", icon: "" },
-                            { key: "video", label: "Videoclip", icon: "" }
-                        ]
-                        delegate: Rectangle {
-                            required property var modelData
-                            width: 101
-                            height: parent.height
-                            radius: Theme.radiusPill
-                            color: screenVm.mediaMode === modelData.key
-                                   ? root.accentColor
-                                   : "transparent"
-                            Row {
-                                anchors.centerIn: parent
-                                spacing: Theme.spacingXxs
-                                Text {
-                                    text: modelData.icon
-                                    font.family: root.iconFont
-                                    font.pixelSize: 16
-                                    color: screenVm.mediaMode === modelData.key
-                                           ? root.colors["text_on_accent"]
-                                           : root.colors["text_secondary"]
-                                }
-                                Label {
-                                    text: modelData.label
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.typeCaption
-                                    font.weight: Font.DemiBold
-                                    color: screenVm.mediaMode === modelData.key
-                                           ? root.colors["text_on_accent"]
-                                           : root.colors["text_secondary"]
-                                }
-                            }
-                            MouseArea {
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: screenVm.set_media_mode(modelData.key)
-                            }
-                        }
-                    }
-                }
-            }
             Item { Layout.fillWidth: true }
         }
 
@@ -166,112 +126,33 @@ Item {
 
                 Item { Layout.fillHeight: true }
 
-                // Artwork / videoclip sincronizado con el audio principal
+                // Carátula de la canción actual
                 Rectangle {
                     id: mediaFrame
                     objectName: "mediaFrame"
                     Layout.alignment: Qt.AlignHCenter
-                    Layout.preferredWidth: screenVm.mediaMode === "video" ? 420 : 280
-                    Layout.preferredHeight: screenVm.mediaMode === "video" ? 236 : 280
+                    Layout.preferredWidth: 280
+                    Layout.preferredHeight: 280
                     radius: Theme.radiusLg
                     color: root.colors["bg_elevated"]
                     clip: true
 
-                    Behavior on Layout.preferredWidth {
-                        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-                    }
-                    Behavior on Layout.preferredHeight {
-                        NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-                    }
-
-                    Item {
-                        id: artworkLayer
+                    Image {
+                        id: artworkImage
                         anchors.fill: parent
-                        opacity: screenVm.mediaMode === "audio" ? 1 : 0
-                        scale: screenVm.mediaMode === "audio" ? 1 : 0.985
-                        visible: opacity > 0
-
-                        Behavior on opacity {
-                            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
-                        }
-                        Behavior on scale {
-                            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-                        }
-
-                        Image {
-                            id: artworkImage
-                            anchors.fill: parent
-                            source: screenVm.artworkUrl
-                            fillMode: Image.PreserveAspectCrop
-                            asynchronous: true
-                            cache: true
-                            visible: status === Image.Ready
-                        }
-                        Text {
-                            anchors.centerIn: parent
-                            visible: artworkImage.status !== Image.Ready
-                            text: "" // library_music
-                            font.family: root.iconFont
-                            font.pixelSize: 100
-                            color: root.colors["text_secondary"]
-                        }
+                        source: screenVm.artworkUrl
+                        fillMode: Image.PreserveAspectCrop
+                        asynchronous: true
+                        cache: true
+                        visible: status === Image.Ready
                     }
-
-                    Item {
-                        id: videoLayer
-                        anchors.fill: parent
-                        opacity: screenVm.mediaMode === "video" ? 1 : 0
-                        scale: screenVm.mediaMode === "video" ? 1 : 1.015
-                        visible: opacity > 0
-
-                        Behavior on opacity {
-                            NumberAnimation { duration: 240; easing.type: Easing.OutCubic }
-                        }
-                        Behavior on scale {
-                            NumberAnimation { duration: 260; easing.type: Easing.OutCubic }
-                        }
-
-                        VideoOutput {
-                            id: videoOutput
-                            anchors.fill: parent
-                            fillMode: VideoOutput.PreserveAspectCrop
-                            visible: screenVm.videoStreamUrl !== "" && screenVm.videoError === ""
-                            Component.onCompleted: screenVm.setVideoSink(videoOutput.videoSink)
-                        }
-
-                        BusyIndicator {
-                            anchors.centerIn: parent
-                            running: screenVm.videoLoading
-                            visible: running
-                        }
-
-                        Column {
-                            anchors.centerIn: parent
-                            width: Math.min(parent.width - Theme.spacingXl, 300)
-                            spacing: Theme.spacingSm
-                            visible: screenVm.videoError !== ""
-                            Text {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: "" // videocam_off
-                                font.family: root.iconFont
-                                font.pixelSize: 42
-                                color: root.colors["text_secondary"]
-                            }
-                            Label {
-                                width: parent.width
-                                text: screenVm.videoError
-                                horizontalAlignment: Text.AlignHCenter
-                                wrapMode: Text.WordWrap
-                                color: root.colors["text_secondary"]
-                                font.family: Theme.fontFamily
-                                font.pixelSize: Theme.typeLabel
-                            }
-                            Button {
-                                anchors.horizontalCenter: parent.horizontalCenter
-                                text: screenVm.videoRetryText
-                                onClicked: screenVm.request_video_clip()
-                            }
-                        }
+                    Text {
+                        anchors.centerIn: parent
+                        visible: artworkImage.status !== Image.Ready
+                        text: "" // library_music
+                        font.family: root.iconFont
+                        font.pixelSize: 100
+                        color: root.colors["text_secondary"]
                     }
                 }
 
@@ -302,6 +183,13 @@ Item {
                             font.pixelSize: Theme.typeBody
                             elide: Text.ElideRight
                             Layout.fillWidth: true
+                            activeFocusOnTab: screenVm.artistName !== ""
+                            Accessible.role: Accessible.Link
+                            Accessible.name: "Ir al artista " + screenVm.artistName
+                            Accessible.onPressAction: screenVm.press_artist()
+                            Keys.onReturnPressed: if (!event.isAutoRepeat) screenVm.press_artist()
+                            Keys.onEnterPressed: if (!event.isAutoRepeat) screenVm.press_artist()
+                            Keys.onSpacePressed: if (!event.isAutoRepeat) screenVm.press_artist()
 
                             MouseArea {
                                 id: artistMa
@@ -364,6 +252,8 @@ Item {
                         Layout.fillWidth: true
                         from: 0; to: 1
                         enabled: screenVm.videoId !== ""
+                        Accessible.name: "Posición de reproducción"
+                        Accessible.description: screenVm.timeCurrent + " de " + screenVm.timeTotal
 
                         background: Rectangle {
                             x: seekSlider.leftPadding
@@ -413,12 +303,14 @@ Item {
 
                     ControlButton {
                         iconCode: "" // shuffle
+                        accessibleName: "Activar reproducción aleatoria"
                         active: screenVm.shuffle
                         onClicked: screenVm.toggle_shuffle()
                     }
                     ControlButton {
                         iconCode: "" // skip_previous
                         big: true
+                        accessibleName: "Pista anterior"
                         onClicked: screenVm.prev()
                     }
 
@@ -426,7 +318,14 @@ Item {
                         Layout.preferredWidth: 60
                         Layout.preferredHeight: 60
                         radius: 30
-                        color: playMa.containsMouse ? root.colors["accent_bright"] : root.accentColor
+                        color: playMa.containsMouse ? Qt.darker(root.accentColor, 1.2) : root.accentColor
+                        Accessible.role: Accessible.Button
+                        Accessible.name: screenVm.playing ? "Pausar" : "Reproducir"
+                        Accessible.onPressAction: screenVm.toggle_play()
+                        activeFocusOnTab: true
+                        Keys.onReturnPressed: if (!event.isAutoRepeat) screenVm.toggle_play()
+                        Keys.onEnterPressed: if (!event.isAutoRepeat) screenVm.toggle_play()
+                        Keys.onSpacePressed: if (!event.isAutoRepeat) screenVm.toggle_play()
 
                         Text {
                             anchors.centerIn: parent
@@ -447,10 +346,12 @@ Item {
                     ControlButton {
                         iconCode: "" // skip_next
                         big: true
+                        accessibleName: "Siguiente pista"
                         onClicked: screenVm.next()
                     }
                     ControlButton {
                         iconCode: "" // repeat (repeatOne lo sobreescribe)
+                        accessibleName: "Cambiar modo de repetición"
                         active: screenVm.repeatMode !== "off"
                         onClicked: screenVm.cycle_repeat()
                         repeatOne: screenVm.repeatMode === "one"
@@ -459,6 +360,7 @@ Item {
                     // Menú de la pista actual
                     ControlButton {
                         iconCode: "" // more_vert
+                        accessibleName: "Más acciones de la pista actual"
                         onClicked: currentMenu.popup()
                     }
                 }
@@ -497,6 +399,12 @@ Item {
                                 color: active ? root.accentWithAlpha(0.15) : "transparent"
                                 border.width: active ? 1 : 0
                                 border.color: root.accentColor
+                                activeFocusOnTab: true
+                                Accessible.role: Accessible.PageTab
+                                Accessible.name: tabBtn.modelData.label
+                                Accessible.checked: tabBtn.active
+                                Keys.onReturnPressed: screenVm.set_tab(tabBtn.modelData.key)
+                                Keys.onSpacePressed: screenVm.set_tab(tabBtn.modelData.key)
 
                                 Label {
                                     id: tabLbl
@@ -554,6 +462,21 @@ Item {
                                    : (qMa.containsMouse ? root.colors["bg_high"] : "transparent")
                             border.width: isCurrent ? 1 : 0
                             border.color: root.accentWithAlpha(0.35)
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: "Reproducir " + title + ", " + artist
+                            Accessible.description: isCurrent ? "Canción actual; menú contextual disponible" : "Enter o espacio para reproducir; menú contextual disponible"
+                            Keys.onReturnPressed: screenVm.play_queue_index(qRow.index)
+                            Keys.onSpacePressed: screenVm.play_queue_index(qRow.index)
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_Enter) {
+                                    screenVm.play_queue_index(qRow.index)
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                    qMenu.popup()
+                                    event.accepted = true
+                                }
+                            }
 
                             MouseArea {
                                 id: qMa
@@ -639,6 +562,13 @@ Item {
                                         font.pixelSize: 14
                                         color: upMa.containsMouse ? root.accentColor : root.colors["text_secondary"]
                                         opacity: qRow.index > 0 ? 1.0 : 0.3
+                                        enabled: qRow.index > 0
+                                        activeFocusOnTab: enabled
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: "Subir " + qRow.title + " en la cola"
+                                        Accessible.description: enabled ? "Mueve la canción una posición arriba" : "La canción ya está al inicio de la cola"
+                                        Keys.onReturnPressed: if (enabled) screenVm.move_queue_item(qRow.index, "up")
+                                        Keys.onSpacePressed: if (enabled) screenVm.move_queue_item(qRow.index, "up")
                                         Layout.alignment: Qt.AlignHCenter
                                         MouseArea {
                                             id: upMa
@@ -654,6 +584,13 @@ Item {
                                         font.pixelSize: 14
                                         color: downMa.containsMouse ? root.accentColor : root.colors["text_secondary"]
                                         opacity: qRow.index < screenVm.queueModel.rowCount() - 1 ? 1.0 : 0.3
+                                        enabled: qRow.index < screenVm.queueModel.rowCount() - 1
+                                        activeFocusOnTab: enabled
+                                        Accessible.role: Accessible.Button
+                                        Accessible.name: "Bajar " + qRow.title + " en la cola"
+                                        Accessible.description: enabled ? "Mueve la canción una posición abajo" : "La canción ya está al final de la cola"
+                                        Keys.onReturnPressed: if (enabled) screenVm.move_queue_item(qRow.index, "down")
+                                        Keys.onSpacePressed: if (enabled) screenVm.move_queue_item(qRow.index, "down")
                                         Layout.alignment: Qt.AlignHCenter
                                         MouseArea {
                                             id: downMa
@@ -677,7 +614,7 @@ Item {
                                     }
                                     ContextMenuItem {
                                         text: "Quitar de la cola"
-                                        onTriggered: screenVm.queue_action(qRow.index, "delete_download")
+                                        onTriggered: screenVm.queue_action(qRow.index, "remove_from_queue")
                                     }
                                 }
                             }
@@ -740,18 +677,25 @@ Item {
                                 Behavior on font.pixelSize { NumberAnimation { duration: 200 } }
                             }
 
-                            // Auto-scroll al lyric activo
-                            Connections {
-                                target: screenVm
-                                function onLyric_index_changed() {
-                                    if (screenVm.lyricAutoScroll && lyricsView.visible) {
-                                        var idx = 0
-                                        for (var i = 0; i < lyricsView.count; i++) {
-                                            if (lyricsView.itemAtIndex(i) && lyricsView.itemAtIndex(i).active) {
-                                                idx = i
-                                                break
-                                            }
+                            // Do not rely on a Python signal name from QML: Qt's
+                            // meta-object bridge cannot expose every custom signal
+                            // consistently. Polling the already-bound delegate state
+                            // makes lyric scrolling robust across PySide versions.
+                            Timer {
+                                interval: 250
+                                running: lyricsView.visible && screenVm.lyricAutoScroll
+                                repeat: true
+                                onTriggered: {
+                                    var idx = 0
+                                    for (var i = 0; i < lyricsView.count; i++) {
+                                        var line = lyricsView.itemAtIndex(i)
+                                        if (line && line.active) {
+                                            idx = i
+                                            break
                                         }
+                                    }
+                                    if (idx !== content.lastActiveLyricIndex) {
+                                        content.lastActiveLyricIndex = idx
                                         lyricsView.positionViewAtIndex(idx, ListView.Center)
                                     }
                                 }
@@ -790,6 +734,21 @@ Item {
                             height: 64
                             radius: Theme.radiusLg
                             color: rMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: "Reproducir " + title + ", " + artist
+                            Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                            Keys.onReturnPressed: screenVm.related_action(rRow.index, "play")
+                            Keys.onSpacePressed: screenVm.related_action(rRow.index, "play")
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_Enter) {
+                                    screenVm.related_action(rRow.index, "play")
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                    rMenu.popup()
+                                    event.accepted = true
+                                }
+                            }
 
                             MouseArea {
                                 id: rMa
@@ -895,14 +854,23 @@ Item {
         }
     }
 
-    // ── Componente: botón de control (shuffle/prev/next/repeat/more) ──
-    component ControlButton: Rectangle {
+                // ── Componente: botón de control (shuffle/prev/next/repeat/more) ──
+                component ControlButton: Rectangle {
         id: ctrl
         property string iconCode: ""
         property bool active: false
         property bool big: false
         property bool repeatOne: false
+        property string accessibleName: "Control de reproducción"
         signal clicked()
+
+        Accessible.role: Accessible.Button
+        Accessible.name: ctrl.accessibleName
+        Accessible.onPressAction: ctrl.clicked()
+        activeFocusOnTab: true
+        Keys.onReturnPressed: if (!event.isAutoRepeat) ctrl.clicked()
+        Keys.onEnterPressed: if (!event.isAutoRepeat) ctrl.clicked()
+        Keys.onSpacePressed: if (!event.isAutoRepeat) ctrl.clicked()
 
         Layout.preferredWidth: big ? 48 : 42
         Layout.preferredHeight: big ? 48 : 42
@@ -928,8 +896,8 @@ Item {
         }
     }
 
-    // ── Menú de la pista actual ───────────────────────────────────────
-    ContextMenu {
+                // ── Menú de la pista actual ───────────────────────────────────────
+                ContextMenu {
         id: currentMenu
         ContextMenuItem { text: "Reproducir siguiente"; onTriggered: screenVm.current_track_action("play_next") }
         ContextMenuItem { text: "Añadir a la cola"; onTriggered: screenVm.current_track_action("add_to_queue") }
@@ -937,7 +905,6 @@ Item {
         ContextMenuItem { text: "Ir al artista"; onTriggered: screenVm.current_track_action("go_artist") }
         ContextMenuItem { text: "Ir al álbum"; onTriggered: screenVm.current_track_action("go_album") }
         ContextMenuItem { text: "Descargar"; onTriggered: screenVm.current_track_action("download") }
-        ContextMenuItem { text: "Ver videoclip"; onTriggered: screenVm.request_video_clip() }
         ContextMenuItem {
             text: "Detalles y créditos"
             onTriggered: {
@@ -948,8 +915,8 @@ Item {
         ContextMenuItem { text: "Copiar enlace"; onTriggered: screenVm.current_track_action("copy_link") }
     }
 
-    // ── Detalles publicados de la pista ──────────────────────────────
-    ModalDialog {
+                // ── Detalles publicados de la pista ──────────────────────────────
+                ModalDialog {
         id: trackDetailsDialog
         dialogTitle: "Detalles y créditos"
         showCancel: false
@@ -1024,5 +991,7 @@ Item {
             }
         ]
     }
-
+            }
+        }
+    }
 }

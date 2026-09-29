@@ -194,11 +194,6 @@ def main() -> None:
         os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 
     if sys.platform.startswith('linux'):
-        # VAAPI/libva puede terminar en SIGSEGV al mapear superficies GPU en el
-        # backend FFmpeg de Qt Multimedia (visor de videoclips de Now Playing).
-        # Lista vacía = decodificar siempre por software (variable privada, ver
-        # "Advanced FFmpeg Configuration" de la doc de Qt Multimedia).
-        os.environ.setdefault("QT_FFMPEG_DECODING_HW_DEVICE_TYPES", ",")
         # Añadir argumentos directamente a sys.argv antes de inicializar QApplication
         # Esto asegura que Chromium herede los flags correctos bajo cualquier circunstancia
         chromium_args = [
@@ -218,13 +213,20 @@ def main() -> None:
     app.setApplicationName("Doremi")
     app.setApplicationVersion(__version__)
     app.setOrganizationName("doremi")
-    # En Flatpak el desktop file se instala como org.doremi.Doremi.desktop; en
-    # deb/arch/dev como doremi.desktop. El portal rechaza IDs sin desktop file
-    # registrado, así que el ID debe coincidir con el realmente instalado.
+    # En Flatpak el desktop file se instala como org.doremi.Doremi.desktop. En
+    # paquetes nativos se llama doremi.desktop, pero un editable/venv no lo
+    # instala en los directorios XDG: anunciarlo igualmente hace que el portal
+    # imprima "App info not found" en cada arranque. Sólo publicamos el ID
+    # nativo cuando el archivo está realmente registrado.
     if sys.platform.startswith('linux') and (os.environ.get("FLATPAK_ID") or os.path.exists("/.flatpak-info")):
         app.setDesktopFileName("org.doremi.Doremi")
-    else:
-        app.setDesktopFileName("doremi")
+    elif sys.platform.startswith('linux'):
+        xdg_data_home = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+        xdg_data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+        desktop_dirs = [xdg_data_home, *xdg_data_dirs.split(":")]
+        if any(os.path.isfile(os.path.join(directory, "applications", "doremi.desktop"))
+               for directory in desktop_dirs if directory):
+            app.setDesktopFileName("doremi")
 
     setup_vlc_env()
     vlc_ok = check_vlc_available()

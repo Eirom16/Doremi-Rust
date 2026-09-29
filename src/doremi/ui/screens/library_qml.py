@@ -43,6 +43,7 @@ class LibraryScreenQml(QObject):
         self._cache: dict[str, list[dict]] = {}
         self._cache_time: dict[str, float] = {}
         self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "LibraryScreen.qml"))
         self._load_ok = True
@@ -60,6 +61,7 @@ class LibraryScreenQml(QObject):
         self._vm.navigate_requested.connect(self._on_navigate)
         self._vm.tab_changed.connect(self._on_tab_changed)
         self._vm.create_playlist_requested.connect(self._on_create_playlist)
+        self._vm.retry_requested.connect(lambda: self._schedule_load(force=True))
 
     @property
     def is_ok(self) -> bool:
@@ -90,13 +92,22 @@ class LibraryScreenQml(QObject):
 
     async def _create_playlist_async(self, title: str, description: str) -> None:
         try:
+            self._vm.set_error("")
+            if not self.yt or not self.yt.is_authenticated:
+                self._vm.set_error("Inicia sesión para crear una playlist.")
+                return
             pid = await self.yt.create_playlist(title, description)
             if pid:
                 self._cache.pop("playlists", None)
                 self._cache_time.pop("playlists", None)
                 await self._load_tab("playlists")
+            else:
+                self._vm.set_error("No se pudo crear la playlist. Inténtalo de nuevo.")
         except Exception as e:
             logger.error(f"Error creating playlist (QML): {e}")
+            self._vm.set_error("No se pudo crear la playlist. Comprueba tu conexión e inténtalo de nuevo.")
+        finally:
+            self._vm.set_creating_playlist(False)
 
     def invalidate_songs_cache(self) -> None:
         self._cache.pop("songs", None)
@@ -109,7 +120,16 @@ class LibraryScreenQml(QObject):
         self._schedule_load(force=True)
 
     async def load(self) -> None:
-        await self._load_tab(self._vm.tab)
+        current = asyncio.current_task()
+        if self._load_task and self._load_task is not current and not self._load_task.done():
+            self._load_task.cancel()
+        self._load_generation += 1
+        self._load_task = current
+        try:
+            await self._load_tab(self._vm.tab, generation=self._load_generation)
+        finally:
+            if self._load_task is current:
+                self._load_task = None
 
     def select_tab(self, tab: str) -> None:
         """Abre una pestaña desde navegación externa sin duplicar una vista."""
@@ -118,22 +138,39 @@ class LibraryScreenQml(QObject):
     def _schedule_load(self, force: bool = False) -> None:
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()
-        self._load_task = asyncio.ensure_future(self._load_tab(self._vm.tab, force=force))
+        self._load_generation += 1
+        self._load_task = asyncio.ensure_future(
+            self._load_tab(self._vm.tab, force=force, generation=self._load_generation)
+        )
 
-    async def _load_tab(self, tab: str, force: bool = False) -> None:
+    async def _load_tab(
+        self, tab: str, force: bool = False, *, generation: int | None = None
+    ) -> None:
+        if generation is None:
+            self._load_generation += 1
+            generation = self._load_generation
+
+        def is_current_request() -> bool:
+            return generation == self._load_generation and tab == self._vm.tab
+
         age = time.time() - self._cache_time.get(tab, 0)
         if not force and tab in self._cache and age < _CACHE_TTL:
-            self._vm.set_tab_data(tab, self._cache[tab])
+            if is_current_request():
+                self._vm.set_tab_data(tab, self._cache[tab])
             return
 
         if not self.yt or not self.yt.is_authenticated:
             # Paridad con LibraryScreen (widgets): sin auth, mensaje en todos los tabs
-            self._vm.set_auth_required(True)
-            self._vm.set_tab_data(tab, [])
+            if is_current_request():
+                self._vm.set_auth_required(True)
+                self._vm.set_tab_data(tab, [])
             return
 
+        if not is_current_request():
+            return
         self._vm.set_auth_required(False)
         self._vm.set_loading(True)
+        self._vm.set_error("")
         try:
             from doremi.ui.screens import library_data
             if tab == "songs":
@@ -146,9 +183,12 @@ class LibraryScreenQml(QObject):
                 items = await library_data.gather_library_playlists(self.yt)
             self._cache[tab] = items
             self._cache_time[tab] = time.time()
-            self._vm.set_tab_data(tab, items)
+            if is_current_request():
+                self._vm.set_tab_data(tab, items)
         except Exception as e:
             logger.error(f"Error loading library tab '{tab}' (QML): {e}")
-            self._vm.set_tab_data(tab, [])
+            if is_current_request():
+                self._vm.set_error("No se pudo cargar la biblioteca. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)

@@ -42,25 +42,3 @@ def test_secure_storage_youtube_auth(mock_keyring):
     SecureStorage.delete_youtube_headers()
     loaded_after = SecureStorage.load_youtube_headers()
     assert loaded_after is None
-
-def test_secure_storage_lastfm_auth(mock_keyring):
-    from doremi.utils.secure_storage import SecureStorage
-    
-    # Enable keyring functionality
-    SecureStorage._is_functional = lambda: True
-    
-    # Save credentials
-    SecureStorage.save_lastfm_credentials("my_api_key", "my_api_secret", "my_session_key")
-    
-    # Load credentials
-    api_key, api_secret, session_key = SecureStorage.load_lastfm_credentials()
-    assert api_key == "my_api_key"
-    assert api_secret == "my_api_secret"
-    assert session_key == "my_session_key"
-    
-    # Delete credentials
-    SecureStorage.delete_lastfm_credentials()
-    api_key, api_secret, session_key = SecureStorage.load_lastfm_credentials()
-    assert api_key == ""
-    assert api_secret == ""
-    assert session_key == ""

@@ -10,19 +10,23 @@ Rectangle {
     signal clicked()
     activeFocusOnTab: enabled && visible
     Accessible.role: Accessible.Button
-    Accessible.name: text
+    Accessible.name: accessibleName
     Accessible.onPressAction: if (enabled) clicked()
     Keys.onReturnPressed: if (enabled && !event.isAutoRepeat) clicked()
     Keys.onEnterPressed: if (enabled && !event.isAutoRepeat) clicked()
     Keys.onSpacePressed: if (enabled && !event.isAutoRepeat) clicked()
 
     property string text: ""
+    // Callers with an icon/glyph-only label can provide the operation rather
+    // than exposing the visual glyph to assistive technology.
+    property string accessibleName: text
     property bool active: false
     property bool danger: false
 
     readonly property color errorColor: themeBridge.colors["error"]
     readonly property color accentColor: themeBridge.colors["accent"]
 
+    opacity: enabled ? 1.0 : 0.5
     width: lbl.implicitWidth + Theme.spacingLg * 1.5
     height: 34
     radius: Theme.radiusPill
@@ -47,7 +51,8 @@ Rectangle {
         id: lbl
         anchors.centerIn: parent
         text: btn.text
-        color: btn.danger ? themeBridge.colors["error"]
+        color: !btn.enabled ? themeBridge.colors["text_disabled"]
+             : btn.danger ? themeBridge.colors["error"]
              : (btn.active ? btn.accentColor : themeBridge.colors["text_primary"])
         font.family: Theme.fontFamily
         font.pixelSize: Theme.typeLabel
@@ -57,8 +62,9 @@ Rectangle {
     MouseArea {
         id: ma
         anchors.fill: parent
+        enabled: btn.enabled
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: btn.enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
         onClicked: { btn.forceActiveFocus(); btn.clicked() }
     }
 }

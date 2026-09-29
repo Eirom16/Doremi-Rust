@@ -78,6 +78,7 @@ class AlbumViewModel(QObject):
     loading_changed = Signal()
     header_changed = Signal()
     dl_state_changed = Signal()
+    error_changed = Signal()
 
     # Mismas señales que AlbumScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -89,6 +90,7 @@ class AlbumViewModel(QObject):
     delete_download_requested = Signal(str)
     play_queue_requested = Signal(list, int)  # queue dicts, index
     back_requested = Signal()
+    retry_requested = Signal()
 
     DL_NONE = ""            # sin descargas/counter
     DL_PARTIAL = "partial"  # descarga parcial
@@ -110,6 +112,7 @@ class AlbumViewModel(QObject):
         self._dl_percent = 0
         self._downloaded_count = 0
         self._track_count = 0
+        self._error_text = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -157,12 +160,22 @@ class AlbumViewModel(QObject):
     def hasTracks(self) -> bool:
         return self._tracks.rowCount() > 0
 
+    @Property(str, notify=error_changed)
+    def errorText(self) -> str:
+        return self._error_text
+
     # ── Mutators (Python side) ─────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
         if self._loading != value:
             self._loading = value
             self.loading_changed.emit()
+
+    def set_error(self, message: str) -> None:
+        message = str(message or "")
+        if self._error_text != message:
+            self._error_text = message
+            self.error_changed.emit()
 
     def set_data(self, data: dict) -> None:
         self._found = bool(data.get("title"))
@@ -206,6 +219,10 @@ class AlbumViewModel(QObject):
             self.set_download_state(self.DL_PARTIAL if downloaded_count else self.DL_NONE)
 
     # ── Queue helpers ──────────────────────────────────────────────────────
+
+    @Slot()
+    def retry(self) -> None:
+        self.retry_requested.emit()
 
     def _queue_payload(self, start: int = 0) -> tuple[list, int]:
         items = self._tracks.all_items()
@@ -254,7 +271,7 @@ class AlbumViewModel(QObject):
         elif action == "like":
             self.like_requested.emit(vid, None)
         elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, thumb)
+            self.add_to_playlist_requested.emit(vid, title)
         elif action == "delete_download":
             self.delete_download_requested.emit(vid)
 

@@ -37,6 +37,7 @@ class AlbumScreenQml(QObject):
         self.on_back = on_back
         self._browse_id: str | None = None
         self._load_task: asyncio.Task | None = None
+        self._load_generation = 0
 
         self._vm = AlbumViewModel(QApplication.instance())
 
@@ -53,6 +54,7 @@ class AlbumScreenQml(QObject):
         self._vm.delete_download_requested.connect(self.delete_download_requested)
         self._vm.play_queue_requested.connect(self._on_vm_play_queue)
         self._vm.back_requested.connect(self._on_back)
+        self._vm.retry_requested.connect(self._retry)
 
         # Progreso de descarga del álbum (paridad widgets)
         dm = DownloadManager.get_instance()
@@ -66,6 +68,10 @@ class AlbumScreenQml(QObject):
     def _on_back(self) -> None:
         if self.on_back:
             self.on_back()
+
+    def _retry(self) -> None:
+        if self._browse_id:
+            asyncio.ensure_future(self.load(self._browse_id))
 
     def _on_vm_play_queue(self, items: list, index: int) -> None:
         """Construye QueueItem desde los modelos y dispara la reproducción."""
@@ -98,12 +104,22 @@ class AlbumScreenQml(QObject):
             return
         if self._load_task and not self._load_task.done():
             self._load_task.cancel()
-        self._load_task = asyncio.current_task()
+        current = asyncio.current_task()
+        self._load_task = current
+        self._load_generation += 1
+        generation = self._load_generation
         self._browse_id = browse_id
+
+        def is_current_request() -> bool:
+            return generation == self._load_generation and browse_id == self._browse_id
+
         self._vm.set_loading(True)
+        self._vm.set_error("")
         try:
             from doremi.ui.screens.album_data import gather_album
             data = await gather_album(self.yt, browse_id)
+            if not is_current_request():
+                return
             self._vm.set_data(data)
             if self._vm.found:
                 self._refresh_download_state()
@@ -111,9 +127,15 @@ class AlbumScreenQml(QObject):
             raise
         except Exception as e:
             logger.error(f"Error loading album (QML): {e}")
+            if not is_current_request():
+                return
             self._vm.set_data({})
+            self._vm.set_error("No se pudo cargar el álbum. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
-            self._vm.set_loading(False)
+            if is_current_request():
+                self._vm.set_loading(False)
+            if self._load_task is current:
+                self._load_task = None
 
     # ── Estado del botón de descarga ───────────────────────────────────────
 

@@ -31,11 +31,20 @@ Item {
             required property var modelData
             width: suggestions.width
             height: modelData.subtitle.length > 0 ? 54 : 44
+            activeFocusOnTab: true
+            Accessible.role: Accessible.ListItem
+            Accessible.name: row.modelData.title + (row.modelData.subtitle.length > 0 ? " — " + row.modelData.subtitle : "")
+            Accessible.onPressAction: if (headerController) headerController.selectSuggestion(index)
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.selectSuggestion(index) }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.selectSuggestion(index) }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.selectSuggestion(index) }
 
             Rectangle {
                 anchors.fill: parent
                 radius: Theme.radiusSm
                 color: rowMouse.containsMouse ? root.colors["bg_surface"] : "transparent"
+                border.width: row.activeFocus ? 2 : 0
+                border.color: root.colors["accent"]
             }
             RowLayout {
                 anchors.fill: parent
@@ -76,6 +85,13 @@ Item {
                     visible: row.modelData.deletable
                     width: 28
                     height: 28
+                    activeFocusOnTab: visible
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Eliminar sugerencia " + row.modelData.title
+                    Accessible.onPressAction: if (headerController) headerController.removeHistory(row.modelData.title)
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.removeHistory(row.modelData.title) }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.removeHistory(row.modelData.title) }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && headerController) headerController.removeHistory(row.modelData.title) }
                     Text {
                         anchors.centerIn: parent
                         text: "\ue5cd"

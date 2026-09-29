@@ -40,6 +40,9 @@ class SettingsScreenQml(QObject):
         self._vm.toast_requested.connect(self._show_toast)
         self._vm.action_requested.connect(self._on_action)
         self._vm.logout_confirmed.connect(self._accounts_logout)
+        self._vm.download_clear_confirmed.connect(
+            lambda: asyncio.ensure_future(self._clear_downloads_async())
+        )
 
     @property
     def is_ok(self) -> bool:
@@ -72,10 +75,7 @@ class SettingsScreenQml(QObject):
         handlers = {
             "accounts.login": self._accounts_login,
             "accounts.logout": self._accounts_logout,
-            "accounts.lastfm_auth": self._lastfm_auth,
-            "accounts.lastfm_disconnect": self._lastfm_disconnect,
             "storage.clear_cache": self._clear_cache,
-            "storage.clear_downloads": self._clear_downloads,
             "storage.export_backup": self._export_backup,
             "storage.import_backup": self._import_backup,
             "about.check_updates": lambda: asyncio.ensure_future(self._check_updates()),
@@ -122,60 +122,6 @@ class SettingsScreenQml(QObject):
         self._vm.refresh()
         self._on_vm_settings_changed()
 
-    # — Cuentas / Last.fm —
-
-    def _lastfm_disconnect(self) -> None:
-        from doremi.utils.secure_storage import SecureStorage
-        SecureStorage.delete_lastfm_credentials()
-        self.settings.integrations.lastfm_api_key = ""
-        self.settings.integrations.lastfm_api_secret = ""
-        self.settings.integrations.lastfm_session_key = ""
-        self._show_toast("Cuenta de Last.fm desconectada con éxito", "success")
-        self._vm.refresh()
-        self._on_vm_settings_changed()
-
-    def _lastfm_auth(self) -> None:
-        asyncio.ensure_future(self._lastfm_auth_async())
-
-    async def _lastfm_auth_async(self) -> None:
-        s = self.settings.integrations
-        if not s.lastfm_api_key or not s.lastfm_api_secret:
-            self._show_toast("Debes ingresar API Key y API Secret", "warning")
-            return
-        if not s.lastfm_username or not s.lastfm_password:
-            self._show_toast("Debes ingresar tu usuario y contraseña", "warning")
-            return
-
-        self._show_toast("Autenticando con Last.fm...", "info")
-
-        def do_auth():
-            import pylast
-            password_hash = pylast.md5(s.lastfm_password)
-            network = pylast.LastFMNetwork(
-                api_key=s.lastfm_api_key,
-                api_secret=s.lastfm_api_secret,
-                username=s.lastfm_username,
-                password_hash=password_hash,
-            )
-            return network.session_key
-
-        try:
-            loop = asyncio.get_running_loop()
-            session_key = await loop.run_in_executor(None, do_auth)
-            if session_key:
-                from doremi.utils.secure_storage import SecureStorage
-                SecureStorage.save_lastfm_credentials(
-                    s.lastfm_api_key, s.lastfm_api_secret, session_key)
-                s.lastfm_session_key = session_key
-                self._show_toast("¡Autenticación con Last.fm exitosa!", "success")
-                self._vm.refresh()
-                self._on_vm_settings_changed()
-            else:
-                self._show_toast("No se pudo recuperar la clave de sesión", "error")
-        except Exception as e:
-            logger.error(f"Last.fm auth error: {e}")
-            self._show_toast(f"Error al conectar con Last.fm: {e}", "error")
-
     # — Storage —
 
     def _clear_cache(self) -> None:
@@ -188,12 +134,33 @@ class SettingsScreenQml(QObject):
         self._show_toast("Caché limpiada con éxito", "success")
         self._vm.refresh()
 
-    def _clear_downloads(self) -> None:
-        for f in AppDirs.downloads.glob("*"):
-            if f.is_file():
-                f.unlink()
-        self._show_toast("Descargas eliminadas con éxito", "success")
-        self._vm.refresh()
+    async def _clear_downloads_async(self) -> None:
+        from doremi.services.download_manager import DownloadManager
+        from doremi.ui.screens.downloads_data import (
+            DownloadClearError,
+            DownloadDeletionError,
+            clear_all_downloads,
+        )
+
+        self._show_toast("Eliminando descargas…", "info")
+        try:
+            deleted = await clear_all_downloads(DownloadManager.get_instance())
+        except DownloadClearError as exc:
+            logger.warning(f"No se pudo preparar la limpieza de descargas: {exc}")
+            self._show_toast(str(exc), "error")
+        except DownloadDeletionError as exc:
+            logger.error(f"Limpieza parcial de descargas: {exc}")
+            self._show_toast(
+                f"Se eliminaron {exc.deleted} descargas, pero {exc.failed} no pudieron eliminarse.",
+                "error",
+            )
+        except Exception as exc:
+            logger.error(f"Error limpiando descargas: {exc}")
+            self._show_toast("No se pudieron eliminar las descargas. Puedes reintentarlo.", "error")
+        else:
+            self._show_toast(f"{deleted} descargas eliminadas con éxito", "success")
+        finally:
+            self._vm.refresh()
 
     def _export_backup(self) -> None:
         from PySide6.QtWidgets import QFileDialog

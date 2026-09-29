@@ -102,12 +102,38 @@ def test_add_to_end_appends():
     assert q.items[-1].video_id == "vx"
 
 
+def test_adding_first_item_establishes_current_without_autoplaying():
+    q = PlayQueue()
+    q.add_to_end(_item("first"))
+
+    assert q.current_index == 0
+    assert q.current.video_id == "first"
+
+
+def test_add_next_to_empty_queue_establishes_current_and_repeat_one_is_safe():
+    q = PlayQueue()
+    q.repeat_mode = RepeatMode.ONE
+    q.add_next(_item("first"))
+
+    assert q.current_index == 0
+    assert q.next_item is q.current
+
+
 def test_remove_at_adjusts_index():
     q = _queue(3)
     q.advance()  # index 1
     q.remove_at(0)
     assert q.current_index == 0
     assert q.current.video_id == "v1"
+
+
+def test_remove_current_advances_to_next_queue_item():
+    q = _queue(3)
+    q.advance()  # current is v1
+    removed = q.remove_at(1)
+    assert removed.video_id == "v1"
+    assert q.current_index == 1
+    assert q.current.video_id == "v2"
 
 
 def test_go_back_decrements_index():
@@ -194,6 +220,17 @@ def test_shuffle_restores_current_occurrence_of_duplicate_song():
     q.toggle_shuffle()
     q.toggle_shuffle()
     assert q.current is second
+
+
+def test_enabling_shuffle_after_progress_keeps_history_behind_current():
+    q = _queue(5)
+    q.advance()
+    q.advance()  # v0/v1 are session history; v2 is current
+    q.toggle_shuffle()
+
+    assert q.current.video_id == "v2"
+    assert [item.video_id for item in q.items[:q.current_index]] == ["v0", "v1"]
+    assert {item.video_id for item in q.items[q.current_index + 1:]} == {"v3", "v4"}
 
 
 def test_empty_queue_can_be_set_while_shuffle_enabled():

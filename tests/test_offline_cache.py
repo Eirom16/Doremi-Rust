@@ -23,6 +23,49 @@ def test_settings_define_bounded_offline_cache():
     settings = AppSettings()
     assert settings.offline.enabled is True
     assert settings.offline.song_limit == 25
+
+
+@pytest.mark.asyncio
+async def test_cancel_sync_stops_an_inflight_automatic_refresh(tmp_path, monkeypatch):
+    """Desactivar la caché debe detener el trabajo iniciado antes del toggle."""
+    import asyncio
+
+    manager = _manager(tmp_path)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def blocked_sync(feed, limit):
+        started.set()
+        await release.wait()
+
+    monkeypatch.setattr(manager, "sync_from_feed", blocked_sync)
+    manager.schedule_sync({}, AppSettings())
+    await started.wait()
+
+    assert manager.cancel_sync() is True
+    with pytest.raises(asyncio.CancelledError):
+        await manager._sync_task
+    assert manager.cancel_sync() is False
+
+
+def test_enforce_limit_prunes_existing_cache_immediately(tmp_path, monkeypatch):
+    from doremi.config.paths import AppDirs
+    from doremi.services.offline_cache import OfflineCacheManager
+
+    monkeypatch.setattr(type(AppDirs), "cache", property(lambda self: tmp_path / "cache"))
+    manager = OfflineCacheManager()
+    manager._setup()
+    manifest = {}
+    for index in range(3):
+        audio = manager.audio_dir / f"video{index:02d}.m4a"
+        audio.write_bytes(b"audio")
+        manifest[f"video{index:02d}"] = {"audio_path": str(audio), "last_seen": index}
+    manager._write_json(manager.manifest_path, manifest)
+
+    assert manager.enforce_limit(1) == 1
+    remaining = manager._manifest()
+    assert set(remaining) == {"video02"}
+    assert not (manager.audio_dir / "video00.m4a").exists()
     with pytest.raises(ValueError):
         AppSettings(offline={"song_limit": 101})
 
@@ -114,8 +157,8 @@ async def test_download_track_falls_back_to_combined_format(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_download_track_passes_keyring_credentials(tmp_path, monkeypatch):
-    """La descarga pasa la cookie del llavero como header al CLI de yt-dlp."""
+async def test_download_track_uses_user_agent_without_exposing_keyring_cookie(tmp_path, monkeypatch):
+    """La caché no pasa cookies crudas al proceso de yt-dlp."""
     manager = _manager(tmp_path)
     captured: list[str] = []
 
@@ -141,8 +184,44 @@ async def test_download_track_passes_keyring_credentials(tmp_path, monkeypatch):
     result = await manager._download_track("video02")
 
     assert result == manager.audio_dir / "video02.m4a"
-    assert captured[captured.index("--add-headers") + 1] == "Cookie:sid=abc"
+    assert "--add-headers" not in captured
     assert captured[captured.index("--user-agent") + 1] == "UA-Test"
+
+
+@pytest.mark.asyncio
+async def test_download_track_does_not_retry_a_rejected_raw_cookie_header(tmp_path, monkeypatch):
+    """No hay un primer intento con cookie que genere un error evitable."""
+    manager = _manager(tmp_path)
+    calls: list[tuple[str, ...]] = []
+
+    class Process:
+        def __init__(self, returncode: int, output: Path | None = None):
+            self.returncode = returncode
+            self._output = output
+
+        async def communicate(self):
+            if self._output is not None:
+                self._output.write_bytes(b"audio")
+            return b"", b"Cookie header rejected" if self.returncode else b""
+
+    async def create_process(*args, **_kwargs):
+        calls.append(args)
+        return Process(0, manager.audio_dir / "video03.m4a")
+
+    from doremi.utils.secure_storage import SecureStorage
+    monkeypatch.setattr(
+        SecureStorage,
+        "load_youtube_headers",
+        classmethod(lambda cls: {"cookie": "sid=abc", "user-agent": "UA-Test"}),
+    )
+    monkeypatch.setattr("asyncio.create_subprocess_exec", create_process)
+
+    result = await manager._download_track("video03")
+
+    assert result == manager.audio_dir / "video03.m4a"
+    assert len(calls) == 1
+    assert "--add-headers" not in calls[0]
+    assert "--user-agent" in calls[0]
 
 
 @pytest.mark.asyncio

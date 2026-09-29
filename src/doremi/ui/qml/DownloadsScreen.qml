@@ -46,6 +46,7 @@ Item {
         if (status === "completed") return ""
         if (status === "error") return "Error"
         if (status === "paused") return "Pausada"
+        if (status === "cancelling") return "Cancelando…"
         if (status === "downloading") return Math.round(progress) + "% • " + speed
         return "En cola"
     }
@@ -126,7 +127,15 @@ Item {
                     color: active ? root.accentWithAlpha(0.15)
                                   : (tabMa.containsMouse ? root.colors["bg_elevated"] : "transparent")
                     border.width: 1
-                    border.color: active ? root.accentWithAlpha(0.3) : "transparent"
+                    border.color: active ? root.accentWithAlpha(0.3) : (activeFocus ? root.accentColor : "transparent")
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: tabPill.modelData.label
+                    Accessible.checked: active
+                    Accessible.onPressAction: screenVm.set_tab(tabPill.modelData.key)
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
 
                     Label {
                         id: tabLabel
@@ -168,7 +177,15 @@ Item {
                     radius: Theme.radiusPill
                     color: chipMa.containsMouse ? root.colors["bg_elevated"] : "transparent"
                     border.width: 1
-                    border.color: active ? root.accentColor : root.colors["border"]
+                    border.color: active ? root.accentColor : (activeFocus ? root.accentColor : root.colors["border"])
+                    activeFocusOnTab: visible
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: chip.modelData.label
+                    Accessible.checked: active
+                    Accessible.onPressAction: screenVm.set_status_filter(chip.modelData.key)
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
 
                     Label {
                         id: chipLabel
@@ -242,8 +259,8 @@ Item {
                 height: 64
                 radius: Theme.radiusLg
                 color: rowMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
-                border.width: 1
-                border.color: root.colors["border"]
+                border.width: activeFocus ? 2 : 1
+                border.color: activeFocus ? root.accentColor : root.colors["border"]
 
                 required property int index
                 required property string videoId
@@ -256,6 +273,18 @@ Item {
                 required property string speed
                 required property bool isLiked
                 required property bool selected
+                activeFocusOnTab: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: row.title + " — " + row.artist + " — " + root.statusLabel(row.status, row.progress, row.speed)
+                Accessible.onPressAction: {
+                    if (screenVm.selectionMode)
+                        screenVm.toggle_item_selected(row.index)
+                    else if (row.status === "completed")
+                        screenVm.play_at(row.index)
+                }
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_item_selected(row.index); else if (row.status === "completed") screenVm.play_at(row.index) } }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_item_selected(row.index); else if (row.status === "completed") screenVm.play_at(row.index) } }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_item_selected(row.index); else if (row.status === "completed") screenVm.play_at(row.index) } }
 
                 // Click de fila completa: seleccionar o reproducir.
                 // Va ANTES del contenido para quedar DEBAJO de los botones
@@ -378,6 +407,13 @@ Item {
                         visible: !screenVm.selectionMode && row.status === "completed"
                         width: 36; height: 36; radius: 18
                         color: likeMa.containsMouse ? root.accentWithAlpha(0.06) : "transparent"
+                        activeFocusOnTab: visible
+                        Accessible.role: Accessible.Button
+                        Accessible.name: (row.isLiked ? "Quitar Me gusta a " : "Dar Me gusta a ") + row.title
+                        Accessible.onPressAction: screenVm.item_action(row.index, "like")
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.item_action(row.index, "like") }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.item_action(row.index, "like") }
+                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.item_action(row.index, "like") }
 
                         Text {
                             anchors.centerIn: parent
@@ -400,6 +436,13 @@ Item {
                         visible: !screenVm.selectionMode && row.status === "completed"
                         width: 36; height: 36; radius: 18
                         color: playMa.containsMouse ? root.accentColor : "transparent"
+                        activeFocusOnTab: visible
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Reproducir " + row.title
+                        Accessible.onPressAction: screenVm.play_at(row.index)
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
+                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.play_at(row.index) }
 
                         Text {
                             anchors.centerIn: parent
@@ -422,6 +465,13 @@ Item {
                         visible: !screenVm.selectionMode
                         width: 36; height: 36; radius: 18
                         color: menuMa.containsMouse ? root.accentWithAlpha(0.06) : "transparent"
+                        activeFocusOnTab: visible
+                        Accessible.role: Accessible.Button
+                        Accessible.name: "Más acciones para " + row.title
+                        Accessible.onPressAction: rowMenu.popup()
+                        Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) rowMenu.popup() }
+                        Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) rowMenu.popup() }
+                        Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) rowMenu.popup() }
 
                         Text {
                             anchors.centerIn: parent
@@ -441,18 +491,42 @@ Item {
                         ContextMenu {
                             id: rowMenu
                             ContextMenuItem {
+                                visible: row.status === "downloading" || row.status === "queued"
+                                text: "Pausar descarga"
+                                onTriggered: screenVm.item_action(row.index, "pause")
+                            }
+                            ContextMenuItem {
+                                visible: row.status === "paused"
+                                text: "Reanudar descarga"
+                                onTriggered: screenVm.item_action(row.index, "resume")
+                            }
+                            ContextMenuItem {
+                                visible: row.status === "error"
+                                text: "Reintentar descarga"
+                                onTriggered: screenVm.item_action(row.index, "retry")
+                            }
+                            ContextMenuItem {
+                                visible: row.status !== "completed" && row.status !== "cancelling"
+                                text: "Cancelar descarga"
+                                onTriggered: screenVm.item_action(row.index, "cancel")
+                            }
+                            ContextMenuItem {
+                                visible: row.status === "completed"
                                 text: "Reproducir siguiente"
                                 onTriggered: screenVm.item_action(row.index, "play_next")
                             }
                             ContextMenuItem {
+                                visible: row.status === "completed"
                                 text: "Añadir a la cola"
                                 onTriggered: screenVm.item_action(row.index, "add_to_queue")
                             }
                             ContextMenuItem {
+                                visible: row.status === "completed"
                                 text: "Añadir a playlist"
                                 onTriggered: screenVm.item_action(row.index, "add_to_playlist")
                             }
                             ContextMenuItem {
+                                visible: row.status === "completed"
                                 text: "Eliminar descarga"
                                 onTriggered: screenVm.item_action(row.index, "delete")
                             }
@@ -490,6 +564,18 @@ Item {
                 required property string thumbnail
                 required property string navigate
                 required property bool selected
+                activeFocusOnTab: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: gridCell.title + " — " + gridCell.subtitle
+                Accessible.onPressAction: {
+                    if (screenVm.selectionMode)
+                        screenVm.toggle_group_selected(gridCell.index)
+                    else if (gridCell.navigate)
+                        screenVm.group_navigate(gridCell.index)
+                }
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_group_selected(gridCell.index); else if (gridCell.navigate) screenVm.group_navigate(gridCell.index) } }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_group_selected(gridCell.index); else if (gridCell.navigate) screenVm.group_navigate(gridCell.index) } }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) { if (screenVm.selectionMode) screenVm.toggle_group_selected(gridCell.index); else if (gridCell.navigate) screenVm.group_navigate(gridCell.index) } }
 
                 Rectangle {
                     anchors.fill: parent
@@ -497,9 +583,9 @@ Item {
                     radius: Theme.radiusLg
                     color: gridMa.containsMouse || gridCell.selected
                            ? root.colors["bg_high"] : root.colors["bg_surface"]
-                    border.width: 1
+                    border.width: gridCell.activeFocus ? 2 : 1
                     border.color: gridCell.selected ? root.accentColor
-                                  : (gridMa.containsMouse ? root.colors["border_focus"] : root.colors["border"])
+                                  : ((gridMa.containsMouse || gridCell.activeFocus) ? root.colors["border_focus"] : root.colors["border"])
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -580,7 +666,7 @@ Item {
                             if (screenVm.selectionMode)
                                 screenVm.toggle_group_selected(gridCell.index)
                             else if (gridCell.navigate)
-                                screenVm.navigate(gridCell.navigate)
+                                screenVm.group_navigate(gridCell.index)
                         }
                     }
                 }

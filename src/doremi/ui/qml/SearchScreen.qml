@@ -68,6 +68,14 @@ Item {
                                   : (chipMa.containsMouse ? root.colors["bg_elevated"] : root.colors["bg_surface"])
                     border.width: 1
                     border.color: active ? root.accentColor : root.colors["border"]
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.RadioButton
+                    Accessible.name: chip.modelData.label
+                    Accessible.checked: active
+                    Accessible.onPressAction: screenVm.set_category(chip.modelData.key)
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(chip.modelData.key) }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(chip.modelData.key) }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_category(chip.modelData.key) }
 
                     Label {
                         id: chipLabel
@@ -133,6 +141,13 @@ Item {
                 color: retryMa.containsMouse ? root.accentWithAlpha(0.25) : "transparent"
                 border.width: 1
                 border.color: root.accentColor
+                activeFocusOnTab: visible
+                Accessible.role: Accessible.Button
+                Accessible.name: "Reintentar búsqueda"
+                Accessible.onPressAction: screenVm.retry()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.retry() }
 
                 Label {
                     id: retryLbl
@@ -275,7 +290,14 @@ Item {
 
                                         Rectangle {
                                             width: 44; height: 44; radius: 22
-                                            color: topPlayMa.containsMouse ? root.colors["accent_bright"] : root.accentColor
+                                            color: topPlayMa.containsMouse ? Qt.darker(root.accentColor, 1.2) : root.accentColor
+                                            activeFocusOnTab: true
+                                            Accessible.role: Accessible.Button
+                                            Accessible.name: "Reproducir resultado principal"
+                                            Accessible.onPressAction: screenVm.play_top()
+                                            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_top() }
+                                            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_top() }
+                                            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.play_top() }
                                             Text {
                                                 anchors.centerIn: parent
                                                 text: "" // play_arrow
@@ -295,6 +317,13 @@ Item {
                                         Rectangle {
                                             width: 44; height: 44; radius: 22
                                             color: topMenuMa.containsMouse ? root.accentWithAlpha(0.08) : "transparent"
+                                            activeFocusOnTab: true
+                                            Accessible.role: Accessible.Button
+                                            Accessible.name: "Más acciones del resultado principal"
+                                            Accessible.onPressAction: topMenu.popup()
+                                            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) topMenu.popup() }
+                                            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) topMenu.popup() }
+                                            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) topMenu.popup() }
                                             Text {
                                                 anchors.centerIn: parent
                                                 text: "" // more_vert
@@ -457,14 +486,21 @@ Item {
                 // ambos modelos exponen 'subtitle'; isDownloaded solo playlists
                 required property string subtitle
                 property bool isDl: (typeof isDownloaded !== "undefined") ? isDownloaded : false
+                activeFocusOnTab: true
+                Accessible.role: Accessible.ListItem
+                Accessible.name: gridCell.title + (gridCell.subtitle !== "" ? " — " + gridCell.subtitle : "")
+                Accessible.onPressAction: if (gridCell.navigate) screenVm.navigate(gridCell.navigate)
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && gridCell.navigate) screenVm.navigate(gridCell.navigate) }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && gridCell.navigate) screenVm.navigate(gridCell.navigate) }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && gridCell.navigate) screenVm.navigate(gridCell.navigate) }
 
                 Rectangle {
                     anchors.fill: parent
                     anchors.margins: Theme.spacingXs
                     radius: Theme.radiusLg
                     color: gridMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
-                    border.width: 1
-                    border.color: gridMa.containsMouse ? root.colors["border_focus"] : root.colors["border"]
+                    border.width: gridCell.activeFocus ? 2 : 1
+                    border.color: (gridMa.containsMouse || gridCell.activeFocus) ? root.colors["border_focus"] : root.colors["border"]
 
                     ColumnLayout {
                         anchors.fill: parent
@@ -580,6 +616,15 @@ Item {
             Layout.preferredHeight: 64
             radius: Theme.radiusLg
             color: songMa.containsMouse ? root.colors["bg_high"] : "transparent"
+            border.width: activeFocus ? 2 : 0
+            border.color: root.accentColor
+            activeFocusOnTab: true
+            Accessible.role: Accessible.ListItem
+            Accessible.name: songRow.title + " — " + songRow.artist
+            Accessible.onPressAction: screenVm.play_featured(songRow.index)
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_featured(songRow.index) }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_featured(songRow.index) }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.play_featured(songRow.index) }
 
             RowLayout {
                 anchors.fill: parent
@@ -699,6 +744,15 @@ Item {
             Layout.preferredHeight: 64
             radius: Theme.radiusLg
             color: restMa.containsMouse ? root.colors["bg_high"] : "transparent"
+            border.width: activeFocus ? 2 : 0
+            border.color: root.accentColor
+            activeFocusOnTab: true
+            Accessible.role: Accessible.ListItem
+            Accessible.name: restRow.title + " — " + restRow.artist
+            Accessible.onPressAction: screenVm.play_rest(restRow.index)
+            Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_rest(restRow.index) }
+            Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.play_rest(restRow.index) }
+            Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.play_rest(restRow.index) }
 
             RowLayout {
                 anchors.fill: parent

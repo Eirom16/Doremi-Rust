@@ -22,6 +22,7 @@ Popup {
     focus: true
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
     anchors.centerIn: Overlay.overlay
+    onOpened: if (showConfirm) confirmButton.forceActiveFocus()
 
     padding: 0
     background: Rectangle {
@@ -67,10 +68,24 @@ Popup {
                 }
 
                 Rectangle {
+                    id: closeButton
+                    objectName: "dialogCloseButton"
                     width: 28
                     height: 28
                     radius: 14
                     color: closeMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                    border.width: activeFocus ? 2 : 0
+                    border.color: root.colors["accent"]
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Cerrar diálogo"
+                    Accessible.onPressAction: {
+                        root.cancelled()
+                        root.close()
+                    }
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
 
                     Text {
                         anchors.centerIn: parent
@@ -90,6 +105,9 @@ Popup {
                             root.close()
                         }
                     }
+                    ToolTip.visible: closeMa.containsMouse
+                    ToolTip.text: "Cerrar"
+                    ToolTip.delay: 450
                 }
             }
 
@@ -110,6 +128,8 @@ Popup {
 
                 // Cancel Button
                 Rectangle {
+                    id: cancelButton
+                    objectName: "dialogCancelButton"
                     visible: root.showCancel
                     implicitWidth: cancelLbl.implicitWidth + Theme.spacingLg * 2
                     implicitHeight: 36
@@ -117,6 +137,16 @@ Popup {
                     color: cancelMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
                     border.width: 1
                     border.color: root.colors["border"]
+                    activeFocusOnTab: visible
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.cancelText
+                    Accessible.onPressAction: {
+                        root.cancelled()
+                        root.close()
+                    }
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) { root.cancelled(); root.close() } }
 
                     Text {
                         id: cancelLbl
@@ -141,11 +171,25 @@ Popup {
 
                 // Confirm Button
                 Rectangle {
+                    id: confirmButton
+                    objectName: "dialogConfirmButton"
                     visible: root.showConfirm
                     implicitWidth: confirmLbl.implicitWidth + Theme.spacingLg * 2
                     implicitHeight: 36
                     radius: Theme.radiusMd
-                    color: confirmMa.containsMouse ? root.colors["accent_bright"] : root.colors["accent"]
+                    color: confirmMa.containsMouse ? Qt.darker(root.colors["accent"], 1.2) : root.colors["accent"]
+                    border.width: activeFocus ? 2 : 0
+                    border.color: activeFocus ? root.colors["text_primary"] : "transparent"
+                    activeFocusOnTab: visible
+                    Accessible.role: Accessible.Button
+                    Accessible.name: root.confirmText
+                    Accessible.onPressAction: {
+                        root.confirmed()
+                        root.close()
+                    }
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) { root.confirmed(); root.close() } }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) { root.confirmed(); root.close() } }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) { root.confirmed(); root.close() } }
 
                     Text {
                         id: confirmLbl
@@ -154,7 +198,7 @@ Popup {
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeLabel
                         font.weight: Font.Bold
-                        color: root.colors["bg_base"]
+                        color: root.colors["text_on_accent"]
                     }
 
                     MouseArea {

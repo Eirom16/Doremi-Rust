@@ -44,6 +44,15 @@ Item {
                 Layout.preferredHeight: 36
                 radius: Theme.radiusSm
                 color: backMa.containsMouse ? root.colors["bg_elevated"] : "transparent"
+                border.width: activeFocus ? 2 : 0
+                border.color: root.accentColor
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Volver"
+                Accessible.onPressAction: screenVm.go_back()
+                Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
+                Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
+                Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.go_back() }
 
                 Row {
                     anchors.centerIn: parent
@@ -84,15 +93,28 @@ Item {
                 }
             }
 
-            // ── No encontrado ─────────────────────────────────────────
-            Label {
+            // ── Error / no encontrado ─────────────────────────────────
+            ColumnLayout {
                 visible: !screenVm.loading && !screenVm.found
-                text: "Álbum no encontrado"
-                color: root.colors["text_secondary"]
-                font.family: Theme.fontFamily
-                font.pixelSize: Theme.typeTitle
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 120
+                spacing: Theme.spacingSm
+                Label {
+                    text: screenVm.errorText !== "" ? screenVm.errorText : "Álbum no encontrado"
+                    color: root.colors["text_secondary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeTitle
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                    Layout.maximumWidth: 440
+                }
+                Button {
+                    visible: screenVm.errorText !== ""
+                    text: "Reintentar"
+                    Accessible.name: "Reintentar cargar álbum"
+                    Layout.alignment: Qt.AlignHCenter
+                    onClicked: screenVm.retry()
+                }
             }
 
             // ── Hero ──────────────────────────────────────────────────
@@ -246,6 +268,21 @@ Item {
                         Layout.preferredHeight: 72
                         radius: Theme.radiusLg
                         color: rowMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                        activeFocusOnTab: true
+                        Accessible.role: Accessible.ListItem
+                        Accessible.name: "Reproducir " + row.title + ", " + row.artist
+                        Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                        Keys.onReturnPressed: screenVm.play_at(row.index)
+                        Keys.onSpacePressed: screenVm.play_at(row.index)
+                        Keys.onPressed: (event) => {
+                            if (event.key === Qt.Key_Enter) {
+                                screenVm.play_at(row.index)
+                                event.accepted = true
+                            } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                rowMenu.popup()
+                                event.accepted = true
+                            }
+                        }
 
                         // Fondo clickeable PRIMERO: debajo de botones.
                         MouseArea {

@@ -43,11 +43,6 @@ class OfflineSettings(BaseModel):
     song_limit: int = Field(default=25, ge=5, le=100)
 
 class IntegrationsSettings(BaseModel):
-    lastfm_enabled: bool = False
-    lastfm_session_key: str = ""
-    lastfm_api_key: str = ""
-    lastfm_api_secret: str = ""
-    discord_rpc_enabled: bool = False
     mpris_enabled: bool = True
 
 class SubtitleSettings(BaseModel):
@@ -79,12 +74,6 @@ class AppSettings(BaseModel):
         
         data = self.model_dump(exclude_none=True)
         
-        # Exclude secrets from the saved settings.toml file
-        if "integrations" in data:
-            data["integrations"].pop("lastfm_api_key", None)
-            data["integrations"].pop("lastfm_api_secret", None)
-            data["integrations"].pop("lastfm_session_key", None)
-            
         with open(path, "wb") as f:
             tomli_w.dump(data, f)
 
@@ -99,17 +88,4 @@ class AppSettings(BaseModel):
             except Exception:
                 pass
                 
-        # Load Last.fm credentials securely from keyring
-        try:
-            from doremi.utils.secure_storage import SecureStorage
-            api_key, api_secret, session_key = SecureStorage.load_lastfm_credentials()
-            if api_key:
-                settings.integrations.lastfm_api_key = api_key
-            if api_secret:
-                settings.integrations.lastfm_api_secret = api_secret
-            if session_key:
-                settings.integrations.lastfm_session_key = session_key
-        except Exception:
-            pass
-            
         return settings

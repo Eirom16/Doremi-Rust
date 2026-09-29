@@ -5,6 +5,7 @@ import Doremi 1.0
 
 Item {
     id: root
+    focus: true
     readonly property var colors: themeBridge.colors
     readonly property string iconFont: "Material Symbols Rounded"
     readonly property bool dialogAvailable: typeof updateDialog !== "undefined" && updateDialog
@@ -17,6 +18,7 @@ Item {
     readonly property string updateStatus: dialogAvailable ? updateDialog.statusText : ""
     readonly property bool isInstallComplete: dialogAvailable && updateDialog.installComplete
     readonly property string updateButtonLabel: dialogAvailable ? updateDialog.updateButtonText : ""
+    Keys.onEscapePressed: if (root.dialogAvailable) updateDialog.closeDialog()
 
     Rectangle {
         anchors.fill: parent
@@ -66,7 +68,22 @@ Item {
                     }
                 }
                 Item {
+                    id: closeButton
                     width: 32; height: 32
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.Button
+                    Accessible.name: "Cerrar actualización"
+                    Accessible.onPressAction: if (root.dialogAvailable) updateDialog.closeDialog()
+                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat && root.dialogAvailable) updateDialog.closeDialog() }
+                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat && root.dialogAvailable) updateDialog.closeDialog() }
+                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat && root.dialogAvailable) updateDialog.closeDialog() }
+                    Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: "transparent"
+                        border.width: parent.activeFocus ? 2 : 0
+                        border.color: root.colors["accent"]
+                    }
                     Text { anchors.centerIn: parent; text: "close"; font.family: root.iconFont; font.pixelSize: 20; color: root.colors["text_secondary"] }
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (root.dialogAvailable) updateDialog.closeDialog() }
                 }
@@ -162,6 +179,13 @@ Item {
         border.width: primary ? 0 : 1
         border.color: root.colors["border"]
         opacity: enabled ? 1 : 0.5
+        activeFocusOnTab: enabled && visible
+        Accessible.role: Accessible.Button
+        Accessible.name: button.text
+        Accessible.onPressAction: if (button.enabled) button.clicked()
+        Keys.onReturnPressed: function(event) { if (button.enabled && !event.isAutoRepeat) button.clicked() }
+        Keys.onEnterPressed: function(event) { if (button.enabled && !event.isAutoRepeat) button.clicked() }
+        Keys.onSpacePressed: function(event) { if (button.enabled && !event.isAutoRepeat) button.clicked() }
         Row {
             anchors.centerIn: parent
             spacing: Theme.spacingXs

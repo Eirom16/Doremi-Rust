@@ -14,6 +14,15 @@ def qapp():
 
 
 class TestMiniPlayerViewModel:
+    def test_starts_empty(self, qapp):
+        from doremi.ui.viewmodels.mini_player_vm import MiniPlayerViewModel
+
+        vm = MiniPlayerViewModel(qapp)
+
+        assert vm.title == ""
+        assert vm.artist == ""
+        assert vm.artwork == ""
+
     def test_property_roundtrip(self, qapp):
         from doremi.ui.viewmodels.mini_player_vm import MiniPlayerViewModel
 

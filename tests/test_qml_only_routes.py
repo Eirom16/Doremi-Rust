@@ -1,5 +1,17 @@
 """Reglas de arquitectura para la retirada gradual de QtWidgets."""
+import os
 from pathlib import Path
+
+import pytest
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance() or QApplication([])
+    yield app
 
 
 def test_main_window_has_no_legacy_screen_fallbacks():
@@ -53,7 +65,9 @@ def test_navigation_sidebar_is_a_theme_bound_qml_surface():
         assert label in source
 
     assert "ToolTip.visible" in source
-    assert 'navigationController.activeRoute === "playlist"' in source
+    # Playlist shortcuts must match their full route (including the id), not
+    # merely the generic route name shared by every playlist.
+    assert "navigationController.activePath === route" in source
 
     presenter = Path("src/doremi/ui/widgets/nav_sidebar_qml.py").read_text(encoding="utf-8")
     assert '"Doremi.png"' in presenter
@@ -155,6 +169,67 @@ def test_qml_screen_host_can_replace_the_widget_stack():
     assert "show_screen" in router
 
 
+def test_screen_host_delivers_source_and_viewmodel_atomically():
+    source = Path("src/doremi/ui/qml/ScreenHost.qml").read_text(encoding="utf-8")
+
+    # Separate root properties cross-wired a newly selected VM into the old
+    # route for an event-loop turn. The host now accepts both values in one
+    # call and uses the VM as an initial property of the Loader item.
+    assert "function showScreen(source, vm)" in source
+    assert 'screenLoader.setSource(source, { "screenVm": vm })' in source
+    assert "onScreenVmChanged" not in source
+
+
+def test_screen_host_never_cross_wires_adjacent_route_viewmodels(qapp):
+    """Home → Now Playing used to hand HomeViewModel to the video route.
+
+    QML reacts synchronously to each property change, so setting source and VM
+    as separate Python properties is not atomic even when calls are adjacent.
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent, QObject, QUrl
+    from PySide6.QtQml import QQmlComponent, QQmlEngine
+    from doremi.ui.theme_bridge import theme_bridge
+    from doremi.ui.viewmodels.home_vm import HomeViewModel
+    from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
+
+    qml_dir = Path("src/doremi/ui/qml").resolve()
+    engine = QQmlEngine()
+    engine.addImportPath(str(qml_dir))
+    engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+    component = QQmlComponent(engine, QUrl.fromLocalFile(str(qml_dir / "ScreenHost.qml")))
+    host = component.create()
+    assert host is not None, [error.toString() for error in component.errors()]
+    loader = host.findChild(QObject, "screenLoader")
+    assert loader is not None
+
+    home_vm = HomeViewModel(qapp)
+    now_vm = NowPlayingViewModel(qapp)
+    host.showScreen(QUrl.fromLocalFile(str(qml_dir / "HomeScreen.qml")), home_vm)
+    qapp.processEvents()
+    assert loader.property("item").property("screenVm") is home_vm
+
+    host.showScreen(QUrl.fromLocalFile(str(qml_dir / "NowPlayingScreen.qml")), now_vm)
+    qapp.processEvents()
+    assert loader.property("item").property("screenVm") is now_vm
+    host.showScreen(QUrl.fromLocalFile(str(qml_dir / "HomeScreen.qml")), home_vm)
+    qapp.processEvents()
+    assert loader.property("item").property("screenVm") is home_vm
+
+    host.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    engine.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def test_now_playing_uses_valid_accessible_tab_role_and_robust_lyric_updates():
+    source = Path("src/doremi/ui/qml/NowPlayingScreen.qml").read_text(encoding="utf-8")
+
+    assert "Accessible.PageTab" in source
+    assert "onLyricIndexChanged" not in source
+    assert "Timer {" in source
+    assert "Accessible.Tab" not in source
+
+
 def test_main_shell_composes_the_qml_application_frame():
     source = Path("src/doremi/ui/qml/MainShell.qml").read_text(encoding="utf-8")
 
@@ -165,6 +240,9 @@ def test_main_shell_composes_the_qml_application_frame():
         assert component in source
     assert "FadeStackedWidget" not in source
     assert "closeConfirmationVisible" in source
+    assert "readonly property bool shouldShow" in source
+    assert "Behavior on opacity" in source
+    assert "Behavior on y" in source
 
 
 def test_update_dialog_is_a_theme_bound_qml_overlay():
@@ -187,3 +265,9 @@ def test_settings_logout_confirmation_is_qml_backed():
     assert "ModalDialog" in qml
     assert "screenVm.confirm_logout()" in qml
     assert "logout_confirmation_requested" in vm
+    assert "screenVm.confirm_clear_downloads()" in qml
+    assert "download_clear_confirmation_requested" in vm
+    assert "logoutConfirmationPending" in qml
+    assert "downloadClearConfirmationPending" in qml
+    assert "onLogoutConfirmationRequested" not in qml
+    assert "onDownloadClearConfirmationRequested" not in qml

@@ -1,7 +1,6 @@
 from loguru import logger
 
 from doremi.config.paths import AppDirs
-from doremi.api.lastfm import LastFmScrobbler
 from doremi.config.settings import AppSettings
 
 
@@ -9,7 +8,7 @@ class SettingsController:
     """Specialized controller for applying runtime settings changes.
 
     Owns the logic previously living in MainWindow._on_settings_changed:
-    persisting settings, (re)initializing the Last.fm scrobbler, updating player
+    persisting settings, updating player
     volume/equalizer, crossfade, sleep timer, sidebar compactness and the theme.
     Dependencies are accessed via the ``main_window`` reference; ``run_async`` is a
     callable (MainWindow._run_async) used to launch coroutines as asyncio tasks.
@@ -18,30 +17,44 @@ class SettingsController:
     def __init__(self, main_window, run_async):
         self.main_window = main_window
         self.run_async = run_async
+        self._last_offline_limit: int | None = None
+
+    def restore_persisted_sleep_timer(self) -> None:
+        """Start the persisted countdown when a new window is constructed.
+
+        ``sleep_timer_minutes`` is a visible, persisted preference.  Before
+        this hook only a *new* change to that preference started the timer, so
+        a restart left the selected value in Settings without any countdown.
+        A restart deliberately begins a fresh full interval: elapsed wall time
+        was never stored and guessing it would make the pause surprising.
+        """
+        sleep_timer = getattr(self.main_window, "sleep_timer", None)
+        if sleep_timer is None:
+            return
+        minutes = int(getattr(self.main_window.settings.player, "sleep_timer_minutes", 0) or 0)
+        if minutes <= 0 or sleep_timer.is_running:
+            return
+        self.run_async(
+            sleep_timer.start(minutes * 60, self.main_window._on_sleep_timer_expired)
+        )
 
     def on_settings_changed(self, settings: AppSettings) -> None:
         self.main_window.settings = settings
         if hasattr(self.main_window, 'now_playing_screen'):
             self.main_window.now_playing_screen.settings = settings
             self.main_window.now_playing_screen.update_lyrics_style()
+            update_appearance = getattr(
+                self.main_window.now_playing_screen, "update_appearance_settings", None
+            )
+            if callable(update_appearance):
+                update_appearance()
         settings.save(AppDirs.settings_file)
 
-        # Update Last.fm scrobbler dynamically
-        if settings.integrations.lastfm_enabled and settings.integrations.lastfm_session_key:
-            if not getattr(self.main_window, 'scrobbler', None) or getattr(self.main_window, '_lastfm_session_key', None) != settings.integrations.lastfm_session_key:
-                try:
-                    self.main_window.scrobbler = LastFmScrobbler(
-                        settings.integrations.lastfm_api_key,
-                        settings.integrations.lastfm_api_secret,
-                        settings.integrations.lastfm_session_key,
-                    )
-                    self.main_window._lastfm_session_key = settings.integrations.lastfm_session_key
-                    logger.info("Dynamic Last.fm scrobbler initialized/updated")
-                except Exception as e:
-                    logger.error(f"Failed to initialize dynamic scrobbler: {e}")
-        else:
-            self.main_window.scrobbler = None
-            self.main_window._lastfm_session_key = None
+        integrations = getattr(self.main_window, "integrations_controller", None)
+        if integrations is not None:
+            configure_mpris = getattr(integrations, "reconfigure_mpris", None)
+            if callable(configure_mpris):
+                configure_mpris(settings.integrations.mpris_enabled)
 
         # Update player volume
         if hasattr(self.main_window, 'player'):
@@ -73,13 +86,30 @@ class SettingsController:
                     self.main_window.sleep_timer.cancel()
                     self.main_window.statusBar().showMessage("Temporizador de apagado desactivado", 3000)
 
+        # A smaller offline cache limit must reclaim files now, not only after
+        # the next successful Home refresh.
+        offline = getattr(settings, "offline", None)
+        offline_limit = int(getattr(offline, "song_limit", 0) or 0)
+        if offline is not None:
+            try:
+                from doremi.services.offline_cache import OfflineCacheManager
+                offline_cache = OfflineCacheManager.get_instance()
+                if not offline.enabled:
+                    offline_cache.cancel_sync()
+                if offline_limit != self._last_offline_limit:
+                    offline_cache.enforce_limit(offline_limit)
+                    self._last_offline_limit = offline_limit
+            except Exception as exc:
+                logger.debug(f"No se pudo aplicar el límite de caché offline: {exc}")
+
         # Apply appearance changes in real-time
         if hasattr(settings, 'appearance'):
             # Compact sidebar toggle
             if hasattr(self.main_window, 'sidebar'):
-                if settings.appearance.compact_sidebar and not self.main_window.sidebar._collapsed:
-                    self.main_window.sidebar.toggle_collapse()
-                elif not settings.appearance.compact_sidebar and self.main_window.sidebar._collapsed:
+                set_collapsed = getattr(self.main_window.sidebar, "set_collapsed", None)
+                if callable(set_collapsed):
+                    set_collapsed(settings.appearance.compact_sidebar)
+                elif settings.appearance.compact_sidebar != self.main_window.sidebar._collapsed:
                     self.main_window.sidebar.toggle_collapse()
 
             # Theme mode and accent color change — regenerate stylesheet dynamically

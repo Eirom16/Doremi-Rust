@@ -15,6 +15,7 @@ async def gather_stats() -> dict:
         "unique_artists": 0,
         "top_songs": [],   # [{videoId, title, artist, plays, thumbnail_url, is_liked}]
         "chart": [],       # [{day, count}] — últimos 7 días
+        "_error": "",
     }
 
     try:
@@ -25,24 +26,29 @@ async def gather_stats() -> dict:
         liked_ids = await SongRepository().get_liked_video_ids()
     except Exception as e:
         logger.error(f"Error gathering stats: {e}")
+        result["_error"] = "No se pudieron cargar las estadísticas locales."
         return result
 
     if not all_history:
         return result
 
     # Tarjetas
-    total_ms = sum(entry.duration_ms or 0 for entry in all_history)
+    total_ms = sum(
+        getattr(entry, "listen_time_ms", entry.duration_ms) or 0
+        for entry in all_history
+    )
     total_mins = total_ms // 60000
     result["time_listened"] = (
         f"{total_mins // 60}h {total_mins % 60}m" if total_mins >= 60 else f"{total_mins}m"
     )
-    result["total_plays"] = len(all_history)
-    result["unique_artists"] = len({e.artist for e in all_history if e.artist})
+    played_history = [entry for entry in all_history if getattr(entry, "was_played", True)]
+    result["total_plays"] = len(played_history)
+    result["unique_artists"] = len({e.artist for e in played_history if e.artist})
 
     # Top 5 canciones
     song_repo = SongRepository()
     dl_repo = DownloadRepository()
-    counter = Counter((e.video_id, e.title, e.artist) for e in all_history)
+    counter = Counter((e.video_id, e.title, e.artist) for e in played_history)
     for (video_id, title, artist), plays in counter.most_common(5):
         thumbnail_url = ""
         try:
@@ -70,7 +76,7 @@ async def gather_stats() -> dict:
     days: dict[datetime.date, int] = {
         today - datetime.timedelta(days=i): 0 for i in range(6, -1, -1)
     }
-    for entry in all_history:
+    for entry in played_history:
         if entry.played_at and entry.played_at.date() in days:
             days[entry.played_at.date()] += 1
     result["chart"] = [

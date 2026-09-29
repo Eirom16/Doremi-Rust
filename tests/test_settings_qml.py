@@ -21,7 +21,7 @@ class TestSettingsViewModel:
 
         vm = SettingsViewModel(AppSettings(), None, qapp)
         keys = [c["key"] for c in vm.categories]
-        assert keys == ["appearance", "player", "equalizer", "subtitles",
+        assert keys == ["appearance", "player", "equalizer", "subtitles", "network",
                         "accounts", "storage", "about"]
         assert vm.currentTitle == "Apariencia"
 
@@ -75,6 +75,50 @@ class TestSettingsViewModel:
         else:
             raise AssertionError("fila crossfade_duration_sec no encontrada")
 
+    def test_unsupported_audio_options_are_not_offered(self, qapp):
+        from doremi.config.settings import AppSettings
+        from doremi.ui.viewmodels.settings_vm import SettingsViewModel
+
+        vm = SettingsViewModel(AppSettings(), None, qapp)
+        vm.set_category(1)  # player
+        row_ids = [row["id"] for row in vm._rows._rows]
+        assert "player.normalize_audio" not in row_ids
+        assert "player.skip_silence" not in row_ids
+        assert "player.gapless_playback" not in row_ids
+
+        vm.set_category(0)  # appearance
+        row_ids = [row["id"] for row in vm._rows._rows]
+        assert "appearance.use_dynamic_color" not in row_ids
+
+        vm.set_category(3)  # subtitles
+        row_ids = [row["id"] for row in vm._rows._rows]
+        assert "subtitles.line_spacing" not in row_ids
+        assert "subtitles.animation_style" not in row_ids
+
+    def test_network_settings_are_visible_and_persisted(self, qapp):
+        from doremi.ui.viewmodels.settings_vm import SettingsViewModel
+
+        settings = AppSettings()
+        vm = SettingsViewModel(settings, None, qapp)
+        vm.set_category(4)  # network
+        row_ids = [row["id"] for row in vm._rows._rows]
+        assert {"network.stream_quality", "network.preload_next", "network.proxy_url"} <= set(row_ids)
+        vm.set_value("network.stream_quality", "low")
+        vm.set_value("network.proxy_url", "http://proxy.example:8080")
+        assert settings.network.stream_quality == "low"
+        assert settings.network.proxy_url == "http://proxy.example:8080"
+
+    def test_accounts_page_exposes_only_supported_system_integration(self, qapp):
+        from doremi.config.settings import AppSettings
+        from doremi.ui.viewmodels.settings_vm import SettingsViewModel
+
+        settings = AppSettings()
+        vm = SettingsViewModel(settings, None, qapp)
+        vm.set_category(5)  # accounts
+        row_ids = [row["id"] for row in vm._rows._rows]
+        assert "integrations.mpris_enabled" in row_ids
+        assert not any("lastfm" in row_id or "discord" in row_id for row_id in row_ids)
+
     def test_eq_preset_and_bands(self, qapp):
         from doremi.ui.viewmodels.settings_vm import SettingsViewModel
 
@@ -101,10 +145,11 @@ class TestSettingsViewModel:
         from doremi.ui.viewmodels.settings_vm import SettingsViewModel
 
         vm = SettingsViewModel(AppSettings(), None, qapp)
-        vm.set_category(4)  # accounts
+        vm.set_category(5)  # accounts
         ids = [vm.rows.data(vm.rows.index(i, 0), vm.rows.RowIdRole)
                for i in range(vm.rows.rowCount())]
         assert "accounts.login" in ids
+        assert "integrations.mpris_enabled" in ids
 
         class _FakeYt:
             is_authenticated = True
@@ -119,7 +164,7 @@ class TestSettingsViewModel:
         from doremi.ui.viewmodels.settings_vm import SettingsViewModel
 
         vm = SettingsViewModel(AppSettings(), None, qapp)
-        vm.set_category(5)  # storage
+        vm.set_category(6)  # storage
         ids = [vm.rows.data(vm.rows.index(i, 0), vm.rows.RowIdRole)
                for i in range(vm.rows.rowCount())]
         assert "storage.clear_cache" in ids
@@ -153,6 +198,26 @@ class TestSettingsViewModel:
 
         vm.confirm_logout()
         assert confirmed == [True]
+
+    def test_confirmation_pending_state_opens_and_cancels_qml_dialogs(self, qapp):
+        """QML consumes observable state, not custom Python signal handlers.
+
+        Qt's Connections cannot discover every dynamically named PySide signal,
+        which previously made both destructive-confirmation dialogs silent.
+        """
+        from doremi.config.settings import AppSettings
+        from doremi.ui.viewmodels.settings_vm import SettingsViewModel
+
+        vm = SettingsViewModel(AppSettings(), parent=qapp)
+        vm.action("accounts.logout")
+        assert vm.logoutConfirmationPending is True
+        vm.dismiss_logout_confirmation()
+        assert vm.logoutConfirmationPending is False
+
+        vm.action("storage.clear_downloads")
+        assert vm.downloadClearConfirmationPending is True
+        vm.confirm_clear_downloads()
+        assert vm.downloadClearConfirmationPending is False
 
 
 class TestSettingsScreenQml:

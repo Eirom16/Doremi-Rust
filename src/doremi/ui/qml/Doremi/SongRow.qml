@@ -21,6 +21,14 @@ Rectangle {
 
     readonly property var colors: themeBridge.colors
 
+    Accessible.role: Accessible.Button
+    Accessible.name: "Reproducir " + root.title + (root.artist !== "" ? " de " + root.artist : "")
+    Accessible.onPressAction: root.playRequested()
+    activeFocusOnTab: true
+    Keys.onReturnPressed: if (!event.isAutoRepeat) root.playRequested()
+    Keys.onEnterPressed: if (!event.isAutoRepeat) root.playRequested()
+    Keys.onSpacePressed: if (!event.isAutoRepeat) root.playRequested()
+
     implicitHeight: 48
     radius: Theme.radiusMd
     color: root.isPlaying ? root.colors["bg_high"]
@@ -130,6 +138,13 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.likeRequested()
             }
+            Accessible.role: Accessible.Button
+            Accessible.name: root.isLiked ? "Quitar Me gusta de " + root.title : "Dar Me gusta a " + root.title
+            Accessible.onPressAction: root.likeRequested()
+            activeFocusOnTab: true
+            Keys.onReturnPressed: if (!event.isAutoRepeat) root.likeRequested()
+            Keys.onEnterPressed: if (!event.isAutoRepeat) root.likeRequested()
+            Keys.onSpacePressed: if (!event.isAutoRepeat) root.likeRequested()
         }
 
         // Duration
@@ -163,6 +178,13 @@ Rectangle {
                 cursorShape: Qt.PointingHandCursor
                 onClicked: root.menuRequested()
             }
+            Accessible.role: Accessible.Button
+            Accessible.name: "Más acciones para " + root.title
+            Accessible.onPressAction: root.menuRequested()
+            activeFocusOnTab: true
+            Keys.onReturnPressed: if (!event.isAutoRepeat) root.menuRequested()
+            Keys.onEnterPressed: if (!event.isAutoRepeat) root.menuRequested()
+            Keys.onSpacePressed: if (!event.isAutoRepeat) root.menuRequested()
         }
     }
 

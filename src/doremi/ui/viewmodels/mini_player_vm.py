@@ -30,7 +30,9 @@ class MiniPlayerViewModel(QObject):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._title = "Sin reproduccion"
+        # El shell inicia sin una pista activa. La primera llamada a
+        # ``update_track_info`` lo rellena justo antes de mostrarlo.
+        self._title = ""
         self._artist = ""
         self._artwork = ""
         self._playing = False

@@ -19,6 +19,14 @@ Rectangle {
 
     readonly property var colors: themeBridge.colors
 
+    Accessible.role: Accessible.Button
+    Accessible.name: root.title + (root.subtitle !== "" ? ", " + root.subtitle : "")
+    Accessible.onPressAction: root.clicked()
+    activeFocusOnTab: true
+    Keys.onReturnPressed: if (!event.isAutoRepeat) root.clicked()
+    Keys.onEnterPressed: if (!event.isAutoRepeat) root.clicked()
+    Keys.onSpacePressed: if (!event.isAutoRepeat) root.clicked()
+
     radius: Theme.radiusLg
     color: ma.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
     border.width: 1
@@ -100,6 +108,13 @@ Rectangle {
                     cursorShape: Qt.PointingHandCursor
                     onClicked: root.playClicked()
                 }
+                Accessible.role: Accessible.Button
+                Accessible.name: "Reproducir " + root.title
+                Accessible.onPressAction: root.playClicked()
+                activeFocusOnTab: true
+                Keys.onReturnPressed: if (!event.isAutoRepeat) root.playClicked()
+                Keys.onEnterPressed: if (!event.isAutoRepeat) root.playClicked()
+                Keys.onSpacePressed: if (!event.isAutoRepeat) root.playClicked()
             }
 
             // Download badge

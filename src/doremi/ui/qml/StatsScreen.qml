@@ -72,9 +72,32 @@ Item {
                 }
             }
 
+            ColumnLayout {
+                visible: !screenVm.loading && screenVm.errorText !== ""
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                Item { Layout.preferredHeight: 80 }
+                Label {
+                    Layout.alignment: Qt.AlignHCenter
+                    Layout.maximumWidth: 440
+                    text: screenVm.errorText
+                    color: root.colors["error"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeBody
+                    wrapMode: Text.WordWrap
+                    horizontalAlignment: Text.AlignHCenter
+                }
+                Button {
+                    Layout.alignment: Qt.AlignHCenter
+                    text: "Reintentar"
+                    Accessible.name: "Reintentar cargar estadísticas"
+                    onClicked: screenVm.retry()
+                }
+            }
+
             // ── Cards ─────────────────────────────────────────────────
             RowLayout {
-                visible: !screenVm.loading
+                visible: !screenVm.loading && screenVm.errorText === ""
                 Layout.fillWidth: true
                 spacing: Theme.spacingMd
 
@@ -146,7 +169,7 @@ Item {
 
             // ── Columnas: top songs + chart ───────────────────────────
             RowLayout {
-                visible: !screenVm.loading
+                visible: !screenVm.loading && screenVm.errorText === ""
                 Layout.fillWidth: true
                 spacing: Theme.spacingLg
 
@@ -190,6 +213,21 @@ Item {
                             Layout.preferredHeight: 64
                             radius: Theme.radiusLg
                             color: songMa.containsMouse ? root.colors["bg_high"] : "transparent"
+                            activeFocusOnTab: true
+                            Accessible.role: Accessible.ListItem
+                            Accessible.name: "Reproducir " + songRow.title + ", " + songRow.artist
+                            Accessible.description: root.playsText(songRow.plays) + "; menú contextual disponible"
+                            Keys.onReturnPressed: screenVm.play_at(songRow.index)
+                            Keys.onSpacePressed: screenVm.play_at(songRow.index)
+                            Keys.onPressed: (event) => {
+                                if (event.key === Qt.Key_Enter) {
+                                    screenVm.play_at(songRow.index)
+                                    event.accepted = true
+                                } else if (event.key === Qt.Key_Menu || (event.key === Qt.Key_F10 && (event.modifiers & Qt.ShiftModifier))) {
+                                    songMenu.popup()
+                                    event.accepted = true
+                                }
+                            }
 
                             MouseArea {
                                 id: songMa

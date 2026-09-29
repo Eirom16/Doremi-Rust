@@ -16,9 +16,6 @@ except ImportError:
 
 SERVICE_NAME = "doremi"
 YT_AUTH_USER = "youtube_music_auth"
-LASTFM_KEY_USER = "lastfm_api_key"
-LASTFM_SECRET_USER = "lastfm_api_secret"
-LASTFM_SESSION_USER = "lastfm_session_key"
 
 class SecureStorage:
     _ignore_legacy_youtube_headers = False
@@ -112,47 +109,6 @@ class SecureStorage:
                 logger.info("Archivo local de credenciales de YouTube Music eliminado.")
         except Exception as e:
             logger.warning(f"No se pudo eliminar el archivo local de credenciales: {e}")
-
-    @classmethod
-    def save_lastfm_credentials(cls, api_key: str, api_secret: str, session_key: str) -> None:
-        """Save Last.fm secrets to keyring if available."""
-        if cls._is_functional():
-            try:
-                if api_key:
-                    keyring.set_password(SERVICE_NAME, LASTFM_KEY_USER, api_key)
-                if api_secret:
-                    keyring.set_password(SERVICE_NAME, LASTFM_SECRET_USER, api_secret)
-                if session_key:
-                    keyring.set_password(SERVICE_NAME, LASTFM_SESSION_USER, session_key)
-                logger.info("Credenciales de Last.fm guardadas de forma segura en el llavero.")
-                return
-            except Exception as e:
-                logger.error(f"Error guardando Last.fm en llavero: {e}")
-
-    @classmethod
-    def load_lastfm_credentials(cls) -> tuple[str, str, str]:
-        """Load Last.fm secrets from keyring if available. Returns (api_key, api_secret, session_key)."""
-        api_key, api_secret, session_key = "", "", ""
-        if cls._is_functional():
-            try:
-                api_key = keyring.get_password(SERVICE_NAME, LASTFM_KEY_USER) or ""
-                api_secret = keyring.get_password(SERVICE_NAME, LASTFM_SECRET_USER) or ""
-                session_key = keyring.get_password(SERVICE_NAME, LASTFM_SESSION_USER) or ""
-            except Exception as e:
-                logger.error(f"Error cargando Last.fm desde llavero: {e}")
-        return api_key, api_secret, session_key
-
-    @classmethod
-    def delete_lastfm_credentials(cls) -> None:
-        """Delete Last.fm secrets from keyring."""
-        if cls._is_functional():
-            try:
-                for user in [LASTFM_KEY_USER, LASTFM_SECRET_USER, LASTFM_SESSION_USER]:
-                    if keyring.get_password(SERVICE_NAME, user):
-                        keyring.delete_password(SERVICE_NAME, user)
-                logger.info("Credenciales de Last.fm eliminadas del llavero del sistema.")
-            except Exception as e:
-                logger.error(f"Error eliminando Last.fm del llavero: {e}")
 
     @classmethod
     def make_secure_temp_auth_file(cls) -> tuple[str, Path | None]:
