@@ -7,8 +7,11 @@ from collections import Counter
 from loguru import logger
 
 
-async def gather_stats() -> dict:
+async def gather_stats(period=None) -> dict:
     """Calcula métricas de escucha desde el historial local."""
+    if period is not None:
+        from doremi.db.experience_repository import ExperienceRepository
+        return await ExperienceRepository().stats(period)
     result = {
         "time_listened": "0m",
         "total_plays": 0,

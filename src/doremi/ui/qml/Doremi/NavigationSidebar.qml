@@ -143,14 +143,13 @@ Item {
         }
 
         ColumnLayout {
-            visible: root.playlists.length > 0
             Layout.fillWidth: true
             Layout.topMargin: Theme.spacingSm
             spacing: 4
 
             Label {
                 visible: !root.sidebarCollapsed
-                text: "Tus playlists"
+                text: "Acceso rápido"
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeCaption
@@ -158,18 +157,60 @@ Item {
                 Layout.leftMargin: Theme.spacingSm
             }
 
+            NavigationItem {
+                visible: root.playlists.length === 0
+                Layout.fillWidth: true
+                route: "library"
+                icon: "library_music"
+                label: "Tu biblioteca"
+                collapsed: root.sidebarCollapsed
+                active: root.controllerAvailable && navigationController.activePath === route
+                onActivated: if (root.controllerAvailable) navigationController.navigate(route)
+            }
+
             Repeater {
                 model: root.playlists
 
                 delegate: NavigationItem {
+                    id: shortcut
                     required property var modelData
                     Layout.fillWidth: true
                     route: modelData.navigate
                     icon: "playlist_play"
                     label: modelData.title
+                    thumbnail: modelData.thumbnail || ""
                     active: root.controllerAvailable && navigationController.activePath === route
                     collapsed: root.sidebarCollapsed
                     onActivated: if (root.controllerAvailable) navigationController.navigate(route)
+                    onContextRequested: shortcutMenu.popup()
+                    Drag.active: pinDrag.active
+                    Drag.dragType: Drag.Automatic
+                    Drag.keys: ["doremi-pin"]
+                    Drag.mimeData: ({"application/x-doremi-pin": shortcut.route})
+                    Drag.supportedActions: Qt.MoveAction
+                    DragHandler { id: pinDrag; target: null; enabled: shortcut.modelData.pinned }
+                    DropArea {
+                        anchors.fill: parent
+                        keys: ["doremi-track", "doremi-pin"]
+                        onDropped: function(drop) {
+                            if (drop.formats.indexOf("application/x-doremi-pin") >= 0) {
+                                navigationController.move_pin(drop.getDataAsString("application/x-doremi-pin"), shortcut.route)
+                                drop.acceptProposedAction()
+                            } else if (typeof desktopController !== "undefined" && desktopController) {
+                                desktopController.drop_track(drop.getDataAsString("application/x-doremi-track"), shortcut.route)
+                                drop.acceptProposedAction()
+                            }
+                        }
+                        Rectangle { anchors.fill: parent; visible: parent.containsDrag; color: "transparent"; border.width: 2; border.color: root.colors["accent"]; radius: Theme.radiusMd }
+                    }
+                    Menu {
+                        id: shortcutMenu
+                        MenuItem { text: "Abrir"; onTriggered: shortcut.activated() }
+                        MenuItem {
+                            text: shortcut.modelData.pinned ? "Desfijar de barra lateral" : "Fijar en barra lateral"
+                            onTriggered: navigationController.toggle_pin(shortcut.route)
+                        }
+                    }
                 }
             }
         }
@@ -192,9 +233,11 @@ Item {
         property string route: ""
         property string icon: ""
         property string label: ""
+        property string thumbnail: ""
         property bool active: false
         property bool collapsed: false
         signal activated()
+        signal contextRequested()
 
         Layout.preferredHeight: 44
         Accessible.role: Accessible.Button
@@ -204,6 +247,7 @@ Item {
         Keys.onReturnPressed: if (!event.isAutoRepeat) item.activated()
         Keys.onEnterPressed: if (!event.isAutoRepeat) item.activated()
         Keys.onSpacePressed: if (!event.isAutoRepeat) item.activated()
+        Keys.onMenuPressed: item.contextRequested()
 
         Rectangle {
             anchors.fill: parent
@@ -221,6 +265,7 @@ Item {
                 spacing: Theme.spacingSm
 
                 Text {
+                    visible: item.thumbnail === "" || artwork.status === Image.Error
                     Layout.preferredWidth: item.collapsed ? parent.width : 24
                     Layout.alignment: Qt.AlignHCenter
                     horizontalAlignment: Text.AlignHCenter
@@ -228,6 +273,19 @@ Item {
                     font.family: root.iconFont
                     font.pixelSize: 22
                     color: item.active ? root.colors["accent"] : root.colors["text_secondary"]
+                }
+
+                Image {
+                    id: artwork
+                    visible: item.thumbnail !== "" && status !== Image.Error
+                    source: item.thumbnail
+                    Layout.preferredWidth: 30
+                    Layout.preferredHeight: 30
+                    Layout.alignment: Qt.AlignHCenter
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                    sourceSize.width: 60
+                    sourceSize.height: 60
                 }
 
                 Label {
@@ -248,7 +306,9 @@ Item {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: {
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
+            onClicked: function(mouse) {
+                if (mouse.button === Qt.RightButton) { item.contextRequested(); return }
                 item.forceActiveFocus()
                 item.activated()
             }

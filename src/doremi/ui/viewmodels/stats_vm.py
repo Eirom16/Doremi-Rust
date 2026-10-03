@@ -5,7 +5,10 @@ from PySide6.QtCore import (
 )
 
 
-class TopSongsModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class TopSongsModel(TrackStateModel):
     TitleRole = Qt.UserRole + 1
     ArtistRole = Qt.UserRole + 2
     PlaysRole = Qt.UserRole + 3
@@ -101,9 +104,13 @@ class StatsViewModel(QObject):
     loading_changed = Signal()
     summary_changed = Signal()
     error_changed = Signal()
+    period_changed = Signal()
+    wrapped_changed = Signal()
+    wrapped_requested = Signal(str)
 
     # Mismas señales que StatsScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -122,6 +129,37 @@ class StatsViewModel(QObject):
         self._total_plays = 0
         self._unique_artists = 0
         self._error_text = ""
+        self._period = "all"
+        self._insights = {}
+        self._wrapped = {}
+
+    @Property("QVariantMap", notify=wrapped_changed)
+    def wrapped(self):
+        return self._wrapped
+
+    def set_wrapped(self, data):
+        self._wrapped = data
+        self.wrapped_changed.emit()
+
+    @Slot(str)
+    def request_wrapped(self, kind):
+        if kind in {"month", "year"}:
+            self.wrapped_requested.emit(kind)
+
+    @Property(str, notify=period_changed)
+    def period(self):
+        return self._period
+
+    @Property("QVariantMap", notify=summary_changed)
+    def insights(self):
+        return self._insights
+
+    @Slot(str)
+    def select_period(self, period):
+        if period in {"today", "week", "month", "year", "all"} and period != self._period:
+            self._period = period
+            self.period_changed.emit()
+            self.retry_requested.emit()
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -165,6 +203,7 @@ class StatsViewModel(QObject):
             self.loading_changed.emit()
 
     def set_data(self, data: dict) -> None:
+        self._insights = data
         self._time_listened = data.get("time_listened", "0m")
         self._total_plays = data.get("total_plays", 0)
         self._unique_artists = data.get("unique_artists", 0)
@@ -199,19 +238,8 @@ class StatsViewModel(QObject):
         item = self._top_songs.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "go_artist":
-            self.artist_clicked.emit(artist)
+        if action == "play":
+            self.play_at(index)
+            return
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)

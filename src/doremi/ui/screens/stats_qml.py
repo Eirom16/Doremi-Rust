@@ -22,6 +22,7 @@ class StatsScreenQml(QObject):
     _qml_island = True  # fade_stack.py: sin cross-fade
 
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -36,6 +37,8 @@ class StatsScreenQml(QObject):
         self.on_play_song = on_play_song
         self._load_task: asyncio.Task | None = None
         self._load_generation = 0
+        self._wrapped_generation = 0
+        self._wrapped_task = None
 
         self._vm = StatsViewModel(QApplication.instance())
 
@@ -44,6 +47,7 @@ class StatsScreenQml(QObject):
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
         self._vm.like_requested.connect(self.like_requested)
@@ -52,6 +56,26 @@ class StatsScreenQml(QObject):
         self._vm.artist_clicked.connect(self.artist_clicked)
         self._vm.play_requested.connect(self._on_vm_play)
         self._vm.retry_requested.connect(self._schedule_load)
+        self._vm.wrapped_requested.connect(self._schedule_wrapped)
+
+    def _schedule_wrapped(self, kind):
+        self._wrapped_generation += 1
+        generation = self._wrapped_generation
+        if self._wrapped_task and not self._wrapped_task.done():
+            self._wrapped_task.cancel()
+        async def generate():
+            from datetime import datetime
+            from doremi.services.listening_periods import Wrapped
+            now = datetime.now()
+            try:
+                data = await Wrapped().summary(now.year, now.month if kind == "month" else None)
+                if generation == self._wrapped_generation:
+                    self._vm.set_wrapped(data)
+            except Exception as exc:
+                logger.warning(f"Could not generate Wrapped: {exc}")
+                if generation == self._wrapped_generation:
+                    self._vm.set_wrapped({})
+        self._wrapped_task = asyncio.ensure_future(generate())
 
     @property
     def is_ok(self) -> bool:
@@ -92,7 +116,7 @@ class StatsScreenQml(QObject):
         self._vm.set_error("")
         try:
             from doremi.ui.screens.stats_data import gather_stats
-            data = await gather_stats()
+            data = await gather_stats(self._vm.period)
             if not is_current_request():
                 return
             self._vm.set_data(data)

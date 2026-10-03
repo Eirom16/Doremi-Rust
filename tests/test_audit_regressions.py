@@ -614,7 +614,7 @@ async def test_stats_retry_keeps_loading_until_current_request_finishes(qapp, mo
     release = asyncio.Event()
     calls = 0
 
-    async def gather():
+    async def gather(period="all"):
         nonlocal calls
         calls += 1
         if calls == 1:

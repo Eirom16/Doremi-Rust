@@ -78,6 +78,21 @@ def _extract_navigate(item: dict) -> str:
 
 
 async def gather_home(yt_client) -> dict:
+    import asyncio
+    from doremi.services.explore import explore_categories
+    from doremi.services.home_composer import personalized_home
+    data, categories = await asyncio.gather(_gather_remote_home(yt_client), explore_categories(yt_client))
+    from doremi.system.network import NetworkMonitor
+    data["offline"] = NetworkMonitor.current_connectivity() is False
+    data["genres"] = [] if data["offline"] else categories
+    try:
+        return await personalized_home(data)
+    except Exception as exc:
+        logger.warning(f"Personalized Home unavailable: {exc}")
+        return data
+
+
+async def _gather_remote_home(yt_client) -> dict:
     """Fetch home data from YouTube Music and return normalized structures.
 
     Returns dict with keys: greeting, spotlight, tiles, horizontal, songs.
@@ -225,6 +240,7 @@ async def gather_home(yt_client) -> dict:
                 "thumbnail_url": _extract_thumbnail(item),
                 "videoId": vid,
                 "duration_ms": _parse_duration_ms(item),
+                "is_liked": vid in liked_ids,
             })
         if len(result["tiles"]) >= 6:
             break

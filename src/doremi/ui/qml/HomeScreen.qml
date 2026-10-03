@@ -25,6 +25,7 @@ Item {
         sourceComponent: Component {
             Flickable {
         id: flickable
+        objectName: "viewState:main"
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingMd
         anchors.rightMargin: Theme.spacingMd
@@ -94,6 +95,46 @@ Item {
             }
 
             // ── Spotlight Banner ──────────────────────────────────────
+            Repeater {
+                model: screenVm.personalSections
+                delegate: ColumnLayout {
+                    required property var modelData
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    Label {
+                        text: modelData.title
+                        color: root.colors["text_primary"]
+                        font.family: Theme.fontFamily
+                        font.pixelSize: Theme.typeHeading
+                    }
+                    ListView {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 180
+                        orientation: ListView.Horizontal
+                        spacing: Theme.spacingSm
+                        clip: true
+                        model: modelData.items
+                        delegate: MediaCard {
+                            required property var modelData
+                            width: 152; height: 176
+                            title: modelData.title
+                            subtitle: modelData.subtitle || ""
+                            thumbnail: modelData.thumbnail_url || ""
+                            showPlayButton: false
+                            onClicked: screenVm.navigate(modelData.navigate)
+                            onMenuClicked: collectionMenu.popup()
+                            CollectionMenu {
+                                id: collectionMenu
+                                showOpen: true
+                                showPlaybackActions: false
+                                showQueueActions: false
+                                onAction: function(name) { if (name === "open") screenVm.navigate(modelData.navigate) }
+                            }
+                        }
+                    }
+                }
+            }
+
             Rectangle {
                 visible: !screenVm.loading && screenVm.hasSpotlight
                 Layout.fillWidth: true
@@ -385,28 +426,16 @@ Item {
                                     onClicked: tileMenu.popup()
                                 }
 
-                                ContextMenu {
+                                SongMenu {
                                     id: tileMenu
-                                    ContextMenuItem {
-                                        text: "Reproducir siguiente"
-                                        onTriggered: screenVm.tile_action(index, "play_next")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a la cola"
-                                        onTriggered: screenVm.tile_action(index, "add_to_queue")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Me gusta"
-                                        onTriggered: screenVm.tile_action(index, "like")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a playlist"
-                                        onTriggered: screenVm.tile_action(index, "add_to_playlist")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Descargar"
-                                        onTriggered: screenVm.tile_action(index, "download")
-                                    }
+                                    showLink: true
+                                    property var track: ({})
+                                    onAboutToShow: track = screenVm.tiles.track_info(index)
+                                    liked: !!track.is_liked
+                                    downloaded: !!track.is_downloaded
+                                    localTrack: (track.videoId || "").indexOf("local:") === 0
+                                    hasArtist: !localTrack && !!track.artist
+                                    onAction: function(name) { screenVm.tile_action(index, name) }
                                 }
                             }
                         }
@@ -458,89 +487,30 @@ Item {
                         interactive: contentWidth > width
                         boundsBehavior: Flickable.StopAtBounds
 
-                        delegate: Rectangle {
+                        delegate: MediaCard {
                             id: hCard
                             required property var modelData
-
                             width: 164
                             height: ListView.view.height
-                            radius: Theme.radiusLg
-                            color: hCardMa.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
-                            border.width: 1
-                            border.color: hCardMa.containsMouse ? root.colors["border_focus"] : root.colors["border"]
-                            activeFocusOnTab: true
-                            Accessible.role: Accessible.ListItem
-                            Accessible.name: hCard.modelData.item_title || "Contenido recomendado"
-                            Accessible.description: hCard.modelData.subtitle || "Abrir contenido"
-                            Keys.onReturnPressed: {
-                                var nav = hCard.modelData.navigate || ""
-                                if (nav) screenVm.navigate(nav)
-                            }
-                            Keys.onSpacePressed: {
-                                var nav = hCard.modelData.navigate || ""
-                                if (nav) screenVm.navigate(nav)
-                            }
-
-                            ColumnLayout {
-                                anchors.fill: parent
-                                anchors.margins: Theme.spacingSm
-                                spacing: Theme.spacingXs
-
-                                Rectangle {
-                                    Layout.fillWidth: true
-                                    Layout.fillHeight: true
-                                    radius: Theme.radiusMd
-                                    color: root.colors["bg_elevated"]
-                                    clip: true
-
-                                    Image {
-                                        anchors.fill: parent
-                                        source: hCard.modelData.thumbnail_url || ""
-                                        fillMode: Image.PreserveAspectCrop
-                                        asynchronous: true
-                                        cache: true
-                                        visible: status === Image.Ready
-                                    }
-
-                                    Text {
-                                        anchors.centerIn: parent
-                                        visible: parent.children[0].status !== Image.Ready
-                                        text: "\u{e405}" // music_note
-                                        font.family: root.iconFont
-                                        font.pixelSize: 32
-                                        color: root.colors["text_secondary"]
-                                    }
-                                }
-
-                                Label {
-                                    text: hCard.modelData.item_title || ""
-                                    color: root.colors["text_primary"]
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.typeLabel
-                                    font.weight: Font.Medium
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-
-                                Label {
-                                    visible: text !== ""
-                                    text: hCard.modelData.subtitle || ""
-                                    color: root.colors["text_secondary"]
-                                    font.family: Theme.fontFamily
-                                    font.pixelSize: Theme.typeCaption
-                                    elide: Text.ElideRight
-                                    Layout.fillWidth: true
-                                }
-                            }
-
-                            MouseArea {
-                                id: hCardMa
-                                anchors.fill: parent
-                                hoverEnabled: true
-                                cursorShape: Qt.PointingHandCursor
-                                onClicked: {
-                                    var nav = hCard.modelData.navigate || ""
-                                    if (nav) screenVm.navigate(nav)
+                            title: modelData.item_title || ""
+                            subtitle: modelData.subtitle || ""
+                            thumbnail: modelData.thumbnail_url || ""
+                            isArtist: modelData.type === "artist"
+                            isDownloaded: !!modelData.is_downloaded
+                            showPlayButton: modelData.type === "playlist" || modelData.type === "album"
+                            onClicked: screenVm.navigate(modelData.navigate || "")
+                            onPlayClicked: screenVm.play_collection(modelData.navigate || "", false)
+                            onMenuClicked: collectionMenu.popup()
+                            CollectionMenu {
+                                id: collectionMenu
+                                showOpen: true
+                                hasTracks: true
+                                showPlaybackActions: hCard.showPlayButton
+                                showQueueActions: false
+                                onAction: function(name) {
+                                    if (name === "open") screenVm.navigate(hCard.modelData.navigate || "")
+                                    else if (name === "play" || name === "shuffle")
+                                        screenVm.play_collection(hCard.modelData.navigate || "", name === "shuffle")
                                 }
                             }
                         }
@@ -723,32 +693,16 @@ Item {
                                 onClicked: songCtxMenu.popup()
                             }
 
-                            ContextMenu {
+                            SongMenu {
                                 id: songCtxMenu
-                                ContextMenuItem {
-                                    text: "Reproducir siguiente"
-                                    onTriggered: screenVm.song_action(index, "play_next")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a la cola"
-                                    onTriggered: screenVm.song_action(index, "add_to_queue")
-                                }
-                                ContextMenuItem {
-                                    text: "Me gusta"
-                                    onTriggered: screenVm.song_action(index, "like")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a playlist"
-                                    onTriggered: screenVm.song_action(index, "add_to_playlist")
-                                }
-                                ContextMenuItem {
-                                    text: "Descargar"
-                                    onTriggered: screenVm.song_action(index, "download")
-                                }
-                                ContextMenuItem {
-                                    text: "Ir al artista"
-                                    onTriggered: screenVm.song_action(index, "go_artist")
-                                }
+                                showLink: true
+                                property var track: ({})
+                                onAboutToShow: track = screenVm.songs.track_info(index)
+                                liked: !!track.is_liked
+                                downloaded: !!track.is_downloaded
+                                localTrack: (track.videoId || "").indexOf("local:") === 0
+                                hasArtist: !localTrack && !!track.artist
+                                onAction: function(name) { screenVm.song_action(index, name) }
                             }
                         }
                     }
@@ -756,8 +710,32 @@ Item {
             }
 
             // ── Empty offline state ───────────────────────────────────
+            ColumnLayout {
+                visible: !screenVm.loading && !screenVm.offline && screenVm.genres.rowCount() > 0
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                Label {
+                    text: "Explorar"
+                    color: root.colors["text_primary"]
+                    font.family: Theme.fontFamily
+                    font.pixelSize: Theme.typeHeading
+                }
+                Flow {
+                    Layout.fillWidth: true
+                    spacing: Theme.spacingSm
+                    Repeater {
+                        model: screenVm.genres
+                        HeaderButton {
+                            required property string name
+                            required property string query
+                            text: name
+                            onClicked: screenVm.navigate_genre(query)
+                        }
+                    }
+                }
+            }
             Label {
-                visible: !screenVm.loading && screenVm.errorText === "" && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
+                visible: screenVm.offline && !screenVm.loading && screenVm.errorText === "" && screenVm.personalSections.length === 0 && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Aún no hay música disponible sin conexión"
                 color: root.colors["text_primary"]
                 font.family: Theme.fontFamily
@@ -768,7 +746,7 @@ Item {
             }
 
             Label {
-                visible: !screenVm.loading && screenVm.errorText === "" && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
+                visible: screenVm.offline && !screenVm.loading && screenVm.errorText === "" && screenVm.personalSections.length === 0 && screenVm.horizontal.rowCount() === 0 && screenVm.songs.rowCount() === 0 && screenVm.tiles.rowCount() === 0
                 text: "Conéctate una vez para que Doremi prepare y rote tus recomendaciones."
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily

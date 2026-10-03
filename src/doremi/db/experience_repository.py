@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode, parse_qs, urlsplit
 
-from sqlalchemy import select, func, case, and_
+from sqlalchemy import select, func, case, and_, tuple_
 
 from doremi.db.database import get_session
 from doremi.db.models import Song, PlayHistory as H, Download, Collection
@@ -51,14 +51,21 @@ class ExperienceRepository:
             return bool(entry and entry.pinned_at is not None)
 
     async def remember_collections(self, items):
+        candidates = {}
+        for item in items:
+            route = urlsplit(item.get("navigate", ""))
+            identity = parse_qs(route.query).get("id", [""])[-1]
+            if route.path in {"playlist", "album", "artist"} and identity:
+                candidates[(route.path, identity)] = item
+        keys = list(candidates)
         async with get_session() as session:
-            for item in items:
-                route = urlsplit(item.get("navigate", ""))
-                identity = parse_qs(route.query).get("id", [""])[-1]
-                if route.path not in {"playlist", "album", "artist"} or not identity:
-                    continue
-                key = (route.path, identity)
-                entry = await session.get(Collection, key)
+            known = {}
+            for offset in range(0, len(keys), 250):
+                entries = (await session.scalars(select(Collection).where(
+                    tuple_(Collection.context_type, Collection.context_id).in_(keys[offset:offset + 250])))).all()
+                known.update({(entry.context_type, entry.context_id): entry for entry in entries})
+            for key, item in candidates.items():
+                entry = known.get(key)
                 if entry is None:
                     entry = Collection(context_type=key[0], context_id=key[1])
                     session.add(entry)

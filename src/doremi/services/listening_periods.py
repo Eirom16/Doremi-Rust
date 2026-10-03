@@ -101,10 +101,10 @@ class ListeningPeriods:
         if not tracks:
             raise ValueError("La sesión está vacía")
         from doremi.db.repository import SongRepository
-        repo = SongRepository()
-        for track in tracks:
-            if not await repo.get_song(track["videoId"]):
-                await repo.upsert_song(video_id=track["videoId"], title=track["title"], artist=track["artist"])
+        await SongRepository().ensure_songs([
+            dict(video_id=track["videoId"], title=track["title"], artist=track["artist"],
+                 album=track.get("album", ""), duration_ms=track.get("duration_ms", 0),
+                 thumbnail_url=track.get("thumbnail_url", "")) for track in tracks])
         local = LocalLibraryRepository()
         playlist_id = await local.create_playlist(title)
         await local.append(playlist_id, [t["videoId"] for t in tracks])

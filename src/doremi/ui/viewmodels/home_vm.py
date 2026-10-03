@@ -4,6 +4,7 @@ import datetime
 from PySide6.QtCore import (
     QAbstractListModel, Property, QModelIndex, QObject, Qt, Signal, Slot,
 )
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
 
 
 # ── Modelos QML ──────────────────────────────────────────────────────────
@@ -51,7 +52,7 @@ class SpotlightModel(QAbstractListModel):
         self.endResetModel()
 
 
-class TileModel(QAbstractListModel):
+class TileModel(TrackStateModel):
     """Modelo de tiles de acceso rápido (QuickAccessGrid)."""
 
     TitleRole = Qt.UserRole + 1
@@ -59,6 +60,7 @@ class TileModel(QAbstractListModel):
     ThumbnailRole = Qt.UserRole + 3
     VideoIdRole = Qt.UserRole + 4
     DurationMsRole = Qt.UserRole + 5
+    IsLikedRole = Qt.UserRole + 6
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -81,6 +83,8 @@ class TileModel(QAbstractListModel):
             return item.get("videoId", "")
         if role == self.DurationMsRole:
             return item.get("duration_ms", 0)
+        if role == self.IsLikedRole:
+            return item.get("is_liked", False)
         return None
 
     def roleNames(self) -> dict[int, bytes]:
@@ -90,6 +94,7 @@ class TileModel(QAbstractListModel):
             self.ThumbnailRole: b"thumbnail",
             self.VideoIdRole: b"videoId",
             self.DurationMsRole: b"durationMs",
+            self.IsLikedRole: b"isLiked",
         }
 
     def set_items(self, items: list[dict]) -> None:
@@ -199,7 +204,7 @@ class HorizontalSectionModel(QAbstractListModel):
         self.endResetModel()
 
 
-class SongGridModel(QAbstractListModel):
+class SongGridModel(TrackStateModel):
     """Modelo de canciones en grid (2 columnas)."""
 
     TitleRole = Qt.UserRole + 1
@@ -265,12 +270,13 @@ class GenreModel(QAbstractListModel):
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
-        self._items: list[tuple[str, str]] = [
-            ("Rock", "rock"), ("Pop", "pop"), ("Reggaeton", "reggaeton"),
-            ("Salsa", "salsa"), ("Clasica", "classical"), ("Electronica", "electronic"),
-            ("Jazz", "jazz"), ("R&B", "r&b"), ("Reggae", "reggae"),
-            ("Hip Hop", "hip hop"), ("Latina", "latin music"), ("Colombia", "colombian music"),
-        ]
+        from doremi.services.explore import STABLE_CATEGORIES
+        self._items = list(STABLE_CATEGORIES)
+
+    def set_items(self, items):
+        self.beginResetModel()
+        self._items = [(item["name"], item["query"]) for item in items]
+        self.endResetModel()
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
         return len(self._items)
@@ -304,9 +310,12 @@ class HomeViewModel(QObject):
     error_changed = Signal()
     greeting_changed = Signal()
     spotlight_changed = Signal()
+    personal_changed = Signal()
+    offline_changed = Signal()
 
     # Señales de contexto (mismas que HomeScreen QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -322,6 +331,7 @@ class HomeViewModel(QObject):
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self._loading = True
+        self._offline = False
         self._error_text = ""
         self._greeting = ""
         self._spotlight = SpotlightModel(self)
@@ -334,6 +344,15 @@ class HomeViewModel(QObject):
         self._sections = HomeSectionsModel(self)
         self._songs = SongGridModel(self)
         self._genres = GenreModel(self)
+        self._personal = []
+
+    @Property("QVariantList", notify=personal_changed)
+    def personalSections(self):
+        return self._personal
+
+    def set_personal(self, sections):
+        self._personal = sections
+        self.personal_changed.emit()
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -402,6 +421,17 @@ class HomeViewModel(QObject):
             self._loading = value
             self.loading_changed.emit()
 
+    @Property(bool, notify=offline_changed)
+    def offline(self):
+        return self._offline
+
+    def set_offline(self, offline):
+        self._offline = offline
+        self.offline_changed.emit()
+
+    def set_genres(self, items):
+        self._genres.set_items(items)
+
     def set_error(self, message: str) -> None:
         message = str(message or "")
         if self._error_text != message:
@@ -464,42 +494,22 @@ class HomeViewModel(QObject):
         item = self._tiles.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
+        if action == "play":
+            self.play_tile(index)
+            return
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot(int, str)
     def song_action(self, index: int, action: str) -> None:
         item = self._songs.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "go_artist":
-            self.artist_clicked.emit(artist)
+        if action == "play":
+            self.play_at(index)
+            return
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot(str)
     def navigate_genre(self, query: str) -> None:
@@ -508,6 +518,18 @@ class HomeViewModel(QObject):
     @Slot(str)
     def navigate(self, route: str) -> None:
         self.navigate_requested.emit(route)
+
+    @Slot(str, bool)
+    def play_collection(self, route, shuffle=False):
+        from urllib.parse import parse_qs, urlencode, urlsplit
+        parsed = urlsplit(route)
+        if parsed.path not in {"playlist", "album", "podcast"}:
+            return
+        params = {k: v[-1] for k, v in parse_qs(parsed.query).items() if k == "id"}
+        if not params.get("id"):
+            return
+        params["autoplay"] = "shuffle" if shuffle else "play"
+        self.navigate_requested.emit(parsed.path + "?" + urlencode(params))
 
     @Slot()
     def retry(self) -> None:

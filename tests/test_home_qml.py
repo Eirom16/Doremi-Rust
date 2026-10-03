@@ -69,7 +69,7 @@ class TestHomeViewModel:
         assert vm.songs.rowCount() == 2
         assert vm.horizontal.rowCount() == 3
         assert vm.spotlight.rowCount() == 1
-        assert vm.genres.rowCount() == 12
+        assert vm.genres.rowCount() == 14
 
         idx = vm.songs.index(1, 0)
         assert vm.songs.data(idx, vm.songs.TitleRole) == "Canción Dos"

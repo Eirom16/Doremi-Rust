@@ -11,7 +11,9 @@ Rectangle {
     property string thumbnail: ""
     property bool isDownloaded: false
     property bool isArtist: false
-    readonly property bool hovered: ma.containsMouse || playMa.containsMouse
+    property bool showPlayButton: true
+    readonly property bool hovered: ma.containsMouse || playMa.containsMouse || menuButton.hovered
+    property bool isPlaying: false
 
     signal clicked()
     signal playClicked()
@@ -30,7 +32,9 @@ Rectangle {
     radius: Theme.radiusLg
     color: ma.containsMouse ? root.colors["bg_high"] : root.colors["bg_surface"]
     border.width: 1
-    border.color: ma.containsMouse ? root.colors["border_focus"] : root.colors["border"]
+    border.color: activeFocus || isPlaying ? root.colors["accent"] : (ma.containsMouse ? root.colors["border_focus"] : root.colors["border"])
+    scale: ma.pressed ? 0.98 : (hovered ? 1.01 : 1)
+    Behavior on scale { NumberAnimation { duration: 120; easing.type: Easing.OutCubic } }
 
     Behavior on color { ColorAnimation { duration: 120 } }
     Behavior on border.color { ColorAnimation { duration: 120 } }
@@ -86,9 +90,9 @@ Rectangle {
                 height: 38
                 radius: 19
                 color: root.colors["accent"]
-                opacity: root.hovered ? 1.0 : 0.0
-                scale: root.hovered ? 1.0 : 0.8
-                visible: !root.isArtist
+                opacity: root.hovered || root.activeFocus || activeFocus ? 1.0 : 0.0
+                scale: playMa.pressed ? 0.96 : 1.0
+                visible: root.showPlayButton && !root.isArtist
 
                 Behavior on opacity { NumberAnimation { duration: 150 } }
                 Behavior on scale { NumberAnimation { duration: 150; easing.type: Easing.OutBack } }
@@ -98,7 +102,7 @@ Rectangle {
                     text: ""
                     font.family: "Material Symbols Rounded"
                     font.pixelSize: 22
-                    color: root.colors["bg_base"]
+                    color: root.colors["text_on_accent"]
                 }
 
                 MouseArea {
@@ -118,6 +122,16 @@ Rectangle {
             }
 
             // Download badge
+            ToolButton {
+                id: menuButton
+                anchors.right: parent.right
+                anchors.top: parent.top
+                text: "⋮"
+                opacity: root.hovered || root.activeFocus || activeFocus ? 1 : 0
+                Accessible.name: "Más acciones para " + root.title
+                onClicked: root.menuClicked()
+                Behavior on opacity { NumberAnimation { duration: 120 } }
+            }
             Rectangle {
                 anchors.left: parent.left
                 anchors.top: parent.top

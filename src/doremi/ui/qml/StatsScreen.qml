@@ -61,6 +61,83 @@ Item {
             }
 
             // ── Loading ───────────────────────────────────────────────
+            Flow {
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                Repeater {
+                    model: [{key:"today", title:"Hoy"}, {key:"week", title:"Semana"}, {key:"month", title:"Mes"}, {key:"year", title:"Año"}, {key:"all", title:"Todo"}]
+                    HeaderButton {
+                        required property var modelData
+                        text: modelData.title
+                        active: screenVm.period === modelData.key
+                        onClicked: screenVm.select_period(modelData.key)
+                    }
+                }
+            }
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label { text: "Doremi Wrapped"; color: root.colors["text_primary"]; font.pixelSize: Theme.typeHeading }
+                HeaderButton { text: "Este mes"; onClicked: screenVm.request_wrapped("month") }
+                HeaderButton { text: "Este año"; onClicked: screenVm.request_wrapped("year") }
+            }
+            Rectangle {
+                visible: screenVm.wrapped.title !== undefined && screenVm.wrapped.plays > 0
+                Layout.fillWidth: true
+                Layout.preferredHeight: 160
+                radius: Theme.radiusLg
+                color: root.colors["bg_surface"]
+                border.width: 1
+                border.color: root.colors["border"]
+                ColumnLayout {
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingMd
+                    Label { text: screenVm.wrapped.title || ""; color: root.colors["accent"]; font.pixelSize: Theme.typeHeading }
+                    Label { text: (screenVm.wrapped.minutes || 0) + " minutos de música"; color: root.colors["text_primary"] }
+                    Label { visible: !!screenVm.wrapped.top_artist; text: "Artista favorito · " + screenVm.wrapped.top_artist; color: root.colors["text_secondary"] }
+                    Label { visible: !!screenVm.wrapped.top_song; text: "Canción favorita · " + screenVm.wrapped.top_song; color: root.colors["text_secondary"] }
+                    Label { text: (screenVm.wrapped.discoveries || 0) + " descubrimientos"; color: root.colors["text_secondary"] }
+                }
+            }
+
+            Label {
+                visible: !screenVm.loading && screenVm.totalPlays > 0
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: root.colors["text_secondary"]
+                text: (screenVm.insights.unique_songs || 0) + " canciones únicas · "
+                    + (screenVm.insights.discoveries || 0) + " descubiertas"
+                    + (screenVm.insights.completion_rate != null ? " · Escucha media: " + Math.round(screenVm.insights.completion_rate * 100) + "%" : "")
+                    + (screenVm.insights.skip_rate != null ? " · Saltos: " + Math.round(screenVm.insights.skip_rate * 100) + "%" : "")
+            }
+
+            Repeater {
+                model: !screenVm.loading ? (screenVm.insights.top_artists || []) : []
+                Label {
+                    required property var modelData
+                    text: modelData.title + " · " + modelData.plays + " reproducciones"
+                    color: root.colors["text_primary"]
+                    font.family: Theme.fontFamily
+                }
+            }
+            Label {
+                visible: !screenVm.loading && !!screenVm.insights.peak_hour && !!screenVm.insights.peak_hour.hour
+                Layout.fillWidth: true
+                wrapMode: Text.WordWrap
+                color: root.colors["text_secondary"]
+                text: "Más reproducciones a las " + (screenVm.insights.peak_hour ? screenVm.insights.peak_hour.hour : "")
+                    + ":00 · Día más activo: " + (screenVm.insights.active_day ? screenVm.insights.active_day.day || "" : "")
+            }
+            Repeater {
+                model: !screenVm.loading ? (screenVm.insights.top_collections || []) : []
+                Label {
+                    required property var modelData
+                    text: (modelData.type === "album" ? "Álbum · " : "Playlist · ") + modelData.title + " · " + modelData.plays
+                    color: root.colors["text_secondary"]
+                    font.family: Theme.fontFamily
+                }
+            }
+
             ColumnLayout {
                 visible: screenVm.loading
                 Layout.fillWidth: true
@@ -118,6 +195,9 @@ Item {
                         color: root.colors["bg_elevated"]
                         border.width: 1
                         border.color: root.colors["border"]
+                        HoverHandler { id: metricHover }
+                        ToolTip.visible: modelData.icon === "artist" && metricHover.hovered
+                        ToolTip.text: "Cuenta los créditos de artista guardados; las colaboraciones no se separan en artistas individuales."
 
                         RowLayout {
                             anchors.fill: parent
@@ -296,32 +376,16 @@ Item {
                                     }
                                 }
 
-                                ContextMenu {
+                                SongMenu {
                                     id: songMenu
-                                    ContextMenuItem {
-                                        text: "Reproducir siguiente"
-                                        onTriggered: screenVm.song_action(songRow.index, "play_next")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a la cola"
-                                        onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Me gusta"
-                                        onTriggered: screenVm.song_action(songRow.index, "like")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a playlist"
-                                        onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Descargar"
-                                        onTriggered: screenVm.song_action(songRow.index, "download")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Ir al artista"
-                                        onTriggered: screenVm.song_action(songRow.index, "go_artist")
-                                    }
+                                    showLink: true
+                                    property var track: ({})
+                                    onAboutToShow: track = screenVm.topSongs.track_info(songRow.index)
+                                    liked: !!track.is_liked
+                                    downloaded: !!track.is_downloaded
+                                    localTrack: (track.videoId || "").indexOf("local:") === 0
+                                    hasArtist: !localTrack && !!track.artist
+                                    onAction: function(name) { screenVm.song_action(songRow.index, name) }
                                 }
                             }
                         }
@@ -335,7 +399,7 @@ Item {
                     spacing: Theme.spacingSm
 
                     Label {
-                        text: "Actividad de Escucha"
+                        text: "Actividad diaria" + (screenVm.insights.chart_days ? " · " + screenVm.insights.chart_days + " días" : "")
                         color: root.colors["text_primary"]
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeTitle
@@ -396,16 +460,18 @@ Item {
                                         Layout.preferredHeight: {
                                             var avail = barCol.height - 40
                                             if (screenVm.chartMax <= 0) return 0
-                                            return Math.max(4, avail * barCol.count / screenVm.chartMax)
+                                            return barCol.count > 0 ? Math.max(2, avail * barCol.count / screenVm.chartMax) : 0
                                         }
                                         radius: Theme.radiusSm
                                         color: root.accentColor
                                         opacity: barHover.hovered ? 1.0 : 0.75
 
                                         HoverHandler { id: barHover }
+                                        ToolTip.visible: barHover.hovered
+                                        ToolTip.text: barCol.day + " · " + barCol.count + " reproducciones"
 
                                         Behavior on Layout.preferredHeight {
-                                            NumberAnimation { duration: 300; easing.type: Easing.OutCubic }
+                                            NumberAnimation { duration: 180; easing.type: Easing.OutCubic }
                                         }
                                     }
                                 }
@@ -425,8 +491,9 @@ Item {
                                 model: screenVm.chart
                                 delegate: Label {
                                     required property string day
+                                    required property int index
                                     Layout.fillWidth: true
-                                    text: day
+                                    text: screenVm.chart.rowCount() <= 10 || index % 5 === 0 || index === screenVm.chart.rowCount() - 1 ? day : ""
                                     color: root.colors["text_secondary"]
                                     font.family: Theme.fontFamily
                                     font.pixelSize: Theme.typeCaption

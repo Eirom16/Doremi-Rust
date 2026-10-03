@@ -33,6 +33,22 @@ class SongRepository:
             )
             return result.scalar_one_or_none()
 
+    async def ensure_songs(self, items):
+        """Insert missing metadata in batches, retaining likes/plays of known IDs."""
+        candidates = {item["video_id"]: item for item in items}
+        keys = list(candidates)
+        async with get_session() as session:
+            known = set()
+            for offset in range(0, len(keys), 500):
+                known.update((await session.scalars(select(Song.video_id).where(
+                    Song.video_id.in_(keys[offset:offset + 500])))).all())
+            for identity in candidates.keys() - known:
+                item = candidates[identity]
+                session.add(Song(video_id=identity, title=item["title"], artist=item["artist"],
+                                 album=item.get("album", ""), duration_ms=item.get("duration_ms", 0),
+                                 thumbnail_url=item.get("thumbnail_url", "")))
+            await session.commit()
+
     async def get_liked_songs(self) -> list[Song]:
         async with get_session() as session:
             result = await session.execute(

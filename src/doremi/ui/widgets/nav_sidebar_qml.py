@@ -25,6 +25,8 @@ class NavSidebarQml(QObject):
         self._playlists: list[dict[str, str]] = []
         self._sidebar_width = self.EXPANDED_WIDTH
         self._load_ok = True
+        from doremi.services.experience_events import events
+        events.pin_changed.connect(self.set_pin_state)
 
     @property
     def is_ok(self) -> bool:
@@ -94,11 +96,38 @@ class NavSidebarQml(QObject):
             {
                 "title": str(item.get("title", "")).strip(),
                 "navigate": str(item.get("navigate", "")).strip(),
+                "thumbnail": str(item.get("thumbnail_url", "")),
+                "pinned": bool(item.get("pinned", False)),
             }
-            for item in playlists[:4]
+            for item in playlists[:6]
             if item.get("title") and item.get("navigate")
         ]
         self.playlists_changed.emit()
+
+    @Slot(str)
+    def toggle_pin(self, route):
+        from urllib.parse import urlsplit, parse_qs
+        from doremi.services.experience_events import events
+        item = next((p for p in self._playlists if p["navigate"] == route), None)
+        if item:
+            identity = parse_qs(urlsplit(route).query).get("id", [""])[-1]
+            events.pin_requested.emit(identity, item["title"], item["thumbnail"])
+
+    @Slot(str, bool)
+    def set_pin_state(self, identity, pinned):
+        from urllib.parse import urlsplit, parse_qs
+        for item in self._playlists:
+            route_id = parse_qs(urlsplit(item["navigate"]).query).get("id", [""])[-1]
+            if route_id == identity and item["pinned"] != pinned:
+                item["pinned"] = pinned
+                self.playlists_changed.emit()
+                return
+
+    @Slot(str, str)
+    def move_pin(self, source, target):
+        from doremi.services.experience_events import events
+        if source != target and all(any(p["navigate"] == route and p["pinned"] for p in self._playlists) for route in (source, target)):
+            events.pin_move_requested.emit(source, target)
 
     def set_active(self, route: str) -> None:
         """Reflect programmatic navigation in the QML selection state."""
