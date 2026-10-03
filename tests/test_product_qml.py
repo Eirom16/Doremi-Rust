@@ -29,6 +29,168 @@ def test_new_qml_components_compile(qapp, filename):
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
+@pytest.mark.parametrize("collapsed", [False, True])
+def test_sidebar_playlists_scroll_without_hiding_collapse_button(qapp, collapsed):
+    from PySide6.QtCore import QPointF
+    from PySide6.QtQuick import QQuickItem
+    from doremi.ui.widgets.nav_sidebar_qml import NavSidebarQml
+    from doremi.ui.theme_bridge import theme_bridge
+    folder = Path("src/doremi/ui/qml").resolve()
+    controller = NavSidebarQml(None)
+    controller.set_playlists([dict(title=f"Playlist {i}", navigate=f"playlist?id={i}") for i in range(6)])
+    controller.set_collapsed(collapsed)
+    engine = QQmlEngine()
+    engine.addImportPath(str(folder))
+    engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+    engine.rootContext().setContextProperty("testSidebar", controller)
+    warnings = []
+    engine.warnings.connect(lambda errors: warnings.extend(e.toString() for e in errors))
+    component = QQmlComponent(engine)
+    component.setData(b'import QtQuick\nimport QtQuick.Controls\nimport Doremi 1.0\n'
+                      b'ApplicationWindow { width: testSidebar.collapsed ? 64 : 214; height: 520; visible: true; '
+                      b'NavigationSidebar { anchors.fill: parent; navigationController: testSidebar } }',
+                      QUrl.fromLocalFile(str(folder / "SidebarScrollTest.qml")))
+    assert component.isReady(), [e.toString() for e in component.errors()]
+    window = component.create()
+    assert window is not None
+    try:
+        scroll = window.findChild(QObject, "sidebarPlaylistScroll")
+        button = window.findChild(QQuickItem, "sidebarCollapseButton")
+        window.contentItem().polish()
+        qapp.processEvents()
+        # Force layout polish without waiting for a render-loop timer.
+        window.contentItem().ensurePolished()
+        qapp.processEvents()
+        y = button.mapToScene(QPointF(0, 0)).y()
+        assert y >= 0
+        assert y + button.height() <= window.height()
+        assert button.height() == 44
+        assert scroll.property("contentHeight") > scroll.property("availableHeight") > 0
+        flickable = scroll.property("contentItem")
+        # Repeater delegates have visual parents, not necessarily QObject
+        # ownership below the window, so walk the visual tree.
+        def visual_items(parent):
+            for child in parent.childItems():
+                yield child
+                yield from visual_items(child)
+        last = [item for item in visual_items(window.contentItem())
+                if item.objectName() == "sidebarPlaylistShortcut"][-1]
+        last.forceActiveFocus()
+        assert flickable.property("contentY") > 0
+        assert last.y() + last.height() <= flickable.property("contentY") + flickable.height()
+        assert button.mapToScene(QPointF(0, 0)).y() == y
+        QMetaObject.invokeMethod(button, "forceActiveFocus")
+        QTest.keyClick(window, Qt.Key_Return)
+        assert controller.collapsed != collapsed
+        assert not warnings
+    finally:
+        window.close()
+        for obj in (window, component, controller):
+            obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def test_playlist_dialogs_have_bounded_width_without_binding_loops(qapp):
+    from doremi.ui.viewmodels.playlist_vm import PlaylistViewModel
+    from doremi.ui.theme_bridge import theme_bridge
+    folder = Path("src/doremi/ui/qml").resolve()
+    vm = PlaylistViewModel()
+    vm.set_data(dict(playlist_id="local-list:p", title="Una playlist " * 30, tracks=[]))
+    vm.set_loading(False)
+    engine = QQmlEngine()
+    engine.addImportPath(str(folder))
+    engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+    engine.rootContext().setContextProperty("testPlaylist", vm)
+    warnings = []
+    engine.warnings.connect(lambda errors: warnings.extend(e.toString() for e in errors))
+    component = QQmlComponent(engine)
+    component.setData(b'import QtQuick\nimport QtQuick.Controls\nimport "."\n'
+                      b'ApplicationWindow { width: 640; height: 520; visible: true; '
+                      b'PlaylistScreen { anchors.fill: parent; screenVm: testPlaylist } }',
+                      QUrl.fromLocalFile(str(folder / "PlaylistDialogTest.qml")))
+    assert component.isReady(), [e.toString() for e in component.errors()]
+    window = component.create()
+    assert window is not None
+    try:
+        for name in ("renamePlaylistDialog", "deletePlaylistDialog"):
+            dialog = window.findChild(QObject, name)
+            QMetaObject.invokeMethod(dialog, "open")
+            qapp.processEvents()
+            assert 0 < dialog.property("width") < window.width()
+            assert dialog.property("visible")
+            QMetaObject.invokeMethod(dialog, "close")
+        assert not warnings
+    finally:
+        window.close()
+        for obj in (window, component, vm):
+            obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def test_failed_artwork_backoff_is_bounded_and_expires(qapp):
+    from PySide6.QtQml import QQmlExpression
+    folder = Path("src/doremi/ui/qml/Doremi").resolve()
+    engine = QQmlEngine()
+    component = QQmlComponent(engine)
+    component.setData(b'import QtQuick\nimport "ArtworkFailures.js" as Failures\n'
+                      b'QtObject { function check() { '
+                      b'Failures.remember("missing", 1000); '
+                      b'if (Failures.sourceFor("missing", 1001) !== "") return false; '
+                      b'if (Failures.sourceFor("other", 1001) !== "other") return false; '
+                      b'if (Failures.sourceFor("missing", 301000) !== "missing") return false; '
+                      b'for (var i = 0; i < 200; ++i) Failures.remember("url" + i, 1000); '
+                      b'return Failures.order.length === 128 && Failures.sourceFor("url0", 1001) === "url0"; } }',
+                      QUrl.fromLocalFile(str(folder / "ArtworkBackoffTest.qml")))
+    assert component.isReady(), [e.toString() for e in component.errors()]
+    obj = component.create()
+    expression = QQmlExpression(engine.rootContext(), obj, "check()")
+    assert expression.evaluate()[0] is True
+    assert not expression.hasError(), expression.error().toString()
+    for item in (expression, obj, component):
+        item.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    engine.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+def test_media_card_missing_artwork_has_fallback_and_is_not_refetched(qapp, tmp_path):
+    from PySide6.QtTest import QSignalSpy
+    from doremi.ui.theme_bridge import theme_bridge
+    folder = Path("src/doremi/ui/qml").resolve()
+    engine = QQmlEngine()
+    engine.addImportPath(str(folder))
+    engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+    component = QQmlComponent(engine, QUrl.fromLocalFile(str(folder / "Doremi/MediaCard.qml")))
+    assert component.isReady(), [e.toString() for e in component.errors()]
+    url = QUrl.fromLocalFile(str(tmp_path / "missing.jpg")).toString()
+    card = component.createWithInitialProperties(dict(thumbnail=url, width=180, height=240))
+    assert card is not None
+    second = None
+    try:
+        artwork = card.findChild(QObject, "mediaCardArtwork")
+        fallback = card.findChild(QObject, "mediaCardArtworkFallback")
+        status = QSignalSpy(artwork.statusChanged)
+        if not fallback.property("visible"):
+            assert status.wait(1000)
+        qapp.processEvents()
+        assert fallback.property("visible")
+        second = component.createWithInitialProperties(dict(thumbnail=url, width=180, height=240))
+        assert second is not None
+        assert second.findChild(QObject, "mediaCardArtwork").property("source").isEmpty()
+        assert second.findChild(QObject, "mediaCardArtworkFallback").property("visible")
+    finally:
+        for obj in (second, card, component):
+            if obj is not None:
+                obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
 @pytest.mark.parametrize("name", ["CommandPalette", "PlaylistPicker"])
 def test_new_popups_follow_dark_and_light_tokens(qapp, name):
     from doremi.ui.theme_bridge import ThemeBridge

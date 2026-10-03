@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 import Doremi 1.0
+import "ArtworkFailures.js" as ArtworkFailures
 
 Rectangle {
     id: root
@@ -60,16 +61,23 @@ Rectangle {
             clip: true
 
             Image {
+                id: artwork
+                objectName: "mediaCardArtwork"
                 anchors.fill: parent
-                source: root.thumbnail
+                source: ArtworkFailures.sourceFor(root.thumbnail)
                 fillMode: Image.PreserveAspectCrop
                 asynchronous: true
                 visible: status === Image.Ready
+                onStatusChanged: {
+                    if (status === Image.Error)
+                        ArtworkFailures.remember(source.toString())
+                }
             }
 
             Rectangle {
+                objectName: "mediaCardArtworkFallback"
                 anchors.fill: parent
-                visible: root.thumbnail === ""
+                visible: artwork.status === Image.Error || artwork.status === Image.Null
                 color: root.colors["bg_elevated"]
 
                 Text {

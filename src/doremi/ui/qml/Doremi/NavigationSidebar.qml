@@ -144,6 +144,8 @@ Item {
 
         ColumnLayout {
             Layout.fillWidth: true
+            Layout.fillHeight: true
+            Layout.minimumHeight: 0
             Layout.topMargin: Theme.spacingSm
             spacing: 4
 
@@ -157,67 +159,88 @@ Item {
                 Layout.leftMargin: Theme.spacingSm
             }
 
-            NavigationItem {
-                visible: root.playlists.length === 0
+            ScrollView {
+                id: playlistScroll
+                objectName: "sidebarPlaylistScroll"
                 Layout.fillWidth: true
-                route: "library"
-                icon: "library_music"
-                label: "Tu biblioteca"
-                collapsed: root.sidebarCollapsed
-                active: root.controllerAvailable && navigationController.activePath === route
-                onActivated: if (root.controllerAvailable) navigationController.navigate(route)
-            }
+                Layout.fillHeight: true
+                Layout.minimumHeight: 0
+                clip: true
+                contentWidth: availableWidth
+                contentHeight: playlistColumn.implicitHeight
+                ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+                ScrollBar.vertical.policy: ScrollBar.AsNeeded
 
-            Repeater {
-                model: root.playlists
+                Column {
+                    id: playlistColumn
+                    width: playlistScroll.availableWidth
+                    spacing: 4
 
-                delegate: NavigationItem {
-                    id: shortcut
-                    required property var modelData
-                    Layout.fillWidth: true
-                    route: modelData.navigate
-                    icon: "playlist_play"
-                    label: modelData.title
-                    thumbnail: modelData.thumbnail || ""
-                    active: root.controllerAvailable && navigationController.activePath === route
-                    collapsed: root.sidebarCollapsed
-                    onActivated: if (root.controllerAvailable) navigationController.navigate(route)
-                    onContextRequested: shortcutMenu.popup()
-                    Drag.active: pinDrag.active
-                    Drag.dragType: Drag.Automatic
-                    Drag.keys: ["doremi-pin"]
-                    Drag.mimeData: ({"application/x-doremi-pin": shortcut.route})
-                    Drag.supportedActions: Qt.MoveAction
-                    DragHandler { id: pinDrag; target: null; enabled: shortcut.modelData.pinned }
-                    DropArea {
-                        anchors.fill: parent
-                        keys: ["doremi-track", "doremi-pin"]
-                        onDropped: function(drop) {
-                            if (drop.formats.indexOf("application/x-doremi-pin") >= 0) {
-                                navigationController.move_pin(drop.getDataAsString("application/x-doremi-pin"), shortcut.route)
-                                drop.acceptProposedAction()
-                            } else if (typeof desktopController !== "undefined" && desktopController) {
-                                desktopController.drop_track(drop.getDataAsString("application/x-doremi-track"), shortcut.route)
-                                drop.acceptProposedAction()
-                            }
-                        }
-                        Rectangle { anchors.fill: parent; visible: parent.containsDrag; color: "transparent"; border.width: 2; border.color: root.colors["accent"]; radius: Theme.radiusMd }
+                    NavigationItem {
+                        visible: root.playlists.length === 0
+                        width: parent.width
+                        height: 44
+                        route: "library"
+                        icon: "library_music"
+                        label: "Tu biblioteca"
+                        collapsed: root.sidebarCollapsed
+                        active: root.controllerAvailable && navigationController.activePath === route
+                        onActivated: if (root.controllerAvailable) navigationController.navigate(route)
                     }
-                    Menu {
-                        id: shortcutMenu
-                        MenuItem { text: "Abrir"; onTriggered: shortcut.activated() }
-                        MenuItem {
-                            text: shortcut.modelData.pinned ? "Desfijar de barra lateral" : "Fijar en barra lateral"
-                            onTriggered: navigationController.toggle_pin(shortcut.route)
+
+                    Repeater {
+                        model: root.playlists
+
+                        delegate: NavigationItem {
+                            id: shortcut
+                            objectName: "sidebarPlaylistShortcut"
+                            required property var modelData
+                            width: playlistColumn.width
+                            height: 44
+                            route: modelData.navigate
+                            icon: "playlist_play"
+                            label: modelData.title
+                            thumbnail: modelData.thumbnail || ""
+                            active: root.controllerAvailable && navigationController.activePath === route
+                            collapsed: root.sidebarCollapsed
+                            onActivated: if (root.controllerAvailable) navigationController.navigate(route)
+                            onContextRequested: shortcutMenu.popup()
+                            Drag.active: pinDrag.active
+                            Drag.dragType: Drag.Automatic
+                            Drag.keys: ["doremi-pin"]
+                            Drag.mimeData: ({"application/x-doremi-pin": shortcut.route})
+                            Drag.supportedActions: Qt.MoveAction
+                            DragHandler { id: pinDrag; target: null; enabled: shortcut.modelData.pinned }
+                            DropArea {
+                                anchors.fill: parent
+                                keys: ["doremi-track", "doremi-pin"]
+                                onDropped: function(drop) {
+                                    if (drop.formats.indexOf("application/x-doremi-pin") >= 0) {
+                                        navigationController.move_pin(drop.getDataAsString("application/x-doremi-pin"), shortcut.route)
+                                        drop.acceptProposedAction()
+                                    } else if (typeof desktopController !== "undefined" && desktopController) {
+                                        desktopController.drop_track(drop.getDataAsString("application/x-doremi-track"), shortcut.route)
+                                        drop.acceptProposedAction()
+                                    }
+                                }
+                                Rectangle { anchors.fill: parent; visible: parent.containsDrag; color: "transparent"; border.width: 2; border.color: root.colors["accent"]; radius: Theme.radiusMd }
+                            }
+                            Menu {
+                                id: shortcutMenu
+                                MenuItem { text: "Abrir"; onTriggered: shortcut.activated() }
+                                MenuItem {
+                                    text: shortcut.modelData.pinned ? "Desfijar de barra lateral" : "Fijar en barra lateral"
+                                    onTriggered: navigationController.toggle_pin(shortcut.route)
+                                }
+                            }
                         }
                     }
                 }
             }
         }
 
-        Item { Layout.fillHeight: true }
-
         NavigationItem {
+            objectName: "sidebarCollapseButton"
             Layout.fillWidth: true
             route: "navigationController-toggle"
             icon: root.sidebarCollapsed ? "chevron_right" : "chevron_left"
@@ -240,10 +263,21 @@ Item {
         signal contextRequested()
 
         Layout.preferredHeight: 44
+        Layout.minimumHeight: 44
+        Layout.maximumHeight: 44
         Accessible.role: Accessible.Button
         Accessible.name: label
         Accessible.onPressAction: item.activated()
         activeFocusOnTab: true
+        onActiveFocusChanged: {
+            if (!activeFocus || parent !== playlistColumn)
+                return
+            const flickable = playlistScroll.contentItem
+            if (y < flickable.contentY)
+                flickable.contentY = y
+            else if (y + height > flickable.contentY + flickable.height)
+                flickable.contentY = y + height - flickable.height
+        }
         Keys.onReturnPressed: if (!event.isAutoRepeat) item.activated()
         Keys.onEnterPressed: if (!event.isAutoRepeat) item.activated()
         Keys.onSpacePressed: if (!event.isAutoRepeat) item.activated()

@@ -429,6 +429,8 @@ Item {
     // ── Confirmación: quitar de la playlist ───────────────────────────
     Dialog {
         id: renameDialog
+        objectName: "renamePlaylistDialog"
+        width: Math.min(360, root.width - Theme.spacingLg * 2)
         property string targetId: ""
         palette.window: root.colors["bg_surface"]
         palette.base: root.colors["bg_elevated"]
@@ -447,7 +449,6 @@ Item {
         onAccepted: screenVm.edit_local_target(targetId, "rename", renameTitle.text)
         contentItem: TextField {
             id: renameTitle
-            width: 320
             placeholderText: "Nombre de la playlist"
             maximumLength: 200
             Accessible.name: "Nombre de la playlist"
@@ -456,6 +457,8 @@ Item {
     }
     Dialog {
         id: deleteDialog
+        objectName: "deletePlaylistDialog"
+        width: Math.min(380, root.width - Theme.spacingLg * 2)
         property string targetId: ""
         property string targetTitle: ""
         palette.window: root.colors["bg_surface"]
@@ -474,7 +477,6 @@ Item {
         onOpened: { targetId = screenVm.playlistId; targetTitle = screenVm.title }
         onAccepted: screenVm.edit_local_target(targetId, "delete", "")
         contentItem: Label {
-            width: 340
             wrapMode: Text.WordWrap
             color: root.colors["text_primary"]
             textFormat: Text.PlainText
