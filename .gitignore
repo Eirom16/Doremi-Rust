@@ -68,6 +68,7 @@ Thumbs.db
 !README.md
 !README.MD
 !AUDIT_POLISH.md
+!docs/PRODUCT_EXPERIENCE_IMPLEMENTATION.md
 
 # Módulos nativos compilados (se recompilan localmente / en CI)
 src/pyrolist/native_rs/target/

@@ -336,6 +336,7 @@ class TestNowPlayingScreenQml:
         screen = NowPlayingScreenQml(_FakePlayer(), _make_queue(), None,
                                      lambda i: None, AppSettings(), lambda: None)
         player = screen.player
+        screen.queue.current_index = 1  # Align the queue and fake VLC snapshot.
         screen.update_track_info("Midnight City", "M83", "")
         assert screen._vm.trackTitle == "Midnight City"
         assert screen._vm.videoId == "v1"

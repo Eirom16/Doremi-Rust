@@ -90,6 +90,33 @@ def _make_stub_mw():
     return mw
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["play", "shuffle"])
+async def test_collection_autoplay_runs_after_load_without_polluting_navigation(mode):
+    mw = _make_stub_mw()
+    mw._current_path = "home"
+    mw.playlist_screen._vm = SimpleNamespace(play_all=MagicMock(), play_shuffle=MagicMock(), found=True, loading=False, errorText="")
+    nav = NavigationController(mw, real_run_async)
+    await nav.navigate("playlist?id=p&autoplay=" + mode)
+    mw.playlist_screen.load.assert_awaited_once_with("p")
+    assert mw._current_path == "playlist?id=p"
+    assert mw._nav_history == ["home"]
+    method = mw.playlist_screen._vm.play_all if mode == "play" else mw.playlist_screen._vm.play_shuffle
+    method.assert_called_once()
+    await nav.navigate("home")
+    await nav.navigate("playlist?id=p")
+    method.assert_called_once()  # Revisiting/Back must not restart playback.
+
+
+@pytest.mark.asyncio
+async def test_collection_autoplay_does_not_play_stale_tracks_after_load_error():
+    mw = _make_stub_mw()
+    mw._current_path = "home"
+    mw.playlist_screen._vm = SimpleNamespace(play_all=MagicMock(), found=False, loading=False, errorText="Failed")
+    await NavigationController(mw, real_run_async).navigate("playlist?id=p&autoplay=play")
+    mw.playlist_screen._vm.play_all.assert_not_called()
+
+
 # ---------------------------------------------------------------------------
 # NavigationController
 # ---------------------------------------------------------------------------
@@ -157,7 +184,7 @@ class TestNavigation:
         mw.library_screen.load.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_refresh_sidebar_playlists_limits_to_four(self, monkeypatch):
+    async def test_refresh_sidebar_playlists_limits_to_six(self, monkeypatch):
         nav, mw = self._nav()
         mw.yt.is_authenticated = True
 
@@ -168,11 +195,20 @@ class TestNavigation:
             ]
 
         from doremi.ui.screens import library_data
+        from doremi.db import experience_repository
         monkeypatch.setattr(library_data, "gather_library_playlists", gather)
+        class FakeExperienceRepository:
+            async def remember_collections(self, items):
+                self.items = items
+
+            async def quick_access(self, limit=6):
+                return self.items[:limit]
+
+        monkeypatch.setattr(experience_repository, "ExperienceRepository", FakeExperienceRepository)
         await nav.refresh_sidebar_playlists()
         shown = mw.sidebar.set_playlists.call_args.args[0]
         assert [item["title"] for item in shown] == [
-            "Playlist 0", "Playlist 1", "Playlist 2", "Playlist 3",
+            "Playlist 0", "Playlist 1", "Playlist 2", "Playlist 3", "Playlist 4", "Playlist 5",
         ]
 
     def test_sidebar_tracks_deep_link_path_separately_from_section(self):
@@ -321,6 +357,41 @@ class TestQueue:
         assert item.video_id == "v1"
         assert item.duration_ms == 180000  # 180s -> 180000ms
         mw.playback_controller._update_queue_panel.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_queue_feedback_precedes_metadata_and_removed_item_is_not_updated(self):
+        qc, mw = self._qc()
+        started, release = asyncio.Event(), asyncio.Event()
+
+        async def extract(_video_id):
+            started.set()
+            await release.wait()
+            return {"duration": 180}
+
+        qc.extractor.get_stream_info = extract
+        task = asyncio.create_task(qc.add_to_queue_async("v1", "T", "A", "u"))
+        await started.wait()
+        assert qc.queue.items[0].video_id == "v1"
+        mw.playback_controller._update_queue_panel.assert_called_once()
+        qc.queue.clear()
+        release.set()
+        await task
+        assert not qc.queue.items
+        mw.playback_controller._update_queue_panel.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_qml_like_does_not_require_widget_visibility(self, monkeypatch):
+        import doremi.db.repository as repo_mod
+        repo = SimpleNamespace(get_song=AsyncMock(return_value=object()), toggle_like=AsyncMock(return_value=True))
+        monkeypatch.setattr(repo_mod, "SongRepository", lambda: repo)
+        qc, mw = self._qc()
+        mw.yt.is_authenticated = False
+        mw._current_route = "home"
+        mw.library_screen = SimpleNamespace(_qml_island=True, invalidate_songs_cache=MagicMock(), load=AsyncMock())
+        await qc.toggle_like_async("v1", None)
+        mw.show_notification.assert_not_called()
+        mw.library_screen.load.assert_not_awaited()
+        mw.playback_controller._update_queue_panel.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_like_toggles_and_syncs(self, monkeypatch):
