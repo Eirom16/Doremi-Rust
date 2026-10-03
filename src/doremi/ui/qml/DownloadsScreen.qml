@@ -109,101 +109,27 @@ Item {
             }
         }
 
-        // ── Tabs ──────────────────────────────────────────────────────
+        // ── Filtros compactos ────────────────────────────────────────
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSm
 
-            Repeater {
-                model: root.tabDefs
-                delegate: Rectangle {
-                    id: tabPill
-                    required property var modelData
-                    readonly property bool active: screenVm.tab === modelData.key
-
-                    Layout.preferredWidth: tabLabel.implicitWidth + Theme.spacingLg * 1.5
-                    Layout.preferredHeight: 36
-                    radius: Theme.radiusPill
-                    color: active ? root.accentWithAlpha(0.15)
-                                  : (tabMa.containsMouse ? root.colors["bg_elevated"] : "transparent")
-                    border.width: 1
-                    border.color: active ? root.accentWithAlpha(0.3) : (activeFocus ? root.accentColor : "transparent")
-                    activeFocusOnTab: true
-                    Accessible.role: Accessible.RadioButton
-                    Accessible.name: tabPill.modelData.label
-                    Accessible.checked: active
-                    Accessible.onPressAction: screenVm.set_tab(tabPill.modelData.key)
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
-                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_tab(tabPill.modelData.key) }
-
-                    Label {
-                        id: tabLabel
-                        anchors.centerIn: parent
-                        text: tabPill.modelData.label
-                        color: tabPill.active ? root.accentColor : root.colors["text_secondary"]
-                        font.family: Theme.fontFamily
-                        font.pixelSize: 13
-                        font.weight: Font.DemiBold
-                    }
-                    MouseArea {
-                        id: tabMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: screenVm.set_tab(tabPill.modelData.key)
-                    }
-                }
+            FilterSelect {
+                objectName: "downloadsTypeFilter"
+                Layout.preferredWidth: 250
+                label: "Tipo"
+                selectedKey: screenVm.tab
+                options: root.tabDefs
+                onChoiceSelected: function(key) { screenVm.set_tab(key) }
             }
 
-            Item { Layout.fillWidth: true }
-        }
-
-        // ── Filtros de estado (solo tab canciones) ────────────────────
-        RowLayout {
-            Layout.fillWidth: true
-            spacing: Theme.spacingXs
-            visible: screenVm.tab === "songs"
-
-            Repeater {
-                model: root.statusDefs
-                delegate: Rectangle {
-                    id: chip
-                    required property var modelData
-                    readonly property bool active: screenVm.statusFilter === modelData.key
-
-                    Layout.preferredWidth: chipLabel.implicitWidth + Theme.spacingMd
-                    Layout.preferredHeight: 30
-                    radius: Theme.radiusPill
-                    color: chipMa.containsMouse ? root.colors["bg_elevated"] : "transparent"
-                    border.width: 1
-                    border.color: active ? root.accentColor : (activeFocus ? root.accentColor : root.colors["border"])
-                    activeFocusOnTab: visible
-                    Accessible.role: Accessible.RadioButton
-                    Accessible.name: chip.modelData.label
-                    Accessible.checked: active
-                    Accessible.onPressAction: screenVm.set_status_filter(chip.modelData.key)
-                    Keys.onReturnPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
-                    Keys.onEnterPressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
-                    Keys.onSpacePressed: function(event) { if (!event.isAutoRepeat) screenVm.set_status_filter(chip.modelData.key) }
-
-                    Label {
-                        id: chipLabel
-                        anchors.centerIn: parent
-                        text: chip.modelData.label
-                        color: chip.active ? root.accentColor : root.colors["text_secondary"]
-                        font.family: Theme.fontFamily
-                        font.pixelSize: Theme.typeCaption
-                        font.weight: Font.DemiBold
-                    }
-                    MouseArea {
-                        id: chipMa
-                        anchors.fill: parent
-                        hoverEnabled: true
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: screenVm.set_status_filter(chip.modelData.key)
-                    }
-                }
+            FilterSelect {
+                objectName: "downloadsStatusFilter"
+                visible: screenVm.tab === "songs"
+                label: "Estado"
+                selectedKey: screenVm.statusFilter
+                options: root.statusDefs
+                onChoiceSelected: function(key) { screenVm.set_status_filter(key) }
             }
 
             Item { Layout.fillWidth: true }

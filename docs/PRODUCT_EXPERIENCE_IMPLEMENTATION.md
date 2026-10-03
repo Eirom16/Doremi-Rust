@@ -11,6 +11,7 @@
 - Menús compartidos de canción y colección, controles de Me gusta/volumen/menú en MiniPlayer, restauración de estado de navegación, arrastre de pistas a cola o playlist, reordenación de cola/pins e importación por drop. Favoritos y disponibilidad offline actualizan las filas sin reiniciar sus modelos. Los pins tienen feedback optimista con reversión ante un fallo de persistencia.
 - La sección de playlists de sidebar tiene scroll independiente del botón de contraer. Las notificaciones de descargas utilizan el panel QML vigente y conservan la acción VER del toast. Los diálogos locales tienen ancho acotado; las tarjetas muestran fallback de artwork fallido y evitan repetir la misma URL durante cinco minutos (hasta 128 URLs por motor QML).
 - Paleta de comandos con Ctrl+K y atajos de reproducción; referencia en Ajustes.
+- Filtros compactos compartidos (`FilterSelect`): tipo/estado en Descargas y período en Estadísticas, sincronizados con el ViewModel y accesibles por teclado. Wrapped reúne sus acciones mensual/anual en un menú de generación de resumen.
 
 ## Architecture
 
@@ -70,9 +71,9 @@ Espacio: reproducir/pausar; Ctrl+K: paleta; Ctrl+F: búsqueda; Ctrl+→/Ctrl+←
 
 ## Manual verification
 
-Los tests automatizados cubren contexto y apariciones duplicadas de cola, upgrade desde 0002 con datos conservados, ranking/pins/rollback, deduplicación/diversidad, smart playlists, períodos estadísticos, sesiones importadas y límites temporales, colecciones locales mixtas y operaciones atómicas, disponibilidad real de archivos, navegación y autoplay transitorio, comandos, foco/flechas/Escape/Enter de la paleta, bindings dark/light y compilación de 17 componentes QML. También se instancian sidebar y diálogos para verificar geometría, acceso por teclado al botón de contraer y ausencia de warnings al abrir los diálogos. Las regresiones de descarga comprueban encolado, notificaciones y acción VER con servicios simulados, no transferencias externas.
+Los tests automatizados cubren contexto y apariciones duplicadas de cola, upgrade desde 0002 con datos conservados, ranking/pins/rollback, deduplicación/diversidad, smart playlists, períodos estadísticos, sesiones importadas y límites temporales, colecciones locales mixtas y operaciones atómicas, disponibilidad real de archivos, navegación y autoplay transitorio, comandos, foco/flechas/Escape/Enter de la paleta, bindings dark/light y compilación de 19 componentes QML. También se instancian sidebar y diálogos para verificar geometría, acceso por teclado al botón de contraer y ausencia de warnings al abrir los diálogos. Los desplegables se prueban con teclado, cambios programáticos de filtro, apertura/cierre y colores de control/popup en ambos temas. Las regresiones de descarga comprueban encolado, notificaciones y acción VER con servicios simulados, no transferencias externas.
 
-Suite completa verificada: **476 tests aprobados**. También pasan `compileall` y `git diff --check`.
+Suite completa verificada: **481 tests aprobados**. También pasan `compileall` y `git diff --check`.
 
 El 3 de octubre de 2026 se arrancó la aplicación offscreen con configuración/datos/cache temporales: cargaron las pantallas QML y el shell sin errores QML, con VLC detectado y MPRIS registrado. El proceso se detuvo mediante timeout tras el arranque; no se probó reproducción real. El llavero de autenticación no estaba aislado, por lo que este smoke no demuestra funcionamiento sin credenciales. Durante el último arranque el caché automático intentó descargar audio y recibió HTTP 403 de YouTube: el arranque correcto no acredita descargas externas satisfactorias.
 

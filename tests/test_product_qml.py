@@ -14,7 +14,7 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-@pytest.mark.parametrize("filename", ["MainShell.qml", "HomeScreen.qml", "PlaylistScreen.qml", "StatsScreen.qml", "MiniPlayer.qml", "CommandPalette.qml", "PlaylistPicker.qml", "AlbumScreen.qml", "ArtistScreen.qml", "LibraryScreen.qml", "HistoryScreen.qml", "SearchScreen.qml", "NowPlayingScreen.qml", "Doremi/MediaCard.qml", "Doremi/SongMenu.qml", "Doremi/CollectionMenu.qml", "Doremi/TrackDragArea.qml"])
+@pytest.mark.parametrize("filename", ["MainShell.qml", "HomeScreen.qml", "PlaylistScreen.qml", "StatsScreen.qml", "MiniPlayer.qml", "CommandPalette.qml", "PlaylistPicker.qml", "AlbumScreen.qml", "ArtistScreen.qml", "LibraryScreen.qml", "HistoryScreen.qml", "SearchScreen.qml", "NowPlayingScreen.qml", "Doremi/MediaCard.qml", "Doremi/SongMenu.qml", "Doremi/CollectionMenu.qml", "Doremi/TrackDragArea.qml", "DownloadsScreen.qml", "Doremi/FilterSelect.qml"])
 def test_new_qml_components_compile(qapp, filename):
     from doremi.ui.theme_bridge import theme_bridge
     folder = Path("src/doremi/ui/qml").resolve()
@@ -191,7 +191,7 @@ def test_media_card_missing_artwork_has_fallback_and_is_not_refetched(qapp, tmp_
         QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
-@pytest.mark.parametrize("name", ["CommandPalette", "PlaylistPicker"])
+@pytest.mark.parametrize("name", ["CommandPalette", "PlaylistPicker", "FilterSelect"])
 def test_new_popups_follow_dark_and_light_tokens(qapp, name):
     from doremi.ui.theme_bridge import ThemeBridge
     from doremi.ui.design import tokens
@@ -201,9 +201,11 @@ def test_new_popups_follow_dark_and_light_tokens(qapp, name):
     engine.addImportPath(str(folder))
     engine.rootContext().setContextProperty("themeBridge", bridge)
     component = QQmlComponent(engine)
-    component.setData(('import QtQuick\nimport "."\n' + name +
+    popup_colors = ('readonly property color observedPopupText: popup.palette.text; '
+                    'readonly property color observedPopupBase: popup.palette.base; ') if name == "FilterSelect" else ""
+    component.setData(('import QtQuick\nimport Doremi 1.0\nimport "."\n' + name +
                        ' { readonly property color observedText: palette.text; '
-                       'readonly property color observedBase: palette.base }').encode(),
+                       'readonly property color observedBase: palette.base; ' + popup_colors + '}').encode(),
                       QUrl.fromLocalFile(str(folder / "PaletteTest.qml")))
     assert component.isReady(), [e.toString() for e in component.errors()]
     popup = component.create()
@@ -213,11 +215,100 @@ def test_new_popups_follow_dark_and_light_tokens(qapp, name):
         qapp.processEvents()
         assert popup.property("observedText").name() == scheme.text_primary.lower()
         assert popup.property("observedBase").name() == scheme.bg_surface.lower()
+        if name == "FilterSelect":
+            assert popup.property("observedPopupText").name() == scheme.text_primary.lower()
+            assert popup.property("observedPopupBase").name() == scheme.bg_surface.lower()
     for obj in (popup, component):
         obj.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
     engine.deleteLater()
     QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+
+
+@pytest.mark.parametrize("screen", ["Downloads", "Stats"])
+def test_screen_dropdown_filters_follow_viewmodel_and_keyboard(qapp, screen):
+    from PySide6.QtQml import QQmlExpression
+    from doremi.ui.theme_bridge import theme_bridge
+    from doremi.ui.viewmodels.downloads_vm import DownloadsViewModel
+    from doremi.ui.viewmodels.stats_vm import StatsViewModel
+    folder = Path("src/doremi/ui/qml").resolve()
+    vm = DownloadsViewModel() if screen == "Downloads" else StatsViewModel()
+    vm.set_loading(False)
+    wrapped_requests = []
+    if screen == "Stats":
+        vm.wrapped_requested.connect(wrapped_requests.append)
+    engine = QQmlEngine()
+    engine.addImportPath(str(folder))
+    engine.rootContext().setContextProperty("themeBridge", theme_bridge())
+    engine.rootContext().setContextProperty("testFilterVm", vm)
+    warnings = []
+    engine.warnings.connect(lambda errors: warnings.extend(e.toString() for e in errors))
+    component = QQmlComponent(engine)
+    component.setData(('import QtQuick\nimport QtQuick.Controls\nimport "."\n'
+                       'ApplicationWindow { width: 720; height: 600; visible: true; '
+                       + screen + 'Screen { anchors.fill: parent; screenVm: testFilterVm } }').encode(),
+                      QUrl.fromLocalFile(str(folder / "FilterTest.qml")))
+    assert component.isReady(), [e.toString() for e in component.errors()]
+    window = component.create()
+    assert window is not None
+    try:
+        def popup_visible(control):
+            expression = QQmlExpression(engine.rootContext(), control, "popup.visible")
+            value, _ = expression.evaluate()
+            assert not expression.hasError(), expression.error().toString()
+            expression.deleteLater()
+            return value
+
+        name = "downloadsTypeFilter" if screen == "Downloads" else "statsPeriodFilter"
+        combo = window.findChild(QObject, name)
+        qapp.processEvents()
+        assert combo.property("currentIndex") == (0 if screen == "Downloads" else 4)
+        assert not wrapped_requests  # Creating the UI must not generate a summary.
+        QMetaObject.invokeMethod(combo, "forceActiveFocus")
+        QTest.keyClick(window, Qt.Key_Space)
+        qapp.processEvents()
+        assert popup_visible(combo)
+        QTest.keyClick(window, Qt.Key_Escape)
+        assert not popup_visible(combo)
+        QTest.keyClick(window, Qt.Key_Down if screen == "Downloads" else Qt.Key_Up)
+        if screen == "Downloads":
+            status = window.findChild(QObject, "downloadsStatusFilter")
+            assert vm.tab == "albums"
+            assert not status.property("visible")
+            vm.set_tab("songs")
+            vm.set_status_filter("error")
+            assert combo.property("currentIndex") == 0
+            assert status.property("visible")
+            assert status.property("currentIndex") == 3
+            QMetaObject.invokeMethod(status, "forceActiveFocus")
+            QTest.keyClick(window, Qt.Key_Up)
+            assert vm.statusFilter == "active"
+            vm.set_tab("playlists")
+            assert combo.property("displayText") == "Playlists Completas"
+            assert not status.property("visible")
+        else:
+            assert vm.period == "year"
+            vm.select_period("month")
+            assert combo.property("currentIndex") == 2
+            assert combo.property("displayText") == "Mes"
+            button = window.findChild(QObject, "wrappedMenuButton")
+            menu = window.findChild(QObject, "wrappedPeriodMenu")
+            QMetaObject.invokeMethod(button, "clicked")
+            qapp.processEvents()
+            assert menu.property("visible")
+            QTest.keyClick(window, Qt.Key_Escape)
+            assert not menu.property("visible")
+            QMetaObject.invokeMethod(window.findChild(QObject, "wrappedMonthAction"), "triggered")
+            QMetaObject.invokeMethod(window.findChild(QObject, "wrappedYearAction"), "triggered")
+            assert wrapped_requests == ["month", "year"]
+        assert not warnings
+    finally:
+        window.close()
+        for obj in (window, component, vm):
+            obj.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        engine.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
 
 
 def test_miniplayer_shares_likes_and_restores_muted_volume(qapp):

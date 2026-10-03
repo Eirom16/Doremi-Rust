@@ -1,6 +1,7 @@
 module Doremi
 singleton Theme 1.0 Theme.qml
 HeaderButton 1.0 HeaderButton.qml
+FilterSelect 1.0 FilterSelect.qml
 HeroButton 1.0 HeroButton.qml
 SkeletonLoader 1.0 SkeletonLoader.qml
 EmptyStateView 1.0 EmptyStateView.qml

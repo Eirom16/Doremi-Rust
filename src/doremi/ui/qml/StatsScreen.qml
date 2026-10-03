@@ -60,26 +60,38 @@ Item {
                 }
             }
 
-            // ── Loading ───────────────────────────────────────────────
-            Flow {
+            // ── Período ───────────────────────────────────────────────
+            RowLayout {
                 Layout.fillWidth: true
                 spacing: Theme.spacingSm
-                Repeater {
-                    model: [{key:"today", title:"Hoy"}, {key:"week", title:"Semana"}, {key:"month", title:"Mes"}, {key:"year", title:"Año"}, {key:"all", title:"Todo"}]
-                    HeaderButton {
-                        required property var modelData
-                        text: modelData.title
-                        active: screenVm.period === modelData.key
-                        onClicked: screenVm.select_period(modelData.key)
-                    }
+                FilterSelect {
+                    objectName: "statsPeriodFilter"
+                    label: "Período"
+                    selectedKey: screenVm.period
+                    options: [{key:"today", label:"Hoy"}, {key:"week", label:"Semana"}, {key:"month", label:"Mes"}, {key:"year", label:"Año"}, {key:"all", label:"Todo"}]
+                    onChoiceSelected: function(key) { screenVm.select_period(key) }
                 }
+                Item { Layout.fillWidth: true }
             }
 
             RowLayout {
                 Layout.fillWidth: true
                 Label { text: "Doremi Wrapped"; color: root.colors["text_primary"]; font.pixelSize: Theme.typeHeading }
-                HeaderButton { text: "Este mes"; onClicked: screenVm.request_wrapped("month") }
-                HeaderButton { text: "Este año"; onClicked: screenVm.request_wrapped("year") }
+                HeaderButton {
+                    id: wrappedButton
+                    objectName: "wrappedMenuButton"
+                    text: "Generar resumen ▾"
+                    accessibleName: "Generar resumen Doremi Wrapped"
+                    onClicked: wrappedMenu.open()
+                    ContextMenu {
+                        id: wrappedMenu
+                        objectName: "wrappedPeriodMenu"
+                        y: wrappedButton.height
+                        ContextMenuItem { objectName: "wrappedMonthAction"; text: "Este mes"; onTriggered: screenVm.request_wrapped("month") }
+                        ContextMenuItem { objectName: "wrappedYearAction"; text: "Este año"; onTriggered: screenVm.request_wrapped("year") }
+                    }
+                }
+                Item { Layout.fillWidth: true }
             }
             Rectangle {
                 visible: screenVm.wrapped.title !== undefined && screenVm.wrapped.plays > 0
