@@ -22,6 +22,7 @@ class HistoryScreenQml(QObject):
 
     _qml_island = True  # fade_stack.py: sin cross-fade (QML anima internamente)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -44,6 +45,7 @@ class HistoryScreenQml(QObject):
 
         # Re-emit VM signals as screen signals (wiring existente en MainWindow)
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
         self._vm.like_requested.connect(self.like_requested)

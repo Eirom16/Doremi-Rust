@@ -106,13 +106,15 @@ async def gather_library_artists(yt_client, limit: int = 50) -> list[dict]:
 
 
 async def gather_library_playlists(yt_client) -> list[dict]:
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    local = await LocalLibraryRepository().playlists()
     if not yt_client or not yt_client.is_authenticated:
-        return []
+        return local
     try:
         playlists = await yt_client.get_library_playlists()
     except Exception as e:
         logger.error(f"Error fetching library playlists: {e}")
-        return []
+        return local
 
     downloaded_ids: set[str] = set()
     try:
@@ -122,7 +124,7 @@ async def gather_library_playlists(yt_client) -> list[dict]:
     except Exception as e:
         logger.debug(f"Error fetching downloads for badges: {e}")
 
-    result: list[dict] = []
+    result: list[dict] = list(local)
     for pl in playlists or []:
         if not isinstance(pl, dict):
             continue

@@ -95,6 +95,11 @@ async def gather_album(yt_client, browse_id: str) -> dict:
     result["type"] = str(data.get("type", "ÁLBUM")).upper()
     result["title"] = str(data.get("title", "Unknown"))
     result["thumbnail_url"] = _extract_thumbnail(data)
+    artists = data.get("artists", [])
+    result["primary_artist"] = next((a.get("name", "") for a in artists if isinstance(a, dict)), "") if isinstance(artists, list) else ""
+    from urllib.parse import urlencode
+    audio_id = data.get("audioPlaylistId", "")
+    result["share_url"] = "https://music.youtube.com/playlist?" + urlencode({"list": audio_id}) if audio_id else ""
 
     liked_ids: set[str] = set()
     downloaded_vids: set[str] = set()

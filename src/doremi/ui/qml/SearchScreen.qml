@@ -7,6 +7,7 @@ Item {
     id: root
 
     property var screenVm: null
+    readonly property bool songCategory: screenVm && (screenVm.category === "song" || screenVm.category === "local")
 
     // themeBridge (ThemeBridge) y vm (SearchViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
@@ -18,7 +19,8 @@ Item {
     }
 
     readonly property var chipDefs: [
-        { "key": "song", "label": "Canciones" },
+        { "key": "song", "label": "Online" },
+        { "key": "local", "label": "Tu biblioteca" },
         { "key": "album", "label": "Álbumes" },
         { "key": "podcast", "label": "Podcasts" },
         { "key": "playlist", "label": "Playlists" }
@@ -174,7 +176,7 @@ Item {
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !screenVm.loading && screenVm.errorText === "" && screenVm.query !== ""
-                     && ((screenVm.category === "song" && !screenVm.hasTop)
+                     && ((root.songCategory && !screenVm.hasTop)
                          || ((screenVm.category === "album" || screenVm.category === "podcast")
                              && screenVm.albums.rowCount() === 0)
                          || (screenVm.category === "playlist" && screenVm.playlists.rowCount() === 0))
@@ -189,9 +191,10 @@ Item {
         // ── Canciones: split (top + featured) y resto ─────────────────
         Flickable {
             id: songsFlick
+            objectName: "viewState:songs"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && screenVm.errorText === "" && screenVm.category === "song" && screenVm.hasTop
+            visible: !screenVm.loading && screenVm.errorText === "" && root.songCategory && screenVm.hasTop
             clip: true
             contentWidth: width
             contentHeight: songsCol.height
@@ -339,27 +342,15 @@ Item {
                                                 onClicked: topMenu.popup()
                                             }
 
-                                            ContextMenu {
+                                            SongMenu {
                                                 id: topMenu
-                                                ContextMenuItem {
-                                                    text: "Reproducir siguiente"
-                                                    onTriggered: screenVm.top_action("play_next")
-                                                }
-                                                ContextMenuItem {
-                                                    text: "Añadir a la cola"
-                                                    onTriggered: screenVm.top_action("add_to_queue")
-                                                }
-                                                ContextMenuItem {
-                                                    text: "Me gusta"
-                                                    onTriggered: screenVm.top_action("like")
-                                                }
-                                                ContextMenuItem {
-                                                    text: "Añadir a playlist"
-                                                    onTriggered: screenVm.top_action("add_to_playlist")
-                                                }
-                                                ContextMenuItem {
-                                                    text: "Descargar"
-                                                    onTriggered: screenVm.top_action("download")
+                                                showLink: true
+                                                localTrack: (screenVm.topTrack.videoId || "").indexOf("local:") === 0
+                                                liked: !!screenVm.topTrack.is_liked
+                                                downloaded: !!screenVm.topTrack.is_downloaded
+                                                onAction: function(name) {
+                                                    if (name === "play") screenVm.play_top()
+                                                    else screenVm.top_action(name)
                                                 }
                                             }
                                         }
@@ -458,9 +449,10 @@ Item {
         // ── Grids (álbumes / playlists) ───────────────────────────────
         GridView {
             id: grid
+            objectName: "viewState:grid"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && screenVm.errorText === "" && screenVm.category !== "song"
+            visible: !screenVm.loading && screenVm.errorText === "" && !root.songCategory
                      && (((screenVm.category === "album" || screenVm.category === "podcast")
                           && screenVm.albums.rowCount() > 0)
                          || (screenVm.category === "playlist" && screenVm.playlists.rowCount() > 0))
@@ -611,6 +603,8 @@ Item {
             required property string artist
             required property string duration
             required property string thumbnail
+            required property string videoId
+            required property bool isLiked
 
             Layout.fillWidth: true
             Layout.preferredHeight: 64
@@ -687,27 +681,17 @@ Item {
                     visible: songRow.duration !== ""
                 }
 
-                ContextMenu {
+                SongMenu {
                     id: songMenu
-                    ContextMenuItem {
-                        text: "Reproducir siguiente"
-                        onTriggered: screenVm.featured_action(songRow.index, "play_next")
-                    }
-                    ContextMenuItem {
-                        text: "Añadir a la cola"
-                        onTriggered: screenVm.featured_action(songRow.index, "add_to_queue")
-                    }
-                    ContextMenuItem {
-                        text: "Me gusta"
-                        onTriggered: screenVm.featured_action(songRow.index, "like")
-                    }
-                    ContextMenuItem {
-                        text: "Añadir a playlist"
-                        onTriggered: screenVm.featured_action(songRow.index, "add_to_playlist")
-                    }
-                    ContextMenuItem {
-                        text: "Descargar"
-                        onTriggered: screenVm.featured_action(songRow.index, "download")
+                    showLink: true
+                    property var track: ({})
+                    onAboutToShow: track = screenVm.featured.track_info(songRow.index)
+                    downloaded: !!track.is_downloaded
+                    localTrack: songRow.videoId.indexOf("local:") === 0
+                    liked: songRow.isLiked
+                    onAction: function(name) {
+                        if (name === "play") screenVm.play_featured(songRow.index)
+                        else screenVm.featured_action(songRow.index, name)
                     }
                 }
             }
@@ -739,6 +723,8 @@ Item {
             required property string artist
             required property string duration
             required property string thumbnail
+            required property string videoId
+            required property bool isLiked
 
             Layout.fillWidth: true
             Layout.preferredHeight: 64
@@ -815,27 +801,17 @@ Item {
                     visible: restRow.duration !== ""
                 }
 
-                ContextMenu {
+                SongMenu {
                     id: restMenu
-                    ContextMenuItem {
-                        text: "Reproducir siguiente"
-                        onTriggered: screenVm.rest_action(restRow.index, "play_next")
-                    }
-                    ContextMenuItem {
-                        text: "Añadir a la cola"
-                        onTriggered: screenVm.rest_action(restRow.index, "add_to_queue")
-                    }
-                    ContextMenuItem {
-                        text: "Me gusta"
-                        onTriggered: screenVm.rest_action(restRow.index, "like")
-                    }
-                    ContextMenuItem {
-                        text: "Añadir a playlist"
-                        onTriggered: screenVm.rest_action(restRow.index, "add_to_playlist")
-                    }
-                    ContextMenuItem {
-                        text: "Descargar"
-                        onTriggered: screenVm.rest_action(restRow.index, "download")
+                    showLink: true
+                    property var track: ({})
+                    onAboutToShow: track = screenVm.rest.track_info(restRow.index)
+                    downloaded: !!track.is_downloaded
+                    localTrack: restRow.videoId.indexOf("local:") === 0
+                    liked: restRow.isLiked
+                    onAction: function(name) {
+                        if (name === "play") screenVm.play_rest(restRow.index)
+                        else screenVm.rest_action(restRow.index, name)
                     }
                 }
             }

@@ -33,6 +33,9 @@ class NavigationController:
         # navigate after the user has chosen a newer destination.
         self._resolution_generation = 0
         self._resolution_task: asyncio.Task | None = None
+        self._pin_lock = asyncio.Lock()
+        from doremi.services.view_state import ViewStateStore
+        self.view_states = ViewStateStore()
 
     @staticmethod
     def _parse_path(path: str) -> tuple[str, dict[str, str]]:
@@ -70,7 +73,10 @@ class NavigationController:
             current_path = getattr(self.main_window, "_current_route", "home")
         if not isinstance(current_path, str) or not current_path:
             current_path = "home"
-        target_path = self._path_for(route, params)
+        target_path = self._path_for(route, {k: v for k, v in params.items() if k not in {"resume", "position", "next", "autoplay"}})
+        host = getattr(self.main_window, "main_shell", None)
+        if host is not None and hasattr(host, "capture_view_state"):
+            self.view_states.save(current_path, host.capture_view_state())
         if record_history and current_path and current_path != target_path:
             self.main_window._nav_history.append(current_path)
             # Keep history bounded without losing the most recent routes.
@@ -79,7 +85,8 @@ class NavigationController:
 
         self.main_window._current_path = target_path
         self.main_window._current_route = route
-        if self.should_show_offline_state(route):
+        local_collection = route == "playlist" and params.get("id", "").startswith(("smart:", "local_", "local-list:", "session:"))
+        if self.should_show_offline_state(route) and not local_collection:
             self.main_window._offline_blocked_path = target_path
             self.show_offline_state(route)
             return
@@ -95,13 +102,50 @@ class NavigationController:
         if callable(set_active):
             set_active(target_path)
 
-        # Wait for the FadeStackedWidget animation (260ms) to complete before blocking thread with UI updates
-        await asyncio.sleep(0.3)
         await self.load_screen_with_query(route, params)
+        if host is not None and hasattr(host, "restore_view_state"):
+            host.restore_view_state(self.view_states.get(target_path))
+        if params.get("resume") and target_path == self.main_window._current_path:
+            await self._resume_collection(route, params)
+        elif params.get("autoplay") in {"play", "shuffle"} and target_path == self.main_window._current_path:
+            screen = getattr(self.main_window, f"{'album' if route == 'podcast' else route}_screen", None)
+            vm = getattr(screen, "_vm", None)
+            method = getattr(vm, "play_shuffle" if params["autoplay"] == "shuffle" else "play_all", None)
+            if callable(method) and getattr(vm, "found", True) and not getattr(vm, "loading", False) and not getattr(vm, "errorText", ""):
+                method()
+
+    async def _resume_collection(self, route, params):
+        from doremi.audio.queue import QueueItem
+        from doremi.services.playback_context import playback_context
+        screen = getattr(self.main_window, f"{route}_screen", None)
+        vm = getattr(screen, "_vm", None)
+        if vm is None or not hasattr(vm, "tracks"):
+            return
+        tracks = vm.tracks.all_items()
+        index = next((i for i, t in enumerate(tracks) if t.get("videoId") == params["resume"]), None)
+        if index is None:
+            return
+        if params.get("next") == "1":
+            if index + 1 >= len(tracks):
+                return
+            index += 1
+        context = playback_context(self.main_window)
+        items = [QueueItem(t["videoId"], t.get("title", ""), t.get("artist", ""), t.get("album", ""),
+                           t.get("duration_ms", 0), t.get("thumbnail_url", ""),
+                           is_local=bool(t.get("local_path")), local_path=t.get("local_path"), **context) for t in tracks]
+        current = items[index]
+        await self.main_window.playback_controller._play_song(current.video_id, current.title, current.artist,
+            current.album, current.duration_ms, current.thumbnail_url, items, index)
+        try:
+            position = max(0, int(params.get("position", 0)))
+        except ValueError:
+            position = 0
+        if position and self.main_window.queue.current is current:
+            await self.main_window.player.seek(min(position, current.duration_ms or position))
 
     def should_show_offline_state(self, route: str) -> bool:
         return (
-            route in self.main_window.ONLINE_ROUTES
+            route in self.main_window.ONLINE_ROUTES and route not in {"library", "search"}
             and hasattr(self.main_window, "network_monitor")
             and not self.main_window.network_monitor.is_connected
         )
@@ -297,13 +341,61 @@ class NavigationController:
 
     async def refresh_sidebar_playlists(self) -> None:
         """Carga las playlists recientes para los accesos rápidos del lateral."""
-        if not self.main_window.yt or not self.main_window.yt.is_authenticated:
-            self.main_window.sidebar.set_playlists([])
-            return
         from doremi.ui.screens.library_data import gather_library_playlists
-
+        from doremi.db.experience_repository import ExperienceRepository
         playlists = await gather_library_playlists(self.main_window.yt)
-        self.main_window.sidebar.set_playlists(playlists[:4])
+        try:
+            repo = ExperienceRepository()
+            await repo.remember_collections(playlists)
+            ranked = await repo.quick_access(limit=6)
+        except Exception as exc:
+            logger.warning(f"Quick access unavailable: {exc}")
+            ranked = playlists[:6]
+        self.main_window.sidebar.set_playlists(ranked)
+
+    async def refresh_local_quick_access(self):
+        from doremi.db.experience_repository import ExperienceRepository
+        try:
+            self.main_window.sidebar.set_playlists(await ExperienceRepository().quick_access(limit=6))
+            self.main_window.home_screen._loaded = False
+        except Exception as exc:
+            logger.warning(f"Could not refresh quick access: {exc}")
+
+    def toggle_pin(self, identity, title, thumbnail):
+        self.run_async(self._toggle_pin(identity, title, thumbnail))
+
+    async def _toggle_pin(self, identity, title, thumbnail):
+        from doremi.db.experience_repository import ExperienceRepository
+        from doremi.services.experience_events import events
+        # Serialize toggles so a rapid second click reads the committed state.
+        async with self._pin_lock:
+            pinned = None
+            try:
+                repo = ExperienceRepository()
+                pinned = await repo.is_pinned(identity)
+                events.pin_changed.emit(identity, not pinned)
+                await repo.set_pin(identity, title, thumbnail, pinned=not pinned)
+                events.changed.emit()
+                self.main_window.show_notification("Desfijada de la barra lateral" if pinned else "Fijada en la barra lateral", "success")
+            except Exception as exc:
+                if pinned is not None:
+                    events.pin_changed.emit(identity, pinned)
+                logger.warning(f"Could not pin collection: {exc}")
+                self.main_window.show_notification("No se pudo cambiar el acceso fijado", "error")
+
+    def move_pinned(self, source_route, target_route):
+        async def move():
+            from doremi.db.experience_repository import ExperienceRepository
+            from doremi.services.experience_events import events
+            repo = ExperienceRepository()
+            routes = await repo.pinned_routes()
+            if source_route not in routes or target_route not in routes:
+                return
+            routes.remove(source_route)
+            routes.insert(routes.index(target_route), source_route)
+            if await repo.reorder_pins(routes):
+                events.changed.emit()
+        self.run_async(move())
 
     def update_screens_yt_client(self) -> None:
         """Propagate the current yt client reference to all screens that use it."""

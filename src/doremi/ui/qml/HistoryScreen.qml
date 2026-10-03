@@ -93,6 +93,7 @@ Item {
         // ── Lista ─────────────────────────────────────────────────────
         ListView {
             id: listView
+            objectName: "viewState:main"
             Layout.fillWidth: true
             Layout.fillHeight: true
             visible: !screenVm.loading && !screenVm.empty
@@ -116,6 +117,7 @@ Item {
                 required property string duration
                 required property string thumbnail
                 required property string videoId
+                required property bool isLiked
                 activeFocusOnTab: true
                 Accessible.role: Accessible.ListItem
                 Accessible.name: row.title + " — " + row.artist
@@ -197,35 +199,15 @@ Item {
                             rowMenu.popup()
                     }
 
-                    ContextMenu {
+                    SongMenu {
                         id: rowMenu
-                        ContextMenuItem {
-                            text: "Reproducir"
-                            onTriggered: screenVm.play_at(row.index)
-                        }
-                        ContextMenuItem {
-                            text: "Reproducir siguiente"
-                            onTriggered: screenVm.action_at(row.index, "play_next")
-                        }
-                        ContextMenuItem {
-                            text: "Añadir a la cola"
-                            onTriggered: screenVm.action_at(row.index, "add_to_queue")
-                        }
-                        ContextMenuItem {
-                            text: "Me gusta"
-                            onTriggered: screenVm.action_at(row.index, "like")
-                        }
-                        ContextMenuItem {
-                            text: "Añadir a playlist"
-                            onTriggered: screenVm.action_at(row.index, "add_to_playlist")
-                        }
-                        ContextMenuItem {
-                            text: "Descargar"
-                            onTriggered: screenVm.action_at(row.index, "download")
-                        }
-                        ContextMenuItem {
-                            text: "Ir al artista"
-                            onTriggered: screenVm.action_at(row.index, "go_artist")
+                        showLink: true
+                        localTrack: row.videoId.indexOf("local:") === 0
+                        liked: row.isLiked
+                        hasArtist: !localTrack && row.artist !== ""
+                        onAction: function(name) {
+                            if (name === "play") screenVm.play_at(row.index)
+                            else screenVm.action_at(row.index, name)
                         }
                     }
                 }

@@ -7,6 +7,7 @@ import re
 from PySide6.QtCore import (
     QAbstractListModel, Property, QModelIndex, QObject, Qt, Signal, Slot,
 )
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
 
 _LRC_TS = re.compile(r"^((?:\[\d{1,}:\d{2}(?:\.\d+)?\])+)(.*)$")
 _LRC_TAG = re.compile(r"\[(\d{1,}):(\d{2}(?:\.\d+)?)\]")
@@ -40,7 +41,7 @@ def parse_lyrics(lyrics) -> list[dict]:
     return out
 
 
-class NowPlayingQueueModel(QAbstractListModel):
+class NowPlayingQueueModel(TrackStateModel):
     TitleRole = Qt.UserRole + 1
     ArtistRole = Qt.UserRole + 2
     DurationRole = Qt.UserRole + 3
@@ -145,12 +146,13 @@ class LyricsModel(QAbstractListModel):
         return True
 
 
-class RelatedModel(QAbstractListModel):
+class RelatedModel(TrackStateModel):
     TitleRole = Qt.UserRole + 1
     ArtistRole = Qt.UserRole + 2
     DurationRole = Qt.UserRole + 3
     ThumbnailRole = Qt.UserRole + 4
     VideoIdRole = Qt.UserRole + 5
+    IsLikedRole = Qt.UserRole + 6
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -173,6 +175,8 @@ class RelatedModel(QAbstractListModel):
             return item.get("thumbnail_url", "")
         if role == self.VideoIdRole:
             return item.get("videoId", "")
+        if role == self.IsLikedRole:
+            return item.get("is_liked", False)
         return None
 
     def roleNames(self) -> dict[int, bytes]:
@@ -180,6 +184,7 @@ class RelatedModel(QAbstractListModel):
             self.TitleRole: b"title", self.ArtistRole: b"artist",
             self.DurationRole: b"duration", self.ThumbnailRole: b"thumbnail",
             self.VideoIdRole: b"videoId",
+            self.IsLikedRole: b"isLiked",
         }
 
     def set_items(self, items: list[dict]) -> None:
@@ -212,6 +217,7 @@ class NowPlayingViewModel(QObject):
     lyricIndexChanged = Signal()
     tab_changed = Signal()
     details_changed = Signal()
+    download_state_changed = Signal()
 
     # Intenciones de la UI (el wrapper las enruta a MainWindow)
     toggle_play_requested = Signal()
@@ -224,6 +230,7 @@ class NowPlayingViewModel(QObject):
     artist_pressed = Signal(str)
     queue_play_at = Signal(int)
     queue_move_requested = Signal(int, int)
+    queue_copy_requested = Signal(int, bool)
     queue_remove_requested = Signal(int)
     copy_link_requested = Signal(str)
     details_requested = Signal(str)
@@ -254,6 +261,9 @@ class NowPlayingViewModel(QObject):
         self._video_id = ""
         self._playing = False
         self._liked = False
+        self._downloaded = False
+        from doremi.services.experience_events import events
+        events.downloaded_changed.connect(self.set_downloaded_state)
         self._position_ms = 0
         self._duration_ms = 0
         self._shuffle = False
@@ -402,6 +412,8 @@ class NowPlayingViewModel(QObject):
 
     def set_track_info(self, title: str, artist: str, thumbnail_url: str,
                        album: str = "", video_id: str = "") -> None:
+        if self._video_id != video_id:
+            self.set_downloaded_state(self._video_id, False)
         self._title = title or "No hay canción"
         self._artist_name = artist or ""
         self._artwork_url = thumbnail_url or ""
@@ -474,6 +486,9 @@ class NowPlayingViewModel(QObject):
                 "duration": format_duration_short(dur_ms) if dur_ms else "",
                 "thumbnail_url": getattr(it, "thumbnail_url", "") or "",
                 "videoId": vid,
+                "album": getattr(it, "album", "") or "",
+                "duration_ms": dur_ms,
+                "is_downloaded": bool(getattr(it, "is_local", False) and getattr(it, "local_path", None)),
                 "is_liked": vid in liked_ids,
                 "is_current": index == current_index if current_index is not None else vid == self._video_id,
             })
@@ -554,6 +569,12 @@ class NowPlayingViewModel(QObject):
         if 0 <= index < self._queue_model.rowCount() and 0 <= target < self._queue_model.rowCount():
             self.queue_move_requested.emit(index, target)
 
+    @Slot(int, int)
+    def reorder_queue(self, source, target):
+        count = self._queue_model.rowCount()
+        if 0 <= source < count and 0 <= target < count and source != target:
+            self.queue_move_requested.emit(source, target)
+
     @Slot(int)
     def remove_queue_item(self, index: int) -> None:
         if 0 <= index < self._queue_model.rowCount():
@@ -569,6 +590,20 @@ class NowPlayingViewModel(QObject):
     def favoriteActionText(self) -> str:
         return _("Quitar de Favoritas") if self._liked else _("Añadir a Favoritas")
 
+    @Property(bool, notify=track_changed)
+    def localTrack(self):
+        return self._video_id.startswith("local:") or self._video_id == "local"
+
+    @Property(bool, notify=download_state_changed)
+    def downloaded(self):
+        return self._downloaded
+
+    @Slot(str, bool)
+    def set_downloaded_state(self, video_id, downloaded):
+        if video_id == self._video_id and self._downloaded != downloaded:
+            self._downloaded = downloaded
+            self.download_state_changed.emit()
+
     @Slot()
     def toggle_like_current(self) -> None:
         if not self._video_id:
@@ -580,7 +615,9 @@ class NowPlayingViewModel(QObject):
         if not self._video_id:
             return
         vid, title, artist, thumb = self._video_id, self._title, self._artist_name, self._artwork_url
-        if action == "play_next":
+        if action == "like":
+            self.toggle_like_current()
+        elif action == "play_next":
             self.play_next_requested.emit(vid, title, artist, thumb)
         elif action == "add_to_queue":
             self.add_to_queue_requested.emit(vid, title, artist, thumb)
@@ -588,6 +625,8 @@ class NowPlayingViewModel(QObject):
             self.add_to_playlist_requested.emit(vid, title)
         elif action == "download":
             self.download_requested.emit(vid, title, artist, thumb)
+        elif action == "delete_download":
+            self.delete_download_requested.emit(vid)
         elif action == "go_artist" and artist:
             self.artist_clicked.emit(artist)
         elif action == "go_album" and self._album:
@@ -609,26 +648,17 @@ class NowPlayingViewModel(QObject):
         item = self._queue_model.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
         if action == "play":
             self.play_queue_index(index)
         elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
+            self.queue_copy_requested.emit(index, True)
         elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
+            self.queue_copy_requested.emit(index, False)
         elif action == "remove_from_queue":
             self.remove_queue_item(index)
-        elif action == "go_artist" and artist:
-            self.artist_clicked.emit(artist)
+        else:
+            dispatch_track_action(self, item, action)
 
     @Slot(int, str)
     def related_action(self, index: int, action: str) -> None:
@@ -641,22 +671,8 @@ class NowPlayingViewModel(QObject):
                 0, item.get("thumbnail_url", ""),
             )
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "go_artist" and artist:
-            self.artist_clicked.emit(artist)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
 
 def _fmt_ms(ms: int) -> str:

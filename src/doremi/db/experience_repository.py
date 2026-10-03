@@ -74,7 +74,7 @@ class ExperienceRepository:
             await session.commit()
 
     async def set_pin(self, identity, title, thumbnail="", *, kind="playlist", pinned=True):
-        if kind not in {"playlist", "album", "artist"} or not identity:
+        if kind not in {"playlist", "album", "artist"} or not identity or identity.startswith("session:"):
             raise ValueError("Invalid collection")
         async with get_session() as session:
             entry = await session.get(Collection, (kind, identity))
@@ -110,7 +110,7 @@ class ExperienceRepository:
         async with get_session() as session:
             entries = (await session.scalars(select(Collection).outerjoin(activity, and_(
                 Collection.context_type == activity.c.kind, Collection.context_id == activity.c.identity,
-            )).where(Collection.context_type == "playlist")
+            )).where(Collection.context_type == "playlist", ~Collection.context_id.startswith("session:"))
                 .order_by(Collection.pinned_at.is_not(None).desc(), Collection.position.asc(),
                           func.coalesce(activity.c.plays, 0).desc(), activity.c.recent.desc(), Collection.title.asc())
                 .limit(limit))).all()
@@ -222,7 +222,8 @@ class ExperienceRepository:
                 .group_by(H.artist).order_by(func.count().desc()).limit(5))).all()
             collections = (await session.execute(select(H.context_type, H.context_id, Collection.title, func.count())
                 .join(Collection, and_(H.context_type == Collection.context_type, H.context_id == Collection.context_id))
-                .where(*conditions, valid, H.context_type.in_(["album", "playlist"]))
+                .where(*conditions, valid, H.context_type.in_(["album", "playlist"]),
+                       ~H.context_id.startswith("session:"))
                 .group_by(H.context_type, H.context_id).order_by(func.count().desc()).limit(10))).all()
             day_expr = func.date(H.played_at, "localtime")
             days = (await session.execute(select(day_expr, func.count())

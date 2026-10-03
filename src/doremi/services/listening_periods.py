@@ -22,7 +22,7 @@ class ListeningPeriods:
     async def recent(self, limit=12, now=None):
         now = now or datetime.now(timezone.utc)
         # Carry the query boundary in the route: opening an older card must
-        # group exactly the same events, including a period crossing 90 days.
+        # retain the same boundary, including a period crossing 90 days.
         cutoff_epoch = int((now - timedelta(days=90)).timestamp())
         cutoff = datetime.fromtimestamp(cutoff_epoch, timezone.utc).replace(tzinfo=None).isoformat(sep=" ")
         # A new period begins when more than 30 minutes elapse between
@@ -69,12 +69,11 @@ class ListeningPeriods:
                 ), groups AS (
                     SELECT id, sum(starts) OVER
                         (ORDER BY played_at, id ROWS UNBOUNDED PRECEDING) AS period FROM marks
-                ), bounds AS (
-                    SELECT period, min(id) AS first_id, max(id) AS last_id
-                    FROM groups GROUP BY period
                 )
                 SELECT id FROM groups WHERE period IN (
-                    SELECT period FROM bounds WHERE first_id = :first AND last_id = :last
+                    SELECT period FROM groups WHERE id = :first
+                ) AND period IN (
+                    SELECT period FROM groups WHERE id = :last
                 )
             """), {"first": first_id, "last": last_id,
                     "cutoff": cutoff.isoformat(sep=" ") if cutoff else None})).scalars().all()

@@ -17,7 +17,7 @@ Item {
         return Qt.rgba(root.accentColor.r, root.accentColor.g, root.accentColor.b, a)
     }
 
-    property int pendingRemoveIndex: -1
+    property var pendingRemoveTarget: ({})
 
     Rectangle {
         anchors.fill: parent
@@ -25,6 +25,7 @@ Item {
     }
 
     Flickable {
+        objectName: "viewState:main"
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
@@ -156,7 +157,7 @@ Item {
                     spacing: Theme.spacingXs
 
                     Label {
-                        text: screenVm.isLocal ? "PLAYLIST LOCAL" : "PLAYLIST"
+                        text: screenVm.isLocal || screenVm.locallyManaged ? "PLAYLIST LOCAL" : "PLAYLIST"
                         color: root.accentColor
                         font.family: Theme.fontFamily
                         font.pixelSize: Theme.typeCaption
@@ -200,6 +201,33 @@ Item {
                         }
 
                         // Estado offline / descarga
+                        HeaderButton {
+                            text: "⋮"
+                            enabled: !screenVm.editing
+                            accessibleName: "Más acciones de playlist"
+                            onClicked: managementMenu.popup()
+                            CollectionMenu {
+                                id: managementMenu
+                                hasTracks: screenVm.hasTracks
+                                pinned: screenVm.pinned
+                                pinAllowed: !screenVm.isMusicSession
+                                locallyManaged: screenVm.locallyManaged
+                                downloadAllowed: !screenVm.isLocal && screenVm.dlState !== "full" && screenVm.dlState !== "active"
+                                showCopyLink: screenVm.canCopyLink
+                                onAction: function(name) {
+                                    if (name === "rename") renameDialog.open()
+                                    else if (name === "delete") deleteDialog.open()
+                                    else screenVm.collection_action(name)
+                                }
+                            }
+                        }
+                        HeaderButton {
+                            text: "Guardar como playlist"
+                            visible: screenVm.isMusicSession
+                            enabled: !screenVm.editing
+                            onClicked: screenVm.save_session()
+                        }
+
                         Label {
                             visible: screenVm.isLocal || screenVm.dlState === "full"
                             text: "Disponible sin conexión"
@@ -264,7 +292,13 @@ Item {
                         required property string duration
                         required property string thumbnail
                         required property bool isDownloaded
+                        required property bool isLiked
                         required property string setVideoId
+                        required property string videoId
+                        TrackDragArea {
+                            anchors.fill: parent
+                            track: ({videoId: row.videoId, title: row.title, artist: row.artist, thumbnail: row.thumbnail})
+                        }
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 72
@@ -370,40 +404,19 @@ Item {
                                 visible: row.duration !== ""
                             }
 
-                            ContextMenu {
+                            SongMenu {
                                 id: rowMenu
-                                ContextMenuItem {
-                                    text: "Reproducir siguiente"
-                                    onTriggered: screenVm.track_action(row.index, "play_next")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a la cola"
-                                    onTriggered: screenVm.track_action(row.index, "add_to_queue")
-                                }
-                                ContextMenuItem {
-                                    text: "Me gusta"
-                                    onTriggered: screenVm.track_action(row.index, "like")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a playlist"
-                                    onTriggered: screenVm.track_action(row.index, "add_to_playlist")
-                                }
-                                ContextMenuItem {
-                                    text: "Descargar"
-                                    onTriggered: screenVm.track_action(row.index, "download")
-                                }
-                                ContextMenuItem {
-                                    visible: row.isDownloaded
-                                    text: "Eliminar descarga"
-                                    onTriggered: screenVm.track_action(row.index, "delete_download")
-                                }
-                                ContextMenuItem {
-                                    visible: row.setVideoId !== "" && !screenVm.isLocal
-                                    text: "Quitar de esta playlist"
-                                    onTriggered: {
-                                        root.pendingRemoveIndex = row.index
+                                showLink: true
+                                localTrack: row.videoId.indexOf("local:") === 0
+                                downloaded: row.isDownloaded
+                                liked: row.isLiked
+                                showRemove: screenVm.locallyManaged || (row.setVideoId !== "" && !screenVm.isLocal)
+                                onAction: function(name) {
+                                    if (name === "play") screenVm.play_at(row.index)
+                                    else if (name === "remove") {
+                                        root.pendingRemoveTarget = screenVm.removal_target(row.index)
                                         confirmRemove.open()
-                                    }
+                                    } else screenVm.track_action(row.index, name)
                                 }
                             }
                         }
@@ -414,6 +427,61 @@ Item {
     }
 
     // ── Confirmación: quitar de la playlist ───────────────────────────
+    Dialog {
+        id: renameDialog
+        property string targetId: ""
+        palette.window: root.colors["bg_surface"]
+        palette.base: root.colors["bg_elevated"]
+        palette.text: root.colors["text_primary"]
+        palette.windowText: root.colors["text_primary"]
+        palette.button: root.colors["bg_elevated"]
+        palette.buttonText: root.colors["text_primary"]
+        palette.highlight: root.colors["accent"]
+        palette.highlightedText: root.colors["text_on_accent"]
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        title: "Renombrar playlist"
+        standardButtons: Dialog.Cancel | Dialog.Save
+        onOpened: { targetId = screenVm.playlistId; renameTitle.text = screenVm.title; renameTitle.forceActiveFocus(); renameTitle.selectAll() }
+        onAccepted: screenVm.edit_local_target(targetId, "rename", renameTitle.text)
+        contentItem: TextField {
+            id: renameTitle
+            width: 320
+            placeholderText: "Nombre de la playlist"
+            maximumLength: 200
+            Accessible.name: "Nombre de la playlist"
+        }
+        background: Rectangle { color: root.colors["bg_surface"]; radius: Theme.radiusLg; border.color: root.colors["border"]; border.width: 1 }
+    }
+    Dialog {
+        id: deleteDialog
+        property string targetId: ""
+        property string targetTitle: ""
+        palette.window: root.colors["bg_surface"]
+        palette.base: root.colors["bg_elevated"]
+        palette.text: root.colors["text_primary"]
+        palette.windowText: root.colors["text_primary"]
+        palette.button: root.colors["bg_elevated"]
+        palette.buttonText: root.colors["text_primary"]
+        palette.highlight: root.colors["accent"]
+        palette.highlightedText: root.colors["text_on_accent"]
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        title: "Eliminar playlist"
+        standardButtons: Dialog.Cancel | Dialog.Yes
+        onOpened: { targetId = screenVm.playlistId; targetTitle = screenVm.title }
+        onAccepted: screenVm.edit_local_target(targetId, "delete", "")
+        contentItem: Label {
+            width: 340
+            wrapMode: Text.WordWrap
+            color: root.colors["text_primary"]
+            textFormat: Text.PlainText
+            text: "¿Eliminar ‘" + deleteDialog.targetTitle + "’? Tus canciones, archivos e historial se conservarán."
+        }
+        background: Rectangle { color: root.colors["bg_surface"]; radius: Theme.radiusLg; border.color: root.colors["border"]; border.width: 1 }
+    }
     Dialog {
         id: confirmRemove
         modal: true
@@ -441,12 +509,8 @@ Item {
             Label {
                 Layout.preferredWidth: 360
                 wrapMode: Text.WordWrap
-                text: {
-                    var t = root.pendingRemoveIndex >= 0
-                        ? screenVm.tracks.data(screenVm.tracks.index(root.pendingRemoveIndex, 0), 257)
-                        : ""
-                    return "¿Quitar '" + t + "' de esta playlist?"
-                }
+                textFormat: Text.PlainText
+                text: "¿Quitar ‘" + (root.pendingRemoveTarget.title || "") + "’ de esta playlist?"
                 color: root.colors["text_secondary"]
                 font.family: Theme.fontFamily
                 font.pixelSize: Theme.typeBody
@@ -464,8 +528,7 @@ Item {
                     text: "Quitar"
                     danger: true
                     onClicked: {
-                        if (root.pendingRemoveIndex >= 0)
-                            screenVm.track_action(root.pendingRemoveIndex, "remove")
+                        screenVm.remove_target(root.pendingRemoveTarget)
                         confirmRemove.close()
                     }
                 }

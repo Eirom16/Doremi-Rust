@@ -7,7 +7,10 @@ from PySide6.QtCore import (
 )
 
 
-class PlaylistTrackModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class PlaylistTrackModel(TrackStateModel):
     """Tracks de una playlist. Igual que DetailTrackModel + rol setVideoId."""
 
     TitleRole = Qt.UserRole + 1
@@ -90,6 +93,7 @@ class PlaylistViewModel(QObject):
 
     # Mismas señales que PlaylistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     download_playlist_requested = Signal(str, str, str)  # playlist_id, title, thumbnail_url
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
@@ -101,6 +105,12 @@ class PlaylistViewModel(QObject):
     remove_track_requested = Signal(str, str, str)  # video_id, set_video_id, title
     back_requested = Signal()
     retry_requested = Signal()
+    save_session_requested = Signal(str, str)
+    local_edit_requested = Signal(str, str, str)
+    remove_local_requested = Signal(str, int, str, str)
+    editing_changed = Signal()
+    collection_copy_link_requested = Signal(str)
+    notification_requested = Signal(str, str)
 
     DL_NONE = ""
     DL_PARTIAL = "partial"
@@ -125,6 +135,68 @@ class PlaylistViewModel(QObject):
         self._dl_text = ""
         self._dl_percent = 0
         self._error_text = ""
+        self._editing = False
+        self._pinned = False
+        from doremi.services.experience_events import events
+        events.pin_changed.connect(self.set_pin_state)
+
+    @Property(bool, notify=header_changed)
+    def pinned(self):
+        return self._pinned
+
+    @Slot(str, bool)
+    def set_pin_state(self, identity, pinned):
+        if identity == self._playlist_id:
+            self._pinned = pinned
+            self.header_changed.emit()
+
+    @Property(bool, notify=header_changed)
+    def locallyManaged(self):
+        return self._playlist_id.startswith("local-list:")
+
+    @Property(bool, notify=editing_changed)
+    def editing(self):
+        return self._editing
+
+    def set_editing(self, editing):
+        self._editing = editing
+        self.editing_changed.emit()
+
+    @Slot(str, str)
+    def edit_local(self, action, title=""):
+        if self.locallyManaged and action in {"rename", "delete"} and not self._editing:
+            self.local_edit_requested.emit(self._playlist_id, action, title)
+
+    @Property(str, notify=header_changed)
+    def playlistId(self):
+        return self._playlist_id
+
+    @Slot(str, str, str)
+    def edit_local_target(self, identity, action, title):
+        if identity != self._playlist_id or self._loading:
+            self.notification_requested.emit("La colección cambió. Abre de nuevo el menú.", "info")
+            return
+        self.edit_local(action, title)
+
+    @Slot(int, result="QVariantMap")
+    def removal_target(self, index):
+        item = self._tracks.get(index)
+        if item is None:
+            return {}
+        return dict(playlist_id=self._playlist_id, video_id=item.get("videoId", ""),
+                    title=item.get("title", ""), local_position=item.get("local_position", -1),
+                    set_video_id=item.get("setVideoId", ""))
+
+    @Slot("QVariantMap")
+    def remove_target(self, target):
+        if target.get("playlist_id") == self._playlist_id and not self._loading:
+            for index, item in enumerate(self._tracks.all_items()):
+                same_occurrence = item.get("local_position", -1) == target.get("local_position") if self.locallyManaged else (
+                    bool(target.get("set_video_id")) and item.get("setVideoId") == target["set_video_id"])
+                if same_occurrence and item.get("videoId") == target.get("video_id"):
+                    self.track_action(index, "remove")
+                    return
+        self.notification_requested.emit("La canción o colección cambió. Abre de nuevo el menú.", "info")
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -157,6 +229,10 @@ class PlaylistViewModel(QObject):
     @Property(bool, notify=header_changed)
     def isLocal(self) -> bool:
         return self._is_local
+
+    @Property(bool, notify=header_changed)
+    def isMusicSession(self) -> bool:
+        return self._playlist_id.startswith("session:")
 
     @Property(bool, notify=header_changed)
     def hasTracks(self) -> bool:
@@ -274,32 +350,55 @@ class PlaylistViewModel(QObject):
         item = self._tracks.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "delete_download":
-            self.delete_download_requested.emit(vid)
-        elif action == "remove":
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        if action == "remove":
+            vid, title = item.get("videoId", ""), item.get("title", "")
+            if self.locallyManaged and not self._editing:
+                self.remove_local_requested.emit(self._playlist_id, item.get("local_position", -1), vid, title)
+                return
             set_id = item.get("setVideoId", "")
             if set_id and not self._is_local:
                 self.remove_track_requested.emit(vid, set_id, title)
+        else:
+            dispatch_track_action(self, item, action)
 
     @Slot()
     def download_playlist(self) -> None:
+        if self._playlist_id.startswith(("smart:", "local-list:", "session:")):
+            for index, track in enumerate(self._tracks.all_items()):
+                if not track.get("is_downloaded") and not track.get("videoId", "").startswith("local:"):
+                    self.track_action(index, "download")
+            return
         self.download_playlist_requested.emit(
             self._playlist_id, self._title, self._thumbnail,
         )
+
+    @Slot()
+    def toggle_pin(self):
+        from doremi.services.experience_events import events
+        events.pin_requested.emit(self._playlist_id, self._title, self._thumbnail)
+
+    @Property(bool, notify=header_changed)
+    def canCopyLink(self):
+        return bool(self._playlist_id and not self._playlist_id.startswith(("smart:", "local-list:", "local_", "session:")))
+
+    @Slot(str)
+    def collection_action(self, action):
+        from doremi.ui.viewmodels.track_actions import dispatch_collection_action
+        if action == "pin":
+            self.toggle_pin()
+        elif action == "download":
+            self.download_playlist()
+        elif action == "copy_link" and self.canCopyLink:
+            from urllib.parse import urlencode
+            self.collection_copy_link_requested.emit("https://music.youtube.com/playlist?" + urlencode({"list": self._playlist_id}))
+        else:
+            dispatch_collection_action(self, self._tracks.all_items(), action)
+
+    @Slot()
+    def save_session(self):
+        if self.isMusicSession:
+            self.save_session_requested.emit(self._playlist_id, "Sesión guardada")
 
     @Slot()
     def go_back(self) -> None:

@@ -7,7 +7,10 @@ from PySide6.QtCore import (
 )
 
 
-class ArtistSongModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class ArtistSongModel(TrackStateModel):
     """Top canciones del artista."""
 
     TitleRole = Qt.UserRole + 1
@@ -128,6 +131,7 @@ class ArtistViewModel(QObject):
 
     # Mismas señales que ArtistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -248,20 +252,8 @@ class ArtistViewModel(QObject):
         item = self._songs.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot(str)
     def navigate(self, route: str) -> None:

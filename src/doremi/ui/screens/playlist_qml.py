@@ -24,12 +24,14 @@ class PlaylistScreenQml(QObject):
     _qml_island = True  # fade_stack.py: sin cross-fade
 
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     download_playlist_requested = Signal(str, str, str)  # playlist_id, title, thumbnail_url
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     add_to_playlist_requested = Signal(str, str)
     like_requested = Signal(str, object)
     delete_download_requested = Signal(str)
+    notification_requested = Signal(str, str)
 
     def __init__(self, yt_client, on_play_song, on_play_local_playlist=None, on_back=None):
         super().__init__()
@@ -48,6 +50,7 @@ class PlaylistScreenQml(QObject):
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
         self._vm.download_playlist_requested.connect(self.download_playlist_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
@@ -59,6 +62,11 @@ class PlaylistScreenQml(QObject):
         self._vm.remove_track_requested.connect(self._on_remove_track)
         self._vm.back_requested.connect(self._on_back)
         self._vm.retry_requested.connect(self._retry)
+        self._vm.save_session_requested.connect(self._save_session)
+        self._vm.local_edit_requested.connect(self._edit_local)
+        self._vm.remove_local_requested.connect(self._remove_local)
+        self._vm.notification_requested.connect(self.notification_requested)
+        self._vm.collection_copy_link_requested.connect(lambda url: QApplication.clipboard().setText(url))
 
         # Progreso de descarga de la playlist (paridad widgets)
         dm = DownloadManager.get_instance()
@@ -72,6 +80,77 @@ class PlaylistScreenQml(QObject):
     def _on_back(self) -> None:
         if self.on_back:
             self.on_back()
+
+    def _save_session(self, identity, title):
+        if self._vm.editing:
+            return
+        self._vm.set_editing(True)
+        async def save():
+            from doremi.services.listening_periods import ListeningPeriods
+            from doremi.services.experience_events import events
+            try:
+                first, last, cutoff = ListeningPeriods.parse_identity(identity)
+                playlist_id = await ListeningPeriods().save_as_playlist(first, last, title, cutoff)
+                events.changed.emit()
+                events.collections_changed.emit()
+                self.notification_requested.emit("Sesión guardada como playlist", "success")
+            except Exception as exc:
+                logger.warning(f"Could not save music session: {exc}")
+                self.notification_requested.emit("No se pudo guardar la sesión", "error")
+            finally:
+                self._vm.set_editing(False)
+        asyncio.ensure_future(save())
+
+    def _edit_local(self, identity, action, title):
+        if self._vm.editing:
+            return
+        self._vm.set_editing(True)
+        async def edit():
+            from doremi.db.local_library_repository import LocalLibraryRepository
+            from doremi.services.experience_events import events
+            try:
+                repo = LocalLibraryRepository()
+                if action == "rename":
+                    await repo.rename_playlist(identity, title)
+                else:
+                    await repo.delete_playlist(identity)
+                events.changed.emit()
+                events.collections_changed.emit()
+                if identity == self._playlist_id:
+                    if action == "delete":
+                        self._on_back()
+                    else:
+                        await self.load(identity)
+                self.notification_requested.emit("Playlist actualizada" if action == "rename" else "Playlist eliminada", "success")
+            except Exception as exc:
+                logger.warning(f"Could not edit local playlist: {exc}")
+                self.notification_requested.emit("No se pudo actualizar la playlist", "error")
+            finally:
+                self._vm.set_editing(False)
+        asyncio.ensure_future(edit())
+
+    def _remove_local(self, identity, position, video_id, title):
+        if self._vm.editing:
+            return
+        self._vm.set_editing(True)
+        async def remove():
+            from doremi.db.local_library_repository import LocalLibraryRepository
+            from doremi.services.experience_events import events
+            try:
+                removed = await LocalLibraryRepository().remove_occurrence(identity, position, video_id)
+                if not removed:
+                    raise ValueError("La canción ya cambió en esta playlist")
+                events.changed.emit()
+                events.collections_changed.emit()
+                if identity == self._playlist_id:
+                    await self.load(identity)
+                self.notification_requested.emit(f"Quitada de playlist: {title}", "success")
+            except Exception as exc:
+                logger.warning(f"Could not remove local occurrence: {exc}")
+                self.notification_requested.emit("No se pudo quitar la canción", "error")
+            finally:
+                self._vm.set_editing(False)
+        asyncio.ensure_future(remove())
 
     def _retry(self) -> None:
         if self._playlist_id:
@@ -96,6 +175,11 @@ class PlaylistScreenQml(QObject):
                 album="",
                 duration_ms=t.get("duration_ms", 0),
                 thumbnail_url=t.get("thumbnail_url", "") or self._vm.thumbnail,
+                is_local=bool(t.get("local_path")),
+                local_path=t.get("local_path"),
+                context_type="smart" if (self._playlist_id or "").startswith("smart:") else "playlist",
+                context_id=self._playlist_id or "",
+                context_title=self._vm.title,
             )
             for t in items
         ]
@@ -114,23 +198,23 @@ class PlaylistScreenQml(QObject):
 
     async def _remove_track_async(self, video_id: str, set_video_id: str, title: str) -> None:
         """Remueve el track vía API y recarga (paridad widgets; el confirm lo hace el QML)."""
+        identity = self._playlist_id
         try:
             if not self.yt or not self.yt.is_authenticated:
-                from doremi.ui.widgets.toast import ToastNotification
-                ToastNotification.show(self.window(), "Inicia sesión para editar playlists", "warning")
+                self.notification_requested.emit("Inicia sesión para editar playlists", "warning")
                 return
             response = await self.yt.remove_playlist_items(
-                self._playlist_id, [{"videoId": video_id, "setVideoId": set_video_id}],
+                identity, [{"videoId": video_id, "setVideoId": set_video_id}],
             )
-            from doremi.ui.widgets.toast import ToastNotification
             if response:
-                ToastNotification.show(self.window(), f"Quitado de playlist: {title}", "success")
-                if self._playlist_id:
-                    await self.load(self._playlist_id)
+                self.notification_requested.emit(f"Quitado de playlist: {title}", "success")
+                if identity and self._playlist_id == identity:
+                    await self.load(identity)
             else:
-                ToastNotification.show(self.window(), "No se pudo quitar de la playlist", "error")
+                self.notification_requested.emit("No se pudo quitar de la playlist", "error")
         except Exception as e:
             logger.error(f"Error quitando track de playlist: {e}")
+            self.notification_requested.emit("No se pudo quitar de la playlist", "error")
 
     # ── Carga ──────────────────────────────────────────────────────────────
 
@@ -156,6 +240,11 @@ class PlaylistScreenQml(QObject):
             if not is_current_request():
                 return
             self._vm.set_data(data)
+            from doremi.db.experience_repository import ExperienceRepository
+            pinned = await ExperienceRepository().is_pinned(playlist_id)
+            if not is_current_request():
+                return
+            self._vm.set_pin_state(playlist_id, pinned)
             if self._vm.found and not self._vm.isLocal:
                 self._refresh_download_state()
         except asyncio.CancelledError:

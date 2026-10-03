@@ -53,6 +53,7 @@ class NowPlayingScreenQml(QObject):
     download_requested = Signal(str, str, str, str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
+    queue_copy_requested = Signal(int, bool)
     like_requested = Signal(str, object)
     add_to_playlist_requested = Signal(str, str)
     delete_download_requested = Signal(str)
@@ -93,6 +94,7 @@ class NowPlayingScreenQml(QObject):
         self._vm.download_requested.connect(self.download_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
+        self._vm.queue_copy_requested.connect(self.queue_copy_requested)
         self._vm.like_requested.connect(self.like_requested)
         self._vm.add_to_playlist_requested.connect(self.add_to_playlist_requested)
         self._vm.delete_download_requested.connect(self.delete_download_requested)
@@ -235,7 +237,13 @@ class NowPlayingScreenQml(QObject):
         album = ""
         if getattr(self.queue, "current", None):
             album = getattr(self.queue.current, "album", "") or ""
+            # Queue selection changes before VLC finishes loading the media.
+            # Menus and MiniPlayer must target the displayed track immediately.
+            video_id = getattr(self.queue.current, "video_id", "") or video_id
         self._vm.set_track_info(title, artist, thumbnail_url, album=album, video_id=video_id)
+        current = getattr(self.queue, "current", None)
+        if current and getattr(current, "is_local", False) and getattr(current, "local_path", None):
+            self._vm.set_downloaded_state(video_id, True)
         if thumbnail_url:
             asyncio.ensure_future(self._load_thumbnail(thumbnail_url))
         # Marcar el actual en la cola (set_queue ya conoce _video_id)
@@ -290,6 +298,9 @@ class NowPlayingScreenQml(QObject):
 
     def set_liked_state(self, liked: bool) -> None:
         self._vm.set_liked(liked)
+
+    def set_downloaded_state(self, downloaded: bool) -> None:
+        self._vm.set_downloaded_state(self._vm.videoId, downloaded)
 
     def update_shuffle_repeat_state(self) -> None:
         self._refresh_repeat_state()

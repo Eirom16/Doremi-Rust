@@ -23,12 +23,14 @@ class AlbumScreenQml(QObject):
     _qml_island = True  # fade_stack.py: sin cross-fade
 
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     download_album_requested = Signal(str, str, str)  # browse_id, title, thumbnail_url
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
     add_to_playlist_requested = Signal(str, str)
     delete_download_requested = Signal(str)
+    artist_clicked = Signal(str)
 
     def __init__(self, yt_client, on_play_song, on_back=None):
         super().__init__()
@@ -46,6 +48,9 @@ class AlbumScreenQml(QObject):
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
+        self._vm.artist_clicked.connect(self.artist_clicked)
+        self._vm.collection_copy_link_requested.connect(lambda url: QApplication.clipboard().setText(url))
         self._vm.download_album_requested.connect(self.download_album_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)

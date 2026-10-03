@@ -5,7 +5,10 @@ from PySide6.QtCore import (
 )
 
 
-class DownloadSongModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class DownloadSongModel(TrackStateModel):
     """Canciones descargadas + tareas activas. Soporta updates por video_id."""
 
     VideoIdRole = Qt.UserRole + 1

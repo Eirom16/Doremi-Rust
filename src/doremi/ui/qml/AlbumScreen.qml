@@ -23,6 +23,7 @@ Item {
     }
 
     Flickable {
+        objectName: "viewState:main"
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
@@ -198,6 +199,21 @@ Item {
                             onClicked: screenVm.play_shuffle()
                         }
 
+                        ToolButton {
+                            text: "⋮"
+                            palette.buttonText: root.colors["text_primary"]
+                            Accessible.name: "Más acciones de álbum"
+                            onClicked: albumMenu.popup()
+                            CollectionMenu {
+                                id: albumMenu
+                                hasTracks: screenVm.hasTracks
+                                hasArtist: screenVm.hasPrimaryArtist
+                                showCopyLink: screenVm.canCopyLink
+                                downloadAllowed: screenVm.dlState !== "full" && screenVm.dlState !== "active"
+                                onAction: function(name) { screenVm.collection_action(name) }
+                            }
+                        }
+
                         // Descarga: estados
                         Label {
                             visible: screenVm.dlState === "full"
@@ -257,12 +273,18 @@ Item {
 
                     delegate: Rectangle {
                         id: row
+                        required property string videoId
+                        TrackDragArea {
+                            anchors.fill: parent
+                            track: ({videoId: row.videoId, title: row.title, artist: row.artist, thumbnail: row.thumbnail})
+                        }
                         required property int index
                         required property string title
                         required property string artist
                         required property string duration
                         required property string thumbnail
                         required property bool isDownloaded
+                        required property bool isLiked
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 72
@@ -369,32 +391,15 @@ Item {
                                 visible: row.duration !== ""
                             }
 
-                            ContextMenu {
+                            SongMenu {
                                 id: rowMenu
-                                ContextMenuItem {
-                                    text: "Reproducir siguiente"
-                                    onTriggered: screenVm.track_action(row.index, "play_next")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a la cola"
-                                    onTriggered: screenVm.track_action(row.index, "add_to_queue")
-                                }
-                                ContextMenuItem {
-                                    text: "Me gusta"
-                                    onTriggered: screenVm.track_action(row.index, "like")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a playlist"
-                                    onTriggered: screenVm.track_action(row.index, "add_to_playlist")
-                                }
-                                ContextMenuItem {
-                                    text: "Descargar"
-                                    onTriggered: screenVm.track_action(row.index, "download")
-                                }
-                                ContextMenuItem {
-                                    visible: row.isDownloaded
-                                    text: "Eliminar descarga"
-                                    onTriggered: screenVm.track_action(row.index, "delete_download")
+                                showLink: true
+                                localTrack: row.videoId.indexOf("local:") === 0
+                                downloaded: row.isDownloaded
+                                liked: row.isLiked
+                                onAction: function(name) {
+                                    if (name === "play") screenVm.play_at(row.index)
+                                    else screenVm.track_action(row.index, name)
                                 }
                             }
                         }

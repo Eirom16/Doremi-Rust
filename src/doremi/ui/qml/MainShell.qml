@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Window
 import QtQuick.Controls
 import Doremi 1.0
 
@@ -12,6 +13,43 @@ Item {
     property var playerController: null
     property var toastController: null
     property var closeController: null
+    property var commandController: null
+    function editorFocused() {
+        var item = root.Window.window ? root.Window.window.activeFocusItem : null
+        while (item) {
+            if (item.readOnly !== undefined && !item.readOnly) return true
+            item = item.parent
+        }
+        return false
+    }
+    CommandPalette { id: commandPalette; controller: root.commandController }
+    PlaylistPicker { controller: typeof desktopController !== "undefined" ? desktopController : null }
+    DropArea {
+        anchors.fill: parent
+        z: 20
+        onEntered: function(drag) { drag.accepted = drag.hasUrls }
+        onDropped: function(drop) {
+            if (drop.hasUrls && typeof desktopController !== "undefined" && desktopController) {
+                var urls = []
+                for (var i = 0; i < drop.urls.length; ++i) urls.push(drop.urls[i].toString())
+                desktopController.import_files(urls)
+                drop.acceptProposedAction()
+            }
+        }
+        Rectangle {
+            anchors.fill: parent
+            visible: parent.containsDrag
+            color: "transparent"
+            border.width: 3
+            border.color: themeBridge.colors["accent"]
+        }
+    }
+    Shortcut { sequence: "Ctrl+K"; enabled: root.commandController !== null; onActivated: commandPalette.open() }
+    Shortcut { sequence: "Ctrl+P"; enabled: root.commandController !== null && !root.editorFocused() && !commandPalette.opened; onActivated: root.commandController.execute("now_playing") }
+    Shortcut { sequence: "Ctrl+Right"; enabled: root.commandController !== null && !root.editorFocused() && !commandPalette.opened; onActivated: root.commandController.execute("next") }
+    Shortcut { sequence: "Ctrl+Left"; enabled: root.commandController !== null && !root.editorFocused() && !commandPalette.opened; onActivated: root.commandController.execute("previous") }
+    Shortcut { sequence: "L"; enabled: root.commandController !== null && !root.editorFocused() && !commandPalette.opened; onActivated: root.commandController.execute("like") }
+    Shortcut { sequence: "Space"; enabled: root.commandController !== null && !root.editorFocused() && !commandPalette.opened; onActivated: root.commandController.execute("play") }
     property bool notificationsOpen: false
     property bool closeConfirmationVisible: false
     property int activeDownloadCount: 0
@@ -39,7 +77,7 @@ Item {
         navigationController: root.navigationController
 
         Behavior on width {
-            NumberAnimation { duration: 280; easing.type: Easing.OutCubic }
+            NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
         }
     }
 

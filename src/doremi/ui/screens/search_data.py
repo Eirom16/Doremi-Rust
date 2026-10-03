@@ -29,6 +29,9 @@ def _collection_author(item: dict, category: str) -> str:
 
 async def gather_search(yt_client, query: str, category: str, limit: int = 40) -> list[dict]:
     """Busca en YouTube Music y normaliza resultados de una categoría."""
+    if category == "local":
+        from doremi.db.local_library_repository import LocalLibraryRepository
+        return await LocalLibraryRepository().search(query, limit)
     if not yt_client or not query:
         return []
 
@@ -47,7 +50,12 @@ async def gather_search(yt_client, query: str, category: str, limit: int = 40) -
             liked_ids = await SongRepository().get_liked_video_ids()
         except Exception:
             pass
-        return [_normalize_song(it, liked_ids) for it in results if it.get("videoId")]
+        songs = [_normalize_song(it, liked_ids) for it in results if it.get("videoId")]
+        from doremi.db.repository import DownloadRepository
+        available = await DownloadRepository().get_available_video_ids([s["videoId"] for s in songs])
+        for song in songs:
+            song["is_downloaded"] = song["videoId"] in available
+        return songs
 
     if category in {"album", "podcast"}:
         route = "podcast" if category == "podcast" else "album"

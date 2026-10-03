@@ -1,4 +1,5 @@
 import asyncio
+from dataclasses import replace
 
 from loguru import logger
 from PySide6.QtCore import Qt
@@ -39,254 +40,71 @@ class QueueController:
         self._like_lock = asyncio.Lock()
 
     def on_play_next_requested(self, video_id, title, artist, thumb_url):
-        self.run_async(self.add_to_queue_async(video_id, title, artist, thumb_url, add_next=True))
+        from doremi.services.playback_context import playback_context
+        from doremi.ui.controllers.track_action_data import capture_track_metadata
+        self.run_async(self.add_to_queue_async(
+            video_id, title, artist, thumb_url, add_next=True,
+            context=playback_context(self.main_window),
+            metadata=capture_track_metadata(self.main_window, video_id)))
 
     def on_add_to_queue_requested(self, video_id, title, artist, thumb_url):
-        self.run_async(self.add_to_queue_async(video_id, title, artist, thumb_url, add_next=False))
+        from doremi.services.playback_context import playback_context
+        from doremi.ui.controllers.track_action_data import capture_track_metadata
+        self.run_async(self.add_to_queue_async(
+            video_id, title, artist, thumb_url, add_next=False,
+            context=playback_context(self.main_window),
+            metadata=capture_track_metadata(self.main_window, video_id)))
 
-    async def add_to_queue_async(self, video_id, title, artist, thumb_url, add_next=True):
-        # Try to get duration from stream info
-        dur_ms = 0
+    def requeue_occurrence(self, index: int, add_next: bool) -> None:
+        """Copy the selected occurrence, not the first matching video ID."""
+        items = self.queue.items
+        if not 0 <= index < len(items):
+            return
+        item = replace(items[index])
+        self._insert(item, add_next)
+
+    def _insert(self, item: QueueItem, add_next: bool) -> None:
+        if add_next:
+            self.queue.add_next(item)
+            message = f"Siguiente: {item.title}"
+        else:
+            self.queue.add_to_end(item)
+            message = _f("Añadido a la cola: {title}", title=item.title)
+        self.main_window.statusBar().showMessage(message, 2000)
+        self.main_window.playback_controller._update_queue_panel()
+
+    async def add_to_queue_async(self, video_id, title, artist, thumb_url, add_next=True, context=None, metadata=None):
+        if context and context.get("context_type") == "queue":
+            current = self.queue.current
+            original = current if current and current.video_id == video_id else next(
+                (entry for entry in self.queue.items if entry.video_id == video_id), None)
+            if original is not None:
+                context = dict(context_type=original.context_type, context_id=original.context_id,
+                               context_title=original.context_title)
+        item = QueueItem(
+            video_id=video_id, title=title, artist=artist,
+            album=(metadata or {}).get("album", ""), duration_ms=(metadata or {}).get("duration_ms", 0), thumbnail_url=thumb_url,
+            **(context or {"context_type": "queue"}),
+        )
+        self._insert(item, add_next)
+        if item.duration_ms > 0:
+            return
+        # Queue insertion is immediate; optional metadata must not delay it.
+        # Enrich this occurrence only if it has not been removed meanwhile.
         try:
-            info = await self.extractor.get_stream_info(video_id)
-            if info.get("duration"):
-                dur_ms = int(info["duration"]) * 1000
+            info = {} if video_id.startswith("local:") else await self.extractor.get_stream_info(video_id)
+            if info.get("duration") and any(entry is item for entry in self.queue.items):
+                item.duration_ms = max(0, int(info["duration"]) * 1000)
+                self.main_window.playback_controller._update_queue_panel()
         except Exception as e:
             logger.debug(f"Could not fetch duration for queue item: {e}")
 
-        item = QueueItem(
-            video_id=video_id, title=title, artist=artist,
-            album="", duration_ms=dur_ms, thumbnail_url=thumb_url,
-        )
-        if add_next:
-            self.queue.add_next(item)
-            self.main_window.statusBar().showMessage(f"Siguiente: {title}", 2000)
-        else:
-            self.queue.add_to_end(item)
-            self.main_window.statusBar().showMessage(_f("Añadido a la cola: {title}", title=title), 2000)
-        self.main_window.playback_controller._update_queue_panel()
-
     def on_add_to_playlist_requested(self, video_id, title):
-        self.run_async(self.show_add_to_playlist_dialog(video_id, title))
+        from doremi.ui.controllers.track_action_data import capture_track_metadata
+        self.run_async(self.show_add_to_playlist_dialog(video_id, title, capture_track_metadata(self.main_window, video_id)))
 
-    async def show_add_to_playlist_dialog(self, video_id, title):
-        if not self.main_window.yt.is_authenticated:
-            self.main_window.statusBar().showMessage("Inicia sesión para añadir a playlists", 3000)
-            return
-
-        playlists = await self.main_window.yt.get_library_playlists()
-        if not playlists:
-            self.main_window.statusBar().showMessage("No tienes playlists creadas", 3000)
-            return
-
-        from PySide6.QtWidgets import (
-            QDialog, QVBoxLayout, QHBoxLayout, QLabel, QScrollArea,
-            QWidget, QLineEdit, QPushButton, QGraphicsDropShadowEffect
-        )
-        from PySide6.QtCore import Qt, QTimer
-        from PySide6.QtGui import QColor, QPixmap
-        from doremi.ui.design.fonts import AppFont
-        from doremi.ui.design.icons import Icon
-        from doremi.ui.design import tokens
-        from doremi.ui.design.animations import fade_in
-
-        dialog = QDialog(self.main_window)
-        dialog.setWindowTitle("Añadir a Playlist")
-        dialog.setFixedSize(440, 480)
-        dialog.setWindowFlags(Qt.WindowType.FramelessWindowHint)
-        dialog.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-
-        shadow = QGraphicsDropShadowEffect(dialog)
-        shadow.setBlurRadius(48)
-        shadow.setOffset(0, 12)
-        shadow.setColor(QColor(0, 0, 0, 140))
-        dialog.setGraphicsEffect(shadow)
-
-        root = QWidget(dialog)
-        root.setFixedSize(440, 480)
-        root.setObjectName("addToPlaylistRoot")
-        root.setStyleSheet(f"""
-            QWidget#addToPlaylistRoot {{
-                background: {tokens.CURRENT.bg_surface};
-                border-radius: 16px;
-            }}
-        """)
-
-        root_layout = QVBoxLayout(root)
-        root_layout.setContentsMargins(0, 0, 0, 0)
-        root_layout.setSpacing(0)
-
-        header = QWidget()
-        header.setFixedHeight(80)
-        header.setStyleSheet(f"""
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 {tokens.CURRENT.accent},
-                stop:1 {tokens.CURRENT.accent_bright});
-            border-radius: 16px 16px 0 0;
-        """)
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(20, 0, 20, 0)
-
-        icon_lbl = QLabel(Icon.get("playlist_add"))
-        icon_lbl.setFont(Icon.font(28, filled=True))
-        icon_lbl.setStyleSheet(f"color: {tokens.CURRENT.text_on_accent}; background: transparent;")
-        header_layout.addWidget(icon_lbl)
-
-        header_text = QLabel(f"Añadir a playlist")
-        header_text.setFont(AppFont.heading(17))
-        header_text.setStyleSheet(f"color: {tokens.CURRENT.text_on_accent}; background: transparent;")
-        header_layout.addWidget(header_text)
-        header_layout.addStretch()
-
-        close_btn = QPushButton(Icon.get("close"))
-        close_btn.setFixedSize(32, 32)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(255,255,255,0.15);
-                color: {tokens.CURRENT.text_on_accent};
-                border: none;
-                border-radius: 16px;
-                font-family: 'Material Symbols Rounded';
-                font-size: 20px;
-            }}
-            QPushButton:hover {{ background: rgba(255,255,255,0.25); }}
-        """)
-        close_btn.clicked.connect(dialog.reject)
-        header_layout.addWidget(close_btn)
-
-        root_layout.addWidget(header)
-
-        body = QWidget()
-        body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(16, 12, 16, 16)
-        body_layout.setSpacing(8)
-
-        search_input = QLineEdit()
-        search_input.setPlaceholderText("Buscar playlist...")
-        search_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {tokens.CURRENT.bg_elevated};
-                color: {tokens.CURRENT.text_primary};
-                border: 1px solid {tokens.CURRENT.border};
-                border-radius: 10px;
-                padding: 10px 14px;
-                font-size: 13px;
-            }}
-            QLineEdit:focus {{
-                border: 2px solid {tokens.CURRENT.accent};
-                padding: 9px 13px;
-            }}
-        """)
-        body_layout.addWidget(search_input)
-
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("background: transparent; border: none;")
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, 0, 0)
-        content_layout.setSpacing(6)
-
-        for pl in playlists:
-            pid = pl.get('playlistId')
-            p_title = pl.get('title', 'Unknown')
-            p_count = pl.get('count', '')
-            p_thumbnails = pl.get('thumbnails', [])
-            p_thumbnail_url = p_thumbnails[-1].get('url', '') if p_thumbnails else ''
-            subtitle = f"{p_count} canciones" if p_count else ""
-
-            row = QPushButton()
-            row.setFixedHeight(60)
-            row.setCursor(Qt.CursorShape.PointingHandCursor)
-            row.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent;
-                    border: none;
-                    border-radius: 8px;
-                    text-align: left;
-                    padding: 0;
-                }}
-                QPushButton:hover {{
-                    background: {tokens.CURRENT.accent_dim};
-                }}
-            """)
-
-            row_layout = QHBoxLayout(row)
-            row_layout.setContentsMargins(10, 8, 10, 8)
-            row_layout.setSpacing(12)
-
-            thumb = QLabel()
-            thumb.setFixedSize(44, 44)
-            if p_thumbnail_url:
-                thumb.setStyleSheet("background: transparent; border-radius: 8px;")
-                asyncio.ensure_future(self.load_playlist_thumb(thumb, p_thumbnail_url))
-            else:
-                thumb.setFont(Icon.font(22))
-                thumb.setText(Icon.get("playlist_play"))
-                thumb.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                thumb.setStyleSheet(f"""
-                    background: {tokens.CURRENT.bg_high};
-                    color: {tokens.CURRENT.text_disabled};
-                    border-radius: 8px;
-                """)
-            row_layout.addWidget(thumb)
-
-            text_col = QVBoxLayout()
-            text_col.setSpacing(2)
-            name_lbl = QLabel(p_title)
-            name_lbl.setFont(AppFont.title(13))
-            name_lbl.setStyleSheet(f"color: {tokens.CURRENT.text_primary}; background: transparent;")
-            text_col.addWidget(name_lbl)
-
-            if subtitle:
-                sub_lbl = QLabel(subtitle)
-                sub_lbl.setFont(AppFont.caption(11))
-                sub_lbl.setStyleSheet(f"color: {tokens.CURRENT.text_secondary}; background: transparent;")
-                text_col.addWidget(sub_lbl)
-
-            row_layout.addLayout(text_col)
-            row_layout.addStretch()
-
-            add_icon = QLabel(Icon.get("add"))
-            add_icon.setFont(Icon.font(18))
-            add_icon.setStyleSheet(f"color: {tokens.CURRENT.text_disabled}; background: transparent;")
-            add_icon.setFixedSize(28, 28)
-            add_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            row_layout.addWidget(add_icon)
-
-            row.clicked.connect(lambda _, pid=pid, p_title=p_title: (
-                dialog.accept(),
-                self.run_async(self.add_to_yt_playlist(pid, video_id, p_title))
-            ))
-            content_layout.addWidget(row)
-
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        body_layout.addWidget(scroll)
-
-        root_layout.addWidget(body)
-
-        def filter_playlists(text: str):
-            for i in range(content_layout.count()):
-                item = content_layout.itemAt(i)
-                if item and item.widget():
-                    widget = item.widget()
-                    lbl = widget.findChildren(QLabel)
-                    match = False
-                    for l in lbl:
-                        if text.lower() in l.text().lower():
-                            match = True
-                            break
-                    widget.setVisible(match)
-
-        search_input.textChanged.connect(filter_playlists)
-
-        fade_in(root, 200)
-        self._playlist_dialog = dialog
-        dialog.open()
+    async def show_add_to_playlist_dialog(self, video_id, title, metadata=None):
+        await self.main_window.desktop_controller.show_picker(video_id, title, metadata)
 
     async def load_playlist_thumb(self, thumb_label, url):
         from PySide6.QtGui import QPixmap
@@ -319,17 +137,19 @@ class QueueController:
             self.main_window.show_notification("Error al añadir a playlist", "error")
 
     def on_like_requested(self, video_id, btn_like):
-        self.run_async(self.toggle_like_async(video_id, btn_like))
+        from doremi.ui.controllers.track_action_data import capture_track_metadata
+        metadata = capture_track_metadata(self.main_window, video_id)
+        self.run_async(self.toggle_like_async(video_id, btn_like, metadata))
 
-    async def toggle_like_async(self, video_id, btn_like):
+    async def toggle_like_async(self, video_id, btn_like, metadata=None):
         async with self._like_lock:
             try:
-                await self._toggle_like_locked(video_id, btn_like)
+                await self._toggle_like_locked(video_id, btn_like, metadata)
             except Exception as exc:
                 logger.error(f"No se pudo actualizar favorito {video_id}: {exc}")
                 self.main_window.show_notification(_("No se pudo actualizar el favorito. Puedes reintentarlo."), "error")
 
-    async def _toggle_like_locked(self, video_id, btn_like):
+    async def _toggle_like_locked(self, video_id, btn_like, metadata=None):
         from doremi.db.repository import SongRepository, DownloadRepository
         repo = SongRepository()
 
@@ -346,18 +166,18 @@ class QueueController:
                     thumbnail_url=dl.thumbnail_url or ""
                 )
             else:
-                await repo.upsert_song(video_id=video_id, title="Unknown", artist="Unknown")
+                await repo.upsert_song(video_id=video_id, **(metadata or dict(title="Unknown", artist="Unknown")))
 
         liked = await repo.toggle_like(video_id)
+        from doremi.services.experience_events import events
+        events.liked_changed.emit(video_id, liked)
+        events.changed.emit()
         current = self.queue.current
         if current and current.video_id == video_id:
             self.main_window.now_playing_screen.set_liked_state(liked)
-        search = getattr(self.main_window, "search_screen", None)
-        if search is not None and hasattr(search, "update_liked_state"):
-            search.update_liked_state(video_id, liked)
 
         # Sync with YouTube Music in the background if authenticated
-        if self.main_window.yt.is_authenticated:
+        if self.main_window.yt.is_authenticated and not video_id.startswith("local:"):
             rating = "LIKE" if liked else "INDIFFERENT"
             try:
                 await self.main_window.yt.rate_song(video_id, rating)
@@ -375,7 +195,7 @@ class QueueController:
             )
             self.main_window.playback_controller._update_queue_panel()
             library = self.main_window.library_screen
-            if getattr(library, "_qml_island", False) and library.isVisible():
+            if getattr(library, "_qml_island", False) and getattr(self.main_window, "_current_route", "") == "library":
                 await library.load()
             return
 

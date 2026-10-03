@@ -7,7 +7,10 @@ from PySide6.QtCore import (
 )
 
 
-class DetailTrackModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class DetailTrackModel(TrackStateModel):
     """Tracks de un álbum/playlist. Compartido por las islas de detalle."""
 
     TitleRole = Qt.UserRole + 1
@@ -82,6 +85,7 @@ class AlbumViewModel(QObject):
 
     # Mismas señales que AlbumScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     download_album_requested = Signal(str, str, str)  # browse_id, title, thumbnail_url
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
@@ -91,6 +95,8 @@ class AlbumViewModel(QObject):
     play_queue_requested = Signal(list, int)  # queue dicts, index
     back_requested = Signal()
     retry_requested = Signal()
+    artist_clicked = Signal(str)
+    collection_copy_link_requested = Signal(str)
 
     DL_NONE = ""            # sin descargas/counter
     DL_PARTIAL = "partial"  # descarga parcial
@@ -113,6 +119,8 @@ class AlbumViewModel(QObject):
         self._downloaded_count = 0
         self._track_count = 0
         self._error_text = ""
+        self._primary_artist = ""
+        self._share_url = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -184,6 +192,8 @@ class AlbumViewModel(QObject):
         self._title = data.get("title", "")
         self._meta = data.get("meta", "")
         self._thumbnail = data.get("thumbnail_url", "")
+        self._primary_artist = data.get("primary_artist", "")
+        self._share_url = data.get("share_url", "")
         self._tracks.set_items(data.get("tracks", []))
         self._downloaded_count = data.get("downloaded_count", 0)
         self._track_count = data.get("track_count", 0)
@@ -258,28 +268,34 @@ class AlbumViewModel(QObject):
         item = self._tracks.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "delete_download":
-            self.delete_download_requested.emit(vid)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot()
     def download_album(self) -> None:
         self.download_album_requested.emit(
             self._browse_id, self._title, self._thumbnail,
         )
+
+    @Slot(str)
+    def collection_action(self, action):
+        from doremi.ui.viewmodels.track_actions import dispatch_collection_action
+        if action == "download":
+            self.download_album()
+        elif action == "go_artist" and self._primary_artist:
+            self.artist_clicked.emit(self._primary_artist)
+        elif action == "copy_link" and self._share_url:
+            self.collection_copy_link_requested.emit(self._share_url)
+        else:
+            dispatch_collection_action(self, self._queue_payload(0)[0], action)
+
+    @Property(bool, notify=header_changed)
+    def hasPrimaryArtist(self):
+        return bool(self._primary_artist and self._type.lower() != "podcast")
+
+    @Property(bool, notify=header_changed)
+    def canCopyLink(self):
+        return bool(self._share_url)
 
     @Slot()
     def go_back(self) -> None:

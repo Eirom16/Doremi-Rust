@@ -17,6 +17,8 @@ class MiniPlayerViewModel(QObject):
     seek_fraction = Signal(float)       # 0.0-1.0; el wrapper convierte a ms
     expand_requested = Signal()
     artist_clicked = Signal(str)
+    volume_requested = Signal(int)
+    extras_changed = Signal()
 
     _p_title_changed = Signal()
     _p_artist_changed = Signal()
@@ -41,6 +43,38 @@ class MiniPlayerViewModel(QObject):
         self._position_text = "0:00"
         self._duration_text = "0:00"
         self._expand_less = True
+        self._track_actions = None
+        self._volume = 80
+        self._unmuted_volume = 80
+
+    @Property(QObject, notify=extras_changed)
+    def trackActions(self):
+        return self._track_actions
+
+    def set_track_actions(self, actions):
+        self._track_actions = actions
+        self.extras_changed.emit()
+
+    @Property(int, notify=extras_changed)
+    def volume(self):
+        return self._volume
+
+    def set_volume(self, volume):
+        volume = max(0, min(100, int(volume)))
+        if volume != self._volume:
+            self._volume = volume
+            if volume:
+                self._unmuted_volume = volume
+            self.extras_changed.emit()
+
+    @Slot(int)
+    def change_volume(self, volume):
+        self.set_volume(volume)
+        self.volume_requested.emit(self._volume)
+
+    @Slot()
+    def toggle_mute(self):
+        self.change_volume(0 if self._volume else self._unmuted_volume)
 
     # ── Properties para QML ──────────────────────────────────────────────
 

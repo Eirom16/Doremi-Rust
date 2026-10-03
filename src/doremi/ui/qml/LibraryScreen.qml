@@ -7,6 +7,7 @@ Item {
     id: root
 
     property var screenVm: null
+    readonly property bool songTab: screenVm && (screenVm.tab === "songs" || screenVm.tab === "local")
 
     // themeBridge (ThemeBridge) y vm (LibraryViewModel) llegan por contexto.
     readonly property var colors: themeBridge.colors
@@ -19,6 +20,7 @@ Item {
 
     readonly property var tabDefs: [
         { "key": "songs", "label": "Favoritas" },
+        { "key": "local", "label": "Archivos locales" },
         { "key": "albums", "label": "Álbumes" },
         { "key": "artists", "label": "Artistas" },
         { "key": "playlists", "label": "Playlists" }
@@ -32,7 +34,7 @@ Item {
     })
 
     function currentModel() {
-        if (screenVm.tab === "songs") return screenVm.songs
+        if (root.songTab) return screenVm.songs
         if (screenVm.tab === "albums") return screenVm.albums
         if (screenVm.tab === "artists") return screenVm.artists
         return screenVm.playlists
@@ -63,6 +65,11 @@ Item {
         }
 
         // ── Tabs (pills) ──────────────────────────────────────────────
+        HeaderButton {
+            text: "Nueva playlist local"
+            visible: screenVm.tab === "playlists"
+            onClicked: if (typeof desktopController !== "undefined" && desktopController) desktopController.new_playlist()
+        }
         RowLayout {
             Layout.fillWidth: true
             spacing: Theme.spacingSm
@@ -121,6 +128,7 @@ Item {
 
             TextField {
                 id: filterField
+                text: screenVm.filterText
                 Layout.fillWidth: true
                 Layout.preferredHeight: 36
                 placeholderText: "Buscar en biblioteca"
@@ -141,6 +149,7 @@ Item {
 
             ComboBox {
                 id: sortCombo
+                currentIndex: ["recent", "title", "artist"].indexOf(screenVm.sortMode)
                 Layout.preferredHeight: 36
                 Layout.preferredWidth: 150
                 model: [
@@ -292,9 +301,10 @@ Item {
         // ── Canciones (lista) ─────────────────────────────────────────
         ListView {
             id: songsList
+            objectName: "viewState:songs"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && screenVm.tab === "songs" && screenVm.songs.rowCount() > 0
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && root.songTab && screenVm.songs.rowCount() > 0
             model: screenVm.songs
             clip: true
             spacing: Theme.spacingXxs
@@ -302,6 +312,10 @@ Item {
 
             delegate: Rectangle {
                 id: songRow
+                TrackDragArea {
+                    anchors.fill: parent
+                    track: ({videoId: songRow.videoId, title: songRow.title, artist: songRow.artist, thumbnail: songRow.thumbnail})
+                }
                 width: songsList.width
                 height: 64
                 radius: Theme.radiusLg
@@ -328,6 +342,7 @@ Item {
                 required property string duration
                 required property string thumbnail
                 required property string videoId
+                required property bool isLiked
 
                 RowLayout {
                     anchors.fill: parent
@@ -390,31 +405,15 @@ Item {
                         visible: songRow.duration !== ""
                     }
 
-                    ContextMenu {
+                    SongMenu {
                         id: songMenu
-                        ContextMenuItem {
-                            text: "Reproducir siguiente"
-                            onTriggered: screenVm.song_action(songRow.index, "play_next")
-                        }
-                        ContextMenuItem {
-                            text: "Añadir a la cola"
-                            onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
-                        }
-                        ContextMenuItem {
-                            text: "Quitar de Favoritas"
-                            onTriggered: screenVm.song_action(songRow.index, "like")
-                        }
-                        ContextMenuItem {
-                            text: "Añadir a playlist"
-                            onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
-                        }
-                        ContextMenuItem {
-                            text: "Descargar"
-                            onTriggered: screenVm.song_action(songRow.index, "download")
-                        }
-                        ContextMenuItem {
-                            text: "Ir al artista"
-                            onTriggered: screenVm.song_action(songRow.index, "go_artist")
+                        showLink: true
+                        localTrack: songRow.videoId.indexOf("local:") === 0
+                        liked: songRow.isLiked
+                        hasArtist: !localTrack && songRow.artist !== ""
+                        onAction: function(name) {
+                            if (name === "play") screenVm.play_at(songRow.index)
+                            else screenVm.song_action(songRow.index, name)
                         }
                     }
                 }
@@ -442,9 +441,10 @@ Item {
         // ── Grids (álbumes, artistas, playlists) ──────────────────────
         GridView {
             id: grid
+            objectName: "viewState:grid"
             Layout.fillWidth: true
             Layout.fillHeight: true
-            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && screenVm.tab !== "songs"
+            visible: !screenVm.loading && !screenVm.authRequired && screenVm.errorText === "" && !root.songTab
                      && root.currentModel().rowCount() > 0
             clip: true
             cacheBuffer: 400

@@ -41,7 +41,7 @@ Rectangle {
         anchors.fill: parent
         hoverEnabled: true
         cursorShape: Qt.PointingHandCursor
-        onDoubleClicked: root.playRequested()
+        onClicked: root.playRequested()
     }
 
     RowLayout {
@@ -110,7 +110,8 @@ Rectangle {
         // Download Badge
         Text {
             visible: root.isDownloaded
-            text: ""
+            text: ""
+            Accessible.name: "Disponible sin conexión"
             font.family: "Material Symbols Rounded"
             font.pixelSize: 16
             color: root.colors["accent"]

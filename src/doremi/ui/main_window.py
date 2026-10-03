@@ -127,6 +127,13 @@ class MainWindow(QMainWindow):
         )
         self.settings_controller.restore_persisted_sleep_timer()
         self._setup_shortcuts()
+        from doremi.ui.controllers.command_controller import CommandController
+        self.command_controller = CommandController(self)
+        self.main_shell.rootObject().setProperty("commandController", self.command_controller)
+        from doremi.services.experience_events import events
+        events.pin_requested.connect(self.navigation_controller.toggle_pin)
+        events.pin_move_requested.connect(self.navigation_controller.move_pinned)
+        events.changed.connect(lambda: self._run_async(self.navigation_controller.refresh_local_quick_access()))
         
         # Apply initial theme properly (immediately on startup to prevent flash)
         theme_mode = getattr(settings.appearance, 'theme_mode', 'dark')
@@ -141,8 +148,6 @@ class MainWindow(QMainWindow):
         search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
         search_shortcut.activated.connect(self.search_bar.focus_search)
         
-        slash_shortcut = QShortcut(QKeySequence("/"), self)
-        slash_shortcut.activated.connect(self.search_bar.focus_search)
 
         class GlobalShortcutFilter(QObject):
             def __init__(self, main_window):
@@ -166,6 +171,9 @@ class MainWindow(QMainWindow):
             def eventFilter(self, obj, event):
                 if event.type() == QEvent.Type.KeyPress:
                     focus_widget = QApplication.focusWidget()
+                    from PySide6.QtQuickWidgets import QQuickWidget
+                    if isinstance(focus_widget, QQuickWidget):
+                        return False  # QML owns focus-aware shortcuts in its scene.
                     if event.key() == Qt.Key.Key_Escape and self._close_escape_target():
                         return True
 
@@ -368,6 +376,8 @@ class MainWindow(QMainWindow):
 
         from doremi.ui.widgets.main_shell_qml import MainShellQml
         from doremi.ui.widgets.screen_host_qml import QmlRouteStack
+        from doremi.ui.controllers.desktop_controller import DesktopController
+        self.desktop_controller = DesktopController(self)
         self.main_shell = self._require_qml(
             "shell principal",
             MainShellQml(
@@ -377,6 +387,7 @@ class MainWindow(QMainWindow):
                 notification_panel=self.notification_panel,
                 mini_player=self.mini_player,
                 close_controller=self,
+                desktop_controller=self.desktop_controller,
                 parent=central,
             ),
         )
@@ -406,6 +417,8 @@ class MainWindow(QMainWindow):
                 screen.play_next_requested.connect(self._on_play_next_requested)
             if hasattr(screen, 'add_to_queue_requested'):
                 screen.add_to_queue_requested.connect(self._on_add_to_queue_requested)
+            if hasattr(screen, 'queue_copy_requested'):
+                screen.queue_copy_requested.connect(self.queue_controller.requeue_occurrence)
             if hasattr(screen, 'add_to_playlist_requested'):
                 screen.add_to_playlist_requested.connect(self._on_add_to_playlist_requested)
             if hasattr(screen, 'download_playlist_requested'):
@@ -422,6 +435,10 @@ class MainWindow(QMainWindow):
                 screen.artist_clicked.connect(self.resolve_and_navigate_artist)
             if hasattr(screen, 'album_clicked'):
                 screen.album_clicked.connect(self.resolve_and_navigate_album)
+            if hasattr(screen, 'notification_requested'):
+                screen.notification_requested.connect(self.show_notification)
+            if hasattr(screen, 'copy_link_requested'):
+                screen.copy_link_requested.connect(self.desktop_controller.copy_track_link)
 
         self._offline_state_index = self.stack.addWidget(self.offline_state_screen)
         self.stack.setCurrentIndex(self.ROUTES["home"])
@@ -435,6 +452,8 @@ class MainWindow(QMainWindow):
 
         if hasattr(self, 'mini_player'):
             self.mini_player.artist_clicked.connect(self.resolve_and_navigate_artist)
+            self.mini_player._vm.set_track_actions(self.now_playing_screen._vm)
+            self.mini_player._vm.volume_requested.connect(self._set_player_volume)
 
         self.statusBar().setObjectName("appStatusBar")
         self.statusBar().setStyleSheet("color: #888899; font-family: Inter; font-size: 11px;")
@@ -631,6 +650,8 @@ class MainWindow(QMainWindow):
         queue_items: list[QueueItem] | None = None,
         queue_index: int = 0,
     ) -> None:
+        from doremi.services.playback_context import playback_context
+        context = playback_context(self)
         self._run_async(
             self.playback_controller._play_song(
                 video_id,
@@ -641,8 +662,13 @@ class MainWindow(QMainWindow):
                 thumbnail_url,
                 queue_items,
                 queue_index,
+                context=context,
             )
         )
+
+    def _set_player_volume(self, volume):
+        self.player.set_volume(volume)
+        self.integrations_controller.on_mpris_volume_changed(volume)
 
     def _on_download_requested(self, video_id, title, artist, thumb_url):
         self.download_controller.on_download_requested(video_id, title, artist, thumb_url)

@@ -3,7 +3,10 @@ from __future__ import annotations
 from PySide6.QtCore import QAbstractListModel, Property, QModelIndex, QObject, Qt, Signal, Slot
 
 
-class HistoryListModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class HistoryListModel(TrackStateModel):
     """Modelo de la lista del historial consumido por QML ListView."""
 
     VideoIdRole = Qt.UserRole + 1
@@ -12,6 +15,7 @@ class HistoryListModel(QAbstractListModel):
     DurationRole = Qt.UserRole + 4
     DurationMsRole = Qt.UserRole + 5
     ThumbnailRole = Qt.UserRole + 6
+    IsLikedRole = Qt.UserRole + 7
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -36,6 +40,8 @@ class HistoryListModel(QAbstractListModel):
             return item.get("duration_ms", 0)
         if role == self.ThumbnailRole:
             return item["thumbnail_url"]
+        if role == self.IsLikedRole:
+            return item.get("is_liked", False)
         return None
 
     def roleNames(self) -> dict[int, bytes]:
@@ -46,6 +52,7 @@ class HistoryListModel(QAbstractListModel):
             self.DurationRole: b"duration",
             self.DurationMsRole: b"durationMs",
             self.ThumbnailRole: b"thumbnail",
+            self.IsLikedRole: b"isLiked",
         }
 
     def set_items(self, items: list[dict]) -> None:
@@ -74,6 +81,7 @@ class HistoryViewModel(QObject):
 
     # Mismas señales que HistoryScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -147,20 +155,8 @@ class HistoryViewModel(QObject):
         item = self._model.get(index)
         if item is None:
             return
-        video_id, title, artist = item["videoId"], item["title"], item["artist"]
-        thumb = item["thumbnail_url"]
-        if action == "download":
-            self.download_requested.emit(video_id, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(video_id, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(video_id, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(video_id, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(video_id, title)
-        elif action == "go_artist":
-            self.artist_clicked.emit(artist)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot()
     def clear(self) -> None:

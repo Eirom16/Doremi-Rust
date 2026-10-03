@@ -25,6 +25,7 @@ class LibraryScreenQml(QObject):
     _qml_island = True  # fade_stack.py: sin cross-fade
 
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -47,9 +48,12 @@ class LibraryScreenQml(QObject):
 
         self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "LibraryScreen.qml"))
         self._load_ok = True
+        from doremi.services.experience_events import events
+        events.collections_changed.connect(self.invalidate_collections_cache)
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
         self._vm.like_requested.connect(self.like_requested)
@@ -98,6 +102,11 @@ class LibraryScreenQml(QObject):
                 return
             pid = await self.yt.create_playlist(title, description)
             if pid:
+                from doremi.services.experience_events import events
+                from doremi.db.experience_repository import ExperienceRepository
+                await ExperienceRepository().remember_collections([dict(title=title, navigate="playlist?id=" + pid)])
+                events.changed.emit()
+                events.collections_changed.emit()
                 self._cache.pop("playlists", None)
                 self._cache_time.pop("playlists", None)
                 await self._load_tab("playlists")
@@ -113,6 +122,10 @@ class LibraryScreenQml(QObject):
         self._cache.pop("songs", None)
         self._cache_time.pop("songs", None)
         self._vm.clear_tab_data("songs")
+
+    def invalidate_collections_cache(self):
+        self._cache.pop("playlists", None)
+        self._cache_time.pop("playlists", None)
 
     def force_reload(self) -> None:
         self._cache.clear()
@@ -159,7 +172,7 @@ class LibraryScreenQml(QObject):
                 self._vm.set_tab_data(tab, self._cache[tab])
             return
 
-        if not self.yt or not self.yt.is_authenticated:
+        if (not self.yt or not self.yt.is_authenticated) and tab in {"albums", "artists"}:
             # Paridad con LibraryScreen (widgets): sin auth, mensaje en todos los tabs
             if is_current_request():
                 self._vm.set_auth_required(True)
@@ -175,6 +188,9 @@ class LibraryScreenQml(QObject):
             from doremi.ui.screens import library_data
             if tab == "songs":
                 items = await library_data.gather_liked_songs(self.yt)
+            elif tab == "local":
+                from doremi.db.local_library_repository import LocalLibraryRepository
+                items = await LocalLibraryRepository().search()
             elif tab == "albums":
                 items = await library_data.gather_library_albums(self.yt)
             elif tab == "artists":

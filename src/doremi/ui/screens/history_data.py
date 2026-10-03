@@ -33,6 +33,7 @@ async def gather_history(yt_client) -> tuple[list[dict], set, int]:
             "duration": format_duration_short(entry.duration_ms or 0) if entry.duration_ms else "",
             "duration_ms": entry.duration_ms or 0,
             "thumbnail_url": thumbnail_url or "",
+            "is_liked": entry.video_id in liked_ids,
         })
 
     for entry in yt_history:
@@ -52,6 +53,7 @@ async def gather_history(yt_client) -> tuple[list[dict], set, int]:
             "duration": duration,
             "duration_ms": parse_duration_to_ms(duration),
             "thumbnail_url": thumb_url,
+            "is_liked": video_id in liked_ids,
         })
 
     return items, liked_ids, len(local_history)

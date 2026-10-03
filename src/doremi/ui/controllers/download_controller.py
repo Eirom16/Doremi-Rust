@@ -39,6 +39,9 @@ class DownloadController:
         self.run_async(self.on_download_requested_async(video_id, title, artist, thumb_url))
 
     async def on_download_requested_async(self, video_id, title, artist, thumb_url):
+        if video_id.startswith("local:"):
+            self.main_window.show_notification("El archivo ya pertenece a tu biblioteca local", "info")
+            return
         existing = await self.download_manager._repo.get_download(video_id)
         if existing:
             self.main_window.statusBar().showMessage(f"Ya descargada: {title}", 3000)
@@ -59,6 +62,9 @@ class DownloadController:
             self.main_window.statusBar().showMessage(f"Ya en cola: {title}", 3000)
 
     def on_download_finished(self, video_id, file_path):
+        from doremi.services.experience_events import events
+        events.downloaded_changed.emit(video_id, True)
+        events.changed.emit()
         self.main_window.statusBar().showMessage(f"Descarga completa!", 5000)
 
     def on_download_playlist_requested(self, playlist_id, title, thumbnail_url):
@@ -216,6 +222,9 @@ class DownloadController:
             try:
                 lyrics_deleted = delete_audio_file(d.file_path)
                 await repo.remove_download(video_id)
+                from doremi.services.experience_events import events
+                events.downloaded_changed.emit(video_id, False)
+                events.changed.emit()
             except Exception as exc:
                 logger.error(f"No se pudo eliminar {video_id}: {exc}")
                 self.main_window.show_notification(_("No se pudo eliminar la descarga. Puedes reintentarlo."), "error")
@@ -262,6 +271,8 @@ class DownloadController:
             try:
                 lyrics_deleted = delete_audio_file(d.file_path)
                 await repo.remove_download(d.video_id)
+                from doremi.services.experience_events import events
+                events.downloaded_changed.emit(d.video_id, False)
                 count += 1
                 if not lyrics_deleted:
                     failures += 1
@@ -271,6 +282,8 @@ class DownloadController:
         message = _f("Audios eliminados: {count}. Fallos de borrado: {failed}.", count=count, failed=failures)
         self.main_window.statusBar().showMessage(message, 4000)
         self.main_window.show_notification(message, "warning" if failures else "info")
+        from doremi.services.experience_events import events
+        events.changed.emit()
         await self.main_window._navigate("downloads")
 
     def play_local_playlist(self, tracks_metadata: list[dict], start_index: int = 0) -> None:

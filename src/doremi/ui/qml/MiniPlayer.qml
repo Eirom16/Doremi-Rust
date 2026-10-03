@@ -45,6 +45,12 @@ Item {
                 Layout.preferredWidth: 60
                 Layout.preferredHeight: 60
                 Layout.alignment: Qt.AlignVCenter
+                activeFocusOnTab: true
+                Accessible.role: Accessible.Button
+                Accessible.name: "Abrir reproducción actual"
+                Accessible.onPressAction: playerController.emit_expand()
+                Keys.onReturnPressed: playerController.emit_expand()
+                Keys.onSpacePressed: playerController.emit_expand()
 
                 Rectangle {
                     id: artworkBox
@@ -95,11 +101,16 @@ Item {
                         }
                     }
                 }
+                MouseArea {
+                    anchors.fill: parent
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: playerController.emit_expand()
+                }
             }
 
             // ── Título + artista ───────────────────────────────────────
             ColumnLayout {
-                Layout.preferredWidth: 220
+                Layout.preferredWidth: root.width < 1000 ? 140 : 220
                 Layout.maximumWidth: 220
                 Layout.alignment: Qt.AlignVCenter
                 spacing: 2
@@ -212,6 +223,63 @@ Item {
             }
 
             // ── Controles ──────────────────────────────────────────────
+            ToolButton {
+                visible: playerController.trackActions !== null
+                text: playerController.trackActions && playerController.trackActions.liked ? "♥" : "♡"
+                Accessible.name: playerController.trackActions && playerController.trackActions.liked ? "Quitar Me gusta" : "Me gusta"
+                onClicked: playerController.trackActions.toggle_like_current()
+                palette.buttonText: root.colors["accent"]
+            }
+            ToolButton {
+                id: volumeButton
+                palette.buttonText: root.colors["text_primary"]
+                text: playerController.volume === 0 ? "volume_off" : "volume_up"
+                font.family: root.iconFont
+                Accessible.name: "Volumen"
+                onClicked: volumePopup.open()
+                Popup {
+                    id: volumePopup
+                    y: -height - 12
+                    width: 200
+                    padding: 12
+                    focus: true
+                    palette.buttonText: root.colors["text_primary"]
+                    palette.highlight: root.colors["accent"]
+                    closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+                    background: Rectangle { color: root.colors["bg_elevated"]; radius: Theme.radiusMd; border.color: root.colors["border"] }
+                    contentItem: ColumnLayout {
+                        ToolButton {
+                            text: playerController.volume === 0 ? "Activar sonido" : "Silenciar"
+                            onClicked: playerController.toggle_mute()
+                        }
+                        Slider {
+                            Layout.fillWidth: true
+                            from: 0; to: 100; stepSize: 1
+                            value: playerController.volume
+                            wheelEnabled: true
+                            Accessible.name: "Volumen"
+                            onMoved: playerController.change_volume(Math.round(value))
+                        }
+                    }
+                }
+            }
+            ToolButton {
+                text: "⋮"
+                palette.buttonText: root.colors["text_primary"]
+                Accessible.name: "Más acciones de canción"
+                onClicked: miniMenu.popup()
+                SongMenu {
+                    id: miniMenu
+                    showPlay: false
+                    liked: playerController.trackActions ? playerController.trackActions.liked : false
+                    downloaded: playerController.trackActions ? playerController.trackActions.downloaded : false
+                    localTrack: playerController.trackActions ? playerController.trackActions.localTrack : false
+                    hasArtist: !localTrack && Boolean(playerController.trackActions) && playerController.trackActions.artistName !== ""
+                    hasAlbum: !localTrack && Boolean(playerController.trackActions) && playerController.trackActions.albumName !== ""
+                    showLink: true
+                    onAction: function(name) { if (playerController.trackActions) playerController.trackActions.current_track_action(name) }
+                }
+            }
             RowLayout {
                 spacing: Theme.spacingXxs
 

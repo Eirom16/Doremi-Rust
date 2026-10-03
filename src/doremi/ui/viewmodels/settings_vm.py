@@ -411,6 +411,7 @@ class SettingsViewModel(QObject):
             return "0 MB"
 
     def _page_about(self) -> list[dict]:
+        from doremi.ui.controllers.command_controller import SHORTCUTS
         try:
             from doremi.utils.updater import CURRENT_VERSION
             version = CURRENT_VERSION
@@ -428,6 +429,9 @@ class SettingsViewModel(QObject):
             for item in items:
                 rows.append(self._info("", item, ""))
         rows.extend([
+            self._section("Atajos de teclado"),
+            *[self._info(label, "No se ejecutan controles musicales mientras escribes.", key)
+              for key, label in SHORTCUTS],
             self._section("Actualizaciones"),
             self._button("about.check_updates", "Buscar actualizaciones",
                          "Comprueba si hay una versión nueva"),

@@ -428,6 +428,7 @@ Item {
 
                     // ── Cola ──────────────────────────────────────────
                     ListView {
+                        id: queueList
                         visible: screenVm.tab === "queue"
                         Layout.fillWidth: true
                         Layout.fillHeight: true
@@ -435,6 +436,17 @@ Item {
                         spacing: Theme.spacingXs
                         cacheBuffer: 400
                         model: screenVm.queueModel
+                        DropArea {
+                            anchors.fill: parent
+                            keys: ["doremi-track"]
+                            onDropped: function(drop) {
+                                if (typeof desktopController !== "undefined" && desktopController) {
+                                    desktopController.drop_track(drop.getDataAsString("application/x-doremi-track"), "queue")
+                                    drop.acceptProposedAction()
+                                }
+                            }
+                            Rectangle { anchors.fill: parent; visible: parent.containsDrag; color: "transparent"; border.width: 2; border.color: root.colors["accent"] }
+                        }
 
                         Label {
                             visible: screenVm.queueModel.rowCount() === 0
@@ -447,6 +459,21 @@ Item {
 
                         delegate: Rectangle {
                             id: qRow
+                            Drag.active: queueDrag.active
+                            Drag.dragType: Drag.Automatic
+                            Drag.keys: ["doremi-queue"]
+                            Drag.mimeData: ({"application/x-doremi-queue": String(qRow.index)})
+                            Drag.supportedActions: Qt.MoveAction
+                            DragHandler { id: queueDrag; target: null }
+                            DropArea {
+                                anchors.fill: parent
+                                keys: ["doremi-queue"]
+                                onDropped: function(drop) {
+                                    screenVm.reorder_queue(Number(drop.getDataAsString("application/x-doremi-queue")), qRow.index)
+                                    drop.acceptProposedAction()
+                                }
+                                Rectangle { anchors.fill: parent; visible: parent.containsDrag; color: "transparent"; border.width: 2; border.color: root.colors["accent"] }
+                            }
                             required property int index
                             required property string title
                             required property string artist
@@ -602,20 +629,17 @@ Item {
                                     }
                                 }
 
-                                ContextMenu {
+                                SongMenu {
                                     id: qMenu
-                                    ContextMenuItem {
-                                        text: "Reproducir"
-                                        onTriggered: screenVm.play_queue_index(qRow.index)
-                                    }
-                                    ContextMenuItem {
-                                        text: "Reproducir siguiente"
-                                        onTriggered: screenVm.queue_action(qRow.index, "play_next")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Quitar de la cola"
-                                        onTriggered: screenVm.queue_action(qRow.index, "remove_from_queue")
-                                    }
+                                    showLink: true
+                                    property var track: ({})
+                                    onAboutToShow: track = screenVm.queueModel.track_info(qRow.index)
+                                    liked: !!track.is_liked
+                                    downloaded: !!track.is_downloaded
+                                    localTrack: (track.videoId || "").indexOf("local:") === 0
+                                    hasArtist: !localTrack && !!track.artist
+                                    showQueueRemove: true
+                                    onAction: function(name) { screenVm.queue_action(qRow.index, name) }
                                 }
                             }
                         }
@@ -817,32 +841,16 @@ Item {
                                     }
                                 }
 
-                                ContextMenu {
+                                SongMenu {
                                     id: rMenu
-                                    ContextMenuItem {
-                                        text: "Reproducir siguiente"
-                                        onTriggered: screenVm.related_action(rRow.index, "play_next")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a la cola"
-                                        onTriggered: screenVm.related_action(rRow.index, "add_to_queue")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Me gusta"
-                                        onTriggered: screenVm.related_action(rRow.index, "like")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Añadir a playlist"
-                                        onTriggered: screenVm.related_action(rRow.index, "add_to_playlist")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Descargar"
-                                        onTriggered: screenVm.related_action(rRow.index, "download")
-                                    }
-                                    ContextMenuItem {
-                                        text: "Ir al artista"
-                                        onTriggered: screenVm.related_action(rRow.index, "go_artist")
-                                    }
+                                    showLink: true
+                                    property var track: ({})
+                                    onAboutToShow: track = screenVm.related.track_info(rRow.index)
+                                    liked: !!track.is_liked
+                                    downloaded: !!track.is_downloaded
+                                    localTrack: (track.videoId || "").indexOf("local:") === 0
+                                    hasArtist: !localTrack && !!track.artist
+                                    onAction: function(name) { screenVm.related_action(rRow.index, name) }
                                 }
                             }
                         }
@@ -897,22 +905,22 @@ Item {
     }
 
                 // ── Menú de la pista actual ───────────────────────────────────────
-                ContextMenu {
+                SongMenu {
         id: currentMenu
-        ContextMenuItem { text: "Reproducir siguiente"; onTriggered: screenVm.current_track_action("play_next") }
-        ContextMenuItem { text: "Añadir a la cola"; onTriggered: screenVm.current_track_action("add_to_queue") }
-        ContextMenuItem { text: "Añadir a playlist"; onTriggered: screenVm.current_track_action("add_to_playlist") }
-        ContextMenuItem { text: "Ir al artista"; onTriggered: screenVm.current_track_action("go_artist") }
-        ContextMenuItem { text: "Ir al álbum"; onTriggered: screenVm.current_track_action("go_album") }
-        ContextMenuItem { text: "Descargar"; onTriggered: screenVm.current_track_action("download") }
-        ContextMenuItem {
-            text: "Detalles y créditos"
-            onTriggered: {
+        showPlay: false
+        showDetails: true
+        liked: screenVm.liked
+        downloaded: screenVm.downloaded
+        localTrack: screenVm.localTrack
+        hasArtist: !localTrack && screenVm.artistName !== ""
+        hasAlbum: !localTrack && screenVm.albumName !== ""
+        showLink: true
+        onAction: function(name) {
+            if (name === "details") {
                 trackDetailsDialog.open()
                 screenVm.request_track_details()
-            }
+            } else screenVm.current_track_action(name)
         }
-        ContextMenuItem { text: "Copiar enlace"; onTriggered: screenVm.current_track_action("copy_link") }
     }
 
                 // ── Detalles publicados de la pista ──────────────────────────────

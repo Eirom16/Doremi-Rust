@@ -5,7 +5,10 @@ from PySide6.QtCore import (
 )
 
 
-class SearchSongModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class SearchSongModel(TrackStateModel):
     """Lista de canciones de búsqueda (featured o rest)."""
 
     TitleRole = Qt.UserRole + 1
@@ -189,6 +192,7 @@ class SearchViewModel(QObject):
 
     # Mismas señales que SearchScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -198,7 +202,7 @@ class SearchViewModel(QObject):
     navigate_requested = Signal(str)
     retry_requested = Signal()  # la isla pide re-fetch de la categoría activa
 
-    CATEGORIES = ("song", "album", "podcast", "playlist")
+    CATEGORIES = ("song", "local", "album", "podcast", "playlist")
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -268,6 +272,10 @@ class SearchViewModel(QObject):
             return ""
         return _TYPE_LABELS.get(self._top.get("result_type", ""), "Canción")
 
+    @Property("QVariantMap", notify=top_changed)
+    def topTrack(self):
+        return dict(self._top or {})
+
     # ── Mutators (Python side) ─────────────────────────────────────────────
 
     def set_loading(self, value: bool) -> None:
@@ -290,6 +298,25 @@ class SearchViewModel(QObject):
         self._featured.set_items(items[1:5])
         self._rest.set_items(items[5:])
         self.top_changed.emit()
+
+    def set_liked_state(self, video_id: str, liked: bool) -> None:
+        self._featured.set_liked_state(video_id, liked)
+        self._rest.set_liked_state(video_id, liked)
+        if self._top and self._top.get("videoId") == video_id:
+            self._top["is_liked"] = liked
+            self.top_changed.emit()
+
+    def set_downloaded_state(self, video_id, downloaded):
+        self._featured.set_downloaded_state(video_id, downloaded)
+        self._rest.set_downloaded_state(video_id, downloaded)
+        if self._top and self._top.get("videoId") == video_id:
+            self._top["is_downloaded"] = downloaded
+            self.top_changed.emit()
+
+    def track_metadata(self, video_id: str) -> dict | None:
+        if self._top and self._top.get("videoId") == video_id:
+            return dict(self._top)
+        return None
 
     def set_albums(self, items: list[dict]) -> None:
         self._albums.set_items(items)
@@ -351,19 +378,5 @@ class SearchViewModel(QObject):
     def _emit_action(self, item: dict | None, action: str) -> None:
         if not item:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "delete_download":
-            self.delete_download_requested.emit(vid)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)

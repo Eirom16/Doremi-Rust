@@ -127,6 +127,7 @@ Rectangle {
                 anchors.right: parent.right
                 anchors.top: parent.top
                 text: "⋮"
+                palette.buttonText: root.colors["text_primary"]
                 opacity: root.hovered || root.activeFocus || activeFocus ? 1 : 0
                 Accessible.name: "Más acciones para " + root.title
                 onClicked: root.menuClicked()

@@ -24,6 +24,7 @@ Item {
     }
 
     Flickable {
+        objectName: "viewState:main"
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
@@ -312,6 +313,7 @@ Item {
                         required property string artist
                         required property string duration
                         required property string thumbnail
+                        required property bool isLiked
 
                         Layout.fillWidth: true
                         Layout.preferredHeight: 72
@@ -409,27 +411,13 @@ Item {
                                 visible: songRow.duration !== ""
                             }
 
-                            ContextMenu {
+                            SongMenu {
                                 id: songMenu
-                                ContextMenuItem {
-                                    text: "Reproducir siguiente"
-                                    onTriggered: screenVm.song_action(songRow.index, "play_next")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a la cola"
-                                    onTriggered: screenVm.song_action(songRow.index, "add_to_queue")
-                                }
-                                ContextMenuItem {
-                                    text: "Me gusta"
-                                    onTriggered: screenVm.song_action(songRow.index, "like")
-                                }
-                                ContextMenuItem {
-                                    text: "Añadir a playlist"
-                                    onTriggered: screenVm.song_action(songRow.index, "add_to_playlist")
-                                }
-                                ContextMenuItem {
-                                    text: "Descargar"
-                                    onTriggered: screenVm.song_action(songRow.index, "download")
+                                showLink: true
+                                liked: songRow.isLiked
+                                onAction: function(name) {
+                                    if (name === "play") screenVm.play_at(songRow.index)
+                                    else screenVm.song_action(songRow.index, name)
                                 }
                             }
                         }

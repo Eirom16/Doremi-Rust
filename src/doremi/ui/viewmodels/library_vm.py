@@ -5,7 +5,10 @@ from PySide6.QtCore import (
 )
 
 
-class _BaseModel(QAbstractListModel):
+from doremi.ui.viewmodels.track_state_model import TrackStateModel
+
+
+class _BaseModel(TrackStateModel):
     """Base con set_items/get comunes."""
 
     def __init__(self, parent: QObject | None = None) -> None:
@@ -213,6 +216,7 @@ class LibraryViewModel(QObject):
 
     # Mismas señales que LibraryScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -225,7 +229,7 @@ class LibraryViewModel(QObject):
     create_playlist_requested = Signal(str, str)  # title, description
     retry_requested = Signal()
 
-    TABS = ("songs", "albums", "artists", "playlists")
+    TABS = ("songs", "local", "albums", "artists", "playlists")
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
@@ -337,6 +341,7 @@ class LibraryViewModel(QObject):
 
         model = {
             "songs": self._songs,
+            "local": self._songs,
             "albums": self._albums,
             "artists": self._artists,
             "playlists": self._playlists,
@@ -382,22 +387,8 @@ class LibraryViewModel(QObject):
         item = self._songs.get(index)
         if item is None:
             return
-        vid = item.get("videoId", "")
-        title = item.get("title", "")
-        artist = item.get("artist", "")
-        thumb = item.get("thumbnail_url", "")
-        if action == "download":
-            self.download_requested.emit(vid, title, artist, thumb)
-        elif action == "play_next":
-            self.play_next_requested.emit(vid, title, artist, thumb)
-        elif action == "add_to_queue":
-            self.add_to_queue_requested.emit(vid, title, artist, thumb)
-        elif action == "like":
-            self.like_requested.emit(vid, None)
-        elif action == "add_to_playlist":
-            self.add_to_playlist_requested.emit(vid, title)
-        elif action == "go_artist":
-            self.artist_clicked.emit(artist)
+        from doremi.ui.viewmodels.track_actions import dispatch_track_action
+        dispatch_track_action(self, item, action)
 
     @Slot(str)
     def navigate(self, route: str) -> None:

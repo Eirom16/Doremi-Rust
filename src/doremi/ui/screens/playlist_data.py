@@ -32,6 +32,40 @@ async def gather_playlist(yt_client, playlist_id: str) -> dict:
     if not playlist_id:
         return result
 
+    from doremi.system.network import NetworkMonitor
+    offline = NetworkMonitor.current_connectivity() is False
+
+    def available_tracks(tracks):
+        return [track for track in tracks if track.get("is_downloaded")] if offline else tracks
+
+    if playlist_id.startswith("session:"):
+        from doremi.services.listening_periods import ListeningPeriods
+        try:
+            first, last, cutoff = ListeningPeriods.parse_identity(playlist_id)
+            tracks = await ListeningPeriods().tracks(first, last, cutoff)
+        except (ValueError, OverflowError):
+            tracks = []
+        tracks = available_tracks(tracks)
+        result.update(title="Sesión musical", author="Tu historial", tracks=tracks,
+                      track_count=len(tracks), thumbnail_url=tracks[0]["thumbnail_url"] if tracks else "")
+        return result
+
+    if playlist_id.startswith("local-list:"):
+        from doremi.db.local_library_repository import LocalLibraryRepository
+        title, tracks = await LocalLibraryRepository().tracks(playlist_id)
+        tracks = available_tracks(tracks)
+        result.update(title=title, author="Doremi · Playlist local", tracks=tracks, track_count=len(tracks))
+        return result
+
+    if playlist_id.startswith("smart:"):
+        from doremi.db.experience_repository import ExperienceRepository, SMART_TITLES
+        rule = playlist_id.split(":", 1)[1]
+        tracks = await ExperienceRepository().smart_tracks(rule, offline_only=offline)
+        result.update(title=SMART_TITLES[rule], author="Doremi · Colección inteligente",
+                      tracks=tracks, track_count=len(tracks),
+                      thumbnail_url=tracks[0]["thumbnail_url"] if tracks else "")
+        return result
+
     if playlist_id.startswith("local_"):
         return await _gather_local_playlist(playlist_id, result)
     return await _gather_remote_playlist(yt_client, playlist_id, result)

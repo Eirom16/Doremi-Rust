@@ -24,6 +24,7 @@ class SearchScreenQml(QObject):
     _qml_island = True  # fade_stack.py: sin cross-fade
 
     download_requested = Signal(str, str, str, str)
+    copy_link_requested = Signal(str)
     play_next_requested = Signal(str, str, str, str)
     add_to_queue_requested = Signal(str, str, str, str)
     like_requested = Signal(str, object)
@@ -47,9 +48,13 @@ class SearchScreenQml(QObject):
 
         self.qml_source = QUrl.fromLocalFile(str(QML_DIR / "SearchScreen.qml"))
         self._load_ok = True
+        from doremi.services.experience_events import events
+        events.liked_changed.connect(self.update_liked_state)
+        events.downloaded_changed.connect(self.update_downloaded_state)
 
         # Re-emit VM signals as screen signals
         self._vm.download_requested.connect(self.download_requested)
+        self._vm.copy_link_requested.connect(self.copy_link_requested)
         self._vm.play_next_requested.connect(self.play_next_requested)
         self._vm.add_to_queue_requested.connect(self.add_to_queue_requested)
         self._vm.like_requested.connect(self.like_requested)
@@ -116,12 +121,20 @@ class SearchScreenQml(QObject):
         pass  # paridad con SearchScreen (no-op; la búsqueda la dispara `search()`)
 
     def update_liked_state(self, video_id: str, liked: bool) -> None:
-        items = self._results_by_cat.get("song", [])
-        for item in items:
-            if item.get("videoId") == video_id:
-                item["is_liked"] = liked
-        if self._vm.category == "song":
-            self._vm.set_songs(items)
+        for items in self._results_by_cat.values():
+            for item in items:
+                if item.get("videoId") == video_id:
+                    item["is_liked"] = liked
+        # Featured/rest models receive row deltas directly. The top result is
+        # a separate property and needs its own notification, not a model reset.
+        self._vm.set_liked_state(video_id, liked)
+
+    def update_downloaded_state(self, video_id, downloaded):
+        for items in self._results_by_cat.values():
+            for item in items:
+                if item.get("videoId") == video_id:
+                    item["is_downloaded"] = downloaded
+        self._vm.set_downloaded_state(video_id, downloaded)
 
     # ── Fetch con caché por categoría ──────────────────────────────────────
 
@@ -175,7 +188,7 @@ class SearchScreenQml(QObject):
     def _apply_results(self, category: str, items: list[dict]) -> None:
         self._vm.set_loading(False)
         self._vm.set_error("")
-        if category == "song":
+        if category in {"song", "local"}:
             self._vm.set_songs(items)
         elif category in {"album", "podcast"}:
             self._vm.set_albums(items)

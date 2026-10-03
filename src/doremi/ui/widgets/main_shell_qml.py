@@ -26,6 +26,7 @@ class MainShellQml(QQuickWidget):
         notification_panel,
         mini_player,
         close_controller,
+        desktop_controller=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -34,6 +35,7 @@ class MainShellQml(QQuickWidget):
         self.setClearColor(QColor(0, 0, 0, 0))
         self.engine().addImportPath(str(QML_DIR))
         self.rootContext().setContextProperty("themeBridge", theme_bridge())
+        self.rootContext().setContextProperty("desktopController", desktop_controller)
         self.setInitialProperties({
             "navigationController": sidebar,
             "headerController": search_bar._vm,
@@ -69,6 +71,16 @@ class MainShellQml(QQuickWidget):
         root = self.rootObject()
         if root is not None:
             root.setProperty("notificationsOpen", bool(is_open))
+
+    def capture_view_state(self):
+        host = self.rootObject().findChild(QObject, "screenHost")
+        value = host.captureState() if host is not None else {}
+        return value.toVariant() if hasattr(value, "toVariant") else value
+
+    def restore_view_state(self, state):
+        host = self.rootObject().findChild(QObject, "screenHost")
+        if host is not None:
+            host.restoreState(state)
 
     def set_toast_controller(self, controller) -> None:
         root = self.rootObject()

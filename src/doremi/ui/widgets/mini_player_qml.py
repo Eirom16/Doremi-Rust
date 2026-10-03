@@ -115,10 +115,12 @@ class MiniPlayerQml(QObject):
             self._vm.set_artwork("")
 
     def update_state(self, status) -> None:
+        self._vm.set_volume(getattr(status, "volume", 80))
         self._vm.set_loading(status.state == PlayerState.LOADING)
         self._vm.set_playing(status.state == PlayerState.PLAYING)
 
     def update_position(self, position_ms: int, duration_ms: int) -> None:
+        self._vm.set_volume(getattr(self.player.status, "volume", 80))
         if duration_ms > 0:
             self._vm.set_progress(position_ms / duration_ms)
         self._vm.set_position_text(format_duration_short(position_ms))
