@@ -460,6 +460,47 @@ class TestDownload:
         mw._status_bar.showMessage.assert_called()
         mw.show_notification.assert_called()
 
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("collection", ["song", "playlist", "album"])
+    async def test_downloads_use_current_notification_panel_and_keep_toast_action(self, collection, monkeypatch):
+        from doremi.ui.main_window import MainWindow
+        from doremi.ui.widgets.toast import ToastNotification
+        dc, mw, dm = self._dc(existing_download=None)
+        # No compatibility notif_dropdown on the QML search header.
+        mw.search_bar = SimpleNamespace()
+        mw.notification_panel = SimpleNamespace(add_custom_notification=MagicMock())
+        mw.show_notification = lambda *args, **kwargs: MainWindow.show_notification(mw, *args, **kwargs)
+        toast = MagicMock()
+        monkeypatch.setattr(ToastNotification, "show", toast)
+        tracks = dict(tracks=[dict(videoId="v1", title="T", artists=[dict(name="A")])])
+        mw.yt.get_playlist = AsyncMock(return_value=tracks)
+        mw.yt.get_album = AsyncMock(return_value=tracks)
+        if collection == "song":
+            await dc.on_download_requested_async("v1", "T", "A", "u")
+        elif collection == "playlist":
+            await dc.download_playlist_async("PL1", "P", "u")
+        else:
+            await dc.download_album_async("MPRE1", "P", "u")
+        assert dm.add_download.call_count == 1
+        assert mw.notification_panel.add_custom_notification.call_count == (1 if collection == "song" else 2)
+        args = toast.call_args_list[0].args
+        assert args[3] == "VER"
+        args[4]()
+        mw._navigate_to.assert_called_once_with("downloads")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("collection", ["playlist", "album"])
+    async def test_collection_download_fetch_failure_is_visible(self, collection):
+        dc, mw, dm = self._dc(existing_download=None)
+        mw.yt.get_playlist = AsyncMock(side_effect=RuntimeError("offline"))
+        mw.yt.get_album = AsyncMock(side_effect=RuntimeError("offline"))
+        if collection == "playlist":
+            await dc.download_playlist_async("PL1", "P", "u")
+        else:
+            await dc.download_album_async("MPRE1", "P", "u")
+        dm.add_download.assert_not_called()
+        assert mw.show_notification.call_args.args[1] == "error"
+
 
 # ---------------------------------------------------------------------------
 # SettingsController

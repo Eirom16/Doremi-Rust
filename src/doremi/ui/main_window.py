@@ -692,8 +692,9 @@ class MainWindow(QMainWindow):
         self.download_controller.on_delete_playlist_requested(playlist_id)
 
     def show_notification(self, message: str, kind: str = "info", action_text: str = None, action_callback = None):
-        if hasattr(self, "search_bar"):
-            self.search_bar.notif_dropdown.add_custom_notification(message, kind)
+        panel = getattr(self, "notification_panel", None)
+        if panel is not None:
+            panel.add_custom_notification(message, kind)
         from doremi.ui.widgets.toast import ToastNotification
         ToastNotification.show(self, message, kind, action_text, action_callback)
 

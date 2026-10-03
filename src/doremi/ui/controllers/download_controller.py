@@ -121,6 +121,7 @@ class DownloadController:
         except Exception as e:
             logger.error(f"Error downloading playlist: {e}")
             self.main_window.statusBar().showMessage("Error al iniciar descarga de playlist", 4000)
+            self.main_window.show_notification("No se pudo iniciar la descarga de la playlist", "error")
 
     def on_download_album_requested(self, browse_id, title, thumbnail_url):
         self.run_async(self.download_album_async(browse_id, title, thumbnail_url))
@@ -191,6 +192,7 @@ class DownloadController:
             self.main_window.statusBar().showMessage(
                 f"Error al iniciar descarga de {collection_name}", 4000
             )
+            self.main_window.show_notification(f"No se pudo iniciar la descarga del {collection_name}", "error")
 
     def on_download_error(self, video_id, error):
         self.main_window.statusBar().showMessage(f"Error en descarga: {error}", 5000)
