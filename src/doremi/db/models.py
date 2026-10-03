@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, Float, Index
 from doremi.db.database import Base
 from datetime import datetime, timezone
 
@@ -21,6 +21,7 @@ class Song(Base):
     is_liked = Column(Boolean, default=False, index=True)
     last_played = Column(DateTime, nullable=True, index=True)
     play_count = Column(Integer, default=0)
+    local_path = Column(String, nullable=True)
 
     def __repr__(self):
         return f"<Song {self.title} by {self.artist}>"
@@ -30,6 +31,7 @@ class Song(Base):
 
 class PlayHistory(Base):
     __tablename__ = "play_history"
+    __table_args__ = (Index("ix_history_context_time", "context_type", "context_id", "played_at"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     video_id = Column(String, nullable=False, index=True)
@@ -44,6 +46,25 @@ class PlayHistory(Base):
     was_played = Column(Boolean, default=True, index=True)
     context_type = Column(String, default="queue")
     context_id = Column(String, default="")
+    position_ms = Column(Integer, default=0)
+
+
+class Collection(Base):
+    """Small metadata cache shared by origins and ordered sidebar pins."""
+    __tablename__ = "collections"
+    context_type = Column(String, primary_key=True)
+    context_id = Column(String, primary_key=True)
+    title = Column(String, nullable=False, default="")
+    thumbnail_url = Column(String, nullable=False, default="")
+    pinned_at = Column(DateTime, nullable=True)
+    position = Column(Integer, nullable=True)
+
+
+class LocalPlaylistTrack(Base):
+    __tablename__ = "local_playlist_tracks"
+    playlist_id = Column(String, primary_key=True)
+    position = Column(Integer, primary_key=True)
+    video_id = Column(String, nullable=False, index=True)
 
 
 class Download(Base):

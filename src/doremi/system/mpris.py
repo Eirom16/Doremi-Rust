@@ -225,7 +225,7 @@ class MprisPlayer:
             
             if artwork_url:
                 self.metadata["mpris:artUrl"] = dbus.String(artwork_url)
-            if video_id and video_id != "local":
+            if video_id and video_id != "local" and not video_id.startswith("local:"):
                 self.metadata["xesam:url"] = dbus.String(f"https://music.youtube.com/watch?v={video_id}")
                 
             self._service.notify_properties_changed(PLAYER_IFACE, {"Metadata": self.metadata})

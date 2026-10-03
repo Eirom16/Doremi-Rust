@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import asyncio
+from pathlib import Path
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from doremi.db.database import get_session
@@ -123,6 +125,8 @@ class HistoryRepository:
         was_played: bool = True,
         context_type: str = "queue",
         context_id: str = "",
+        context_title: str = "",
+        position_ms: int = 0,
     ) -> None:
         async with get_session() as session:
             entry = PlayHistory(
@@ -137,8 +141,20 @@ class HistoryRepository:
                 was_played=was_played,
                 context_type=context_type,
                 context_id=context_id,
+                position_ms=position_ms,
             )
             session.add(entry)
+            if context_id and context_title:
+                from doremi.db.models import Collection
+                collection = await session.get(Collection, (context_type, context_id))
+                if collection is None:
+                    # A queued occurrence can outlive a deleted local playlist.
+                    # Retain its history origin without recreating the playlist.
+                    if not context_id.startswith("local-list:"):
+                        collection = Collection(context_type=context_type, context_id=context_id, title=context_title)
+                        session.add(collection)
+                elif not collection.title:
+                    collection.title = context_title
             await session.commit()
 
     async def get_history(self, limit: int = 100) -> list[tuple[PlayHistory, str | None]]:
@@ -185,6 +201,16 @@ class HistoryRepository:
 
 
 class DownloadRepository:
+
+    async def get_available_video_ids(self, video_ids):
+        """Batch-check only visible candidates; stale DB paths are not offline."""
+        candidates = list(dict.fromkeys(video_ids))
+        paths = []
+        async with get_session() as session:
+            for offset in range(0, len(candidates), 500):
+                paths.extend((await session.execute(select(Download.video_id, Download.file_path)
+                    .where(Download.video_id.in_(candidates[offset:offset + 500])))).all())
+        return await asyncio.to_thread(lambda: {identity for identity, path in paths if path and Path(path).is_file()})
 
     async def get_download(self, video_id: str) -> Download | None:
         async with get_session() as session:

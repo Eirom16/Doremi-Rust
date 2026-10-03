@@ -90,16 +90,20 @@ class PlaybackController:
         thumbnail_url: str,
         queue_items: list[QueueItem] | None = None,
         queue_index: int = 0,
+        *, context: dict | None = None,
     ) -> None:
         logger.info(f"_play_song called: {title[:30]} video_id={video_id}")
         self._finalize_listening("replaced")
         if queue_items:
+            from dataclasses import replace
+            queue_items = [replace(item, **context) if context and item.context_type == "unknown" else item for item in queue_items]
             self.queue.set_queue(queue_items, queue_index)
         else:
             item = QueueItem(
                 video_id=video_id, title=title, artist=artist,
                 album=album, duration_ms=duration_ms,
                 thumbnail_url=thumbnail_url,
+                **(context or {}),
             )
             self.queue.set_queue([item], 0)
 
@@ -111,7 +115,7 @@ class PlaybackController:
 
     async def _fetch_and_populate_auto_queue(self, video_id: str) -> None:
         """Fetch watch playlist and populate the rest of the queue automatically."""
-        if not video_id or video_id == "local" or len(video_id) < 5:
+        if not video_id or video_id == "local" or video_id.startswith("local:") or len(video_id) < 5:
             return
         if hasattr(self, 'network_monitor') and not self.network_monitor.is_connected:
             return
@@ -197,6 +201,7 @@ class PlaybackController:
                     album=album_name,
                     duration_ms=dur_ms,
                     thumbnail_url=t_thumbnail_url,
+                    context_type="autoplay",
                 ))
 
             if new_items:
@@ -327,6 +332,14 @@ class PlaybackController:
         def is_current() -> bool:
             return self._current_play_id == play_id and self.queue.current is item
 
+        if item.video_id.startswith("local:"):
+            from doremi.db.repository import SongRepository
+            song = await SongRepository().get_song(item.video_id)
+            if not is_current():
+                return
+            item.is_local = True
+            item.local_path = song.local_path if song else None
+
         # Check if downloaded and play local instead of streaming
         try:
             from doremi.db.repository import DownloadRepository
@@ -365,12 +378,15 @@ class PlaybackController:
 
         async def _check_liked_state() -> None:
             try:
-                from doremi.db.repository import SongRepository
+                from doremi.db.repository import SongRepository, DownloadRepository
                 repo = SongRepository()
+                downloaded = item.is_local or item.video_id in await DownloadRepository().get_available_video_ids([item.video_id])
                 song = await repo.get_song(item.video_id)
                 liked = song.is_liked if song else False
                 if is_current():
                     self.now_playing_screen.set_liked_state(liked)
+                    if hasattr(self.now_playing_screen, "set_downloaded_state"):
+                        self.now_playing_screen.set_downloaded_state(downloaded)
             except Exception as e:
                 logger.error(f"Error checking liked state in _play_current: {e}")
         self.run_async(_check_liked_state())
@@ -439,7 +455,7 @@ class PlaybackController:
                     # Don't return here, fall through to streaming logic below
 
         # Un archivo local sin ID remoto válido no admite fallback online.
-        if not item.video_id or item.video_id == "local" or not self.network_monitor.is_connected:
+        if not item.video_id or item.video_id == "local" or item.video_id.startswith("local:") or not self.network_monitor.is_connected:
             if is_current():
                 await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista.")
             return
@@ -629,7 +645,7 @@ class PlaybackController:
             video_id = item.video_id
 
             # If it's a local/imported track or we don't have a valid ID, search for it
-            if not video_id or video_id == "local" or len(video_id) < 5:
+            if not video_id or video_id == "local" or video_id.startswith("local:") or len(video_id) < 5:
                 if self.yt and item.title and item.artist:
                     logger.info(f"Local track: searching YTM for similar tracks using query: {item.title} - {item.artist}")
                     search_results = await self.yt.search(f"{item.title} {item.artist}", filter="songs", limit=1)
@@ -769,17 +785,22 @@ class PlaybackController:
                 skip_count=result.skip_count,
                 completed=result.completed,
                 was_played=result.was_played,
-                context_type="queue",
+                context_type=item.context_type,
+                context_id=item.context_id,
+                context_title=item.context_title,
+                position_ms=result.position_ms,
             )
             if result.was_played:
                 await song_repo.record_play(item.video_id)
+            from doremi.services.experience_events import events
+            events.changed.emit()
             logger.debug(f"Saved listening session for: {item.title}")
         except Exception as e:
             logger.debug(f"Failed to save listening session: {e}")
 
     async def _preload_next(self) -> None:
         next_item = self.queue.next_item
-        if not next_item:
+        if not next_item or next_item.is_local or next_item.video_id.startswith("local:"):
             return
 
         # 1. Preload artwork
@@ -812,7 +833,7 @@ class PlaybackController:
             await self._play_current()
         else:
             current = self.queue.current
-            if current and not current.is_local and self.network_monitor.is_connected:
+            if current and not current.is_local and not current.video_id.startswith("local:") and self.network_monitor.is_connected:
                 queue = self.queue
                 play_id = self._current_play_id
                 try:
@@ -827,6 +848,7 @@ class PlaybackController:
                             album="",
                             duration_ms=0,
                             thumbnail_url=(t.get("thumbnail") or [{}])[0].get("url",""),
+                            context_type="autoplay",
                         )
                         for t in watch.get("tracks", [])[1:]
                     ]
@@ -872,7 +894,8 @@ class PlaybackController:
             duration_ms=dur_ms,
             thumbnail_url=thumbnail_url,
             is_local=True,
-            local_path=path
+            local_path=path,
+            **metadata.get("playback_context", {"context_type": "local"}),
         )
         self.queue.set_queue([item], 0)
         self._update_queue_panel()
@@ -880,6 +903,8 @@ class PlaybackController:
         self.run_async(self._play_current())
 
     def _play_local_playlist(self, tracks_metadata: list[dict], start_index: int = 0) -> None:
+        from doremi.services.playback_context import playback_context
+        context = playback_context(self.main_window)
         queue_items = []
         for m in tracks_metadata:
             item = QueueItem(
@@ -890,7 +915,8 @@ class PlaybackController:
                 duration_ms=m.get("duration_ms", 0),
                 thumbnail_url=m.get("thumbnail_url", ""),
                 is_local=True,
-                local_path=m.get("file_path", "")
+                local_path=m.get("file_path", ""),
+                **m.get("playback_context", context),
             )
             queue_items.append(item)
 
@@ -902,6 +928,8 @@ class PlaybackController:
 
     def _play_local_wrapper(self, path: str, metadata: dict) -> None:
         """Wrapper to run _play_local as async task from sync callback."""
+        from doremi.services.playback_context import playback_context
+        metadata = dict(metadata, playback_context=playback_context(self.main_window))
         self.run_async(self._play_local(path, metadata))
 
     def _on_play_pause(self) -> None:

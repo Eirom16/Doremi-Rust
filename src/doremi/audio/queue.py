@@ -22,6 +22,9 @@ class QueueItem:
     stream_expires_at: float = 0.0
     is_local: bool = False
     local_path: str | None = None
+    context_type: str = "unknown"
+    context_id: str = ""
+    context_title: str = ""
 
 
 class PlayQueue:
