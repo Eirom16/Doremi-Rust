@@ -62,6 +62,8 @@ def check(text: str) -> list[str]:
         problems.append("deprecated bare 'x64' arch identifier; use 'x64compatible'")
     if "{userstartmenu}" in text:
         problems.append("duplicate top-level {userstartmenu} shortcut present")
+    if "#define RepoRoot SourcePath" not in code:
+        problems.append("installer.iss must define absolute RepoRoot via ISPP SourcePath")
     return problems
 
 

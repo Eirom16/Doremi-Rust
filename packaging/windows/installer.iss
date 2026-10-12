@@ -2,14 +2,16 @@
 ; FASE F0B-2B.
 ;
 ; Per-user install, no elevation, Windows x64.
-; Compile from the packaging\windows directory (SourceDir=..\.. is resolved
-; against the compiler's working directory, NOT the script location):
-;   cd packaging\windows
-;   iscc installer.iss
 ;
-; SourceDir resolves relative to THIS script (packaging/windows),
-; so "..\\.." is the repo root. All Source/Output paths below are
-; therefore relative to the repo root.
+; PATHS: this script lives in packaging\windows but compiles from ANY working
+; directory. All repo paths are absolute via the ISPP preprocessor
+; (SourcePath = directory of THIS script, always available in Inno Setup 6):
+;   iscc packaging\windows\installer.iss
+; Do NOT use bare relative paths here: [Setup] file directives resolve
+; against the script directory while SourceDir governs [Files], so relative
+; paths break depending on the compiler's CWD (seen empirically: "system
+; cannot find the path specified" for SetupIconFile with SourceDir=..\..).
+#define RepoRoot SourcePath + "\\..\\.."
 ;
 ; Version stamping: CI runs packaging/windows/stamp_installer_version.py
 ; (reads pyproject.toml) before compiling, so AppVersion and
@@ -22,7 +24,8 @@
 ; recommended by JRSoftware docs for x64 app installers:
 ;   https://jrsoftware.org/ishelp/topic_archidentifiers.htm
 ;   https://jrsoftware.org/ishelp/topic_setup_architecturesinstallin64bitmode.htm
-; CI pins Inno Setup 6 (choco innosetup) which accepts these directives.
+; CI pins Inno Setup 6 (choco innosetup; observed 6.7.1) which accepts these
+; directives (no arch warnings in the build log).
 ;
 ; AppId: first stable identity for Doremi (no AppId existed before F0B-2B;
 ; git history shows installer.iss never carried one, so there is no legacy
@@ -49,10 +52,10 @@ AppUpdatesURL=https://github.com/Eirom16/Doremi-Rust/releases
 DefaultDirName={autopf}\Doremi
 DefaultGroupName=Doremi
 AllowNoIcons=yes
-LicenseFile=LICENSE
-OutputDir=dist\installer
+LicenseFile={#RepoRoot}\LICENSE
+OutputDir={#RepoRoot}\dist\installer
 OutputBaseFilename=Doremi-v2.1.4-Setup
-SetupIconFile=assets\icon.ico
+SetupIconFile={#RepoRoot}\assets\icon.ico
 UninstallDisplayIcon={app}\Doremi.exe
 UninstallDisplayName=Doremi
 Compression=lzma2/max
@@ -76,10 +79,10 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [Files]
-Source: "dist\Doremi\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-Source: "assets\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
-Source: "LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
-Source: "packaging\windows\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\dist\Doremi\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "{#RepoRoot}\assets\icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#RepoRoot}\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "{#RepoRoot}\packaging\windows\THIRD-PARTY-NOTICES.txt"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Doremi"; Filename: "{app}\Doremi.exe"; IconFilename: "{app}\icon.ico"

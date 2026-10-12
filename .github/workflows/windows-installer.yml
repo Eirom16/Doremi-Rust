@@ -182,15 +182,13 @@ jobs:
           "installer.iss stamped for $pyVersion" | Out-File installer-manifest.txt -Append -Encoding UTF8
 
       - name: Compile installer with Inno Setup
-        # SourceDir=..\.. in the script is resolved against the compiler's
-        # CWD (not the script location), so ISCC must run from
-        # packaging\windows for SourceDir to land on the repo root.
-        working-directory: packaging/windows
+        # All repo paths in installer.iss are absolute via ISPP {#RepoRoot},
+        # so the compiler's working directory does not matter.
         shell: pwsh
         run: |
           $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
           if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
-          & $iscc "installer.iss"
+          & $iscc "packaging\windows\installer.iss"
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
 
       - name: Verify installer exists + version coherence
