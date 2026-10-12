@@ -71,9 +71,8 @@ Resultado: **523 passed in 19.29s**. Cero fallos.
 - `pyproject.toml` exige `>=3.12,<3.14`; el venv local es **3.13.9** (dentro de rango).
 - El wheel construido es `cp312-abi3` (`abi3-py3.12` según PyO3), compatible con 3.12+.
 - El CI (`native.yml`) fija `PYTHON_VERSION: "3.12"`.
-- **No verificado localmente en 3.12**: no hay intérprete 3.12 en este equipo
-  (`which python3.12` vacío; `/usr/bin` solo tiene 3.14, fuera de rango).
-  La conformidad 3.12 queda pendiente de la ejecución del workflow corregido.
+- **Verificado vía CI tras el fix** (run 38194743416): 17/17 passed en Python 3.12.
+  No se verificó con intérprete 3.12 local (no instalado en este equipo).
 
 ### 1.7 Pruebas correctas / fallidas
 
@@ -106,10 +105,17 @@ No se deshabilitó ni ignoró ninguna prueba.
   (16 passed + 1 failed por `libEGL.so.1`, según log referido en la tarea).
 - **Run verificado vía web:** job `Build native_rs + parity tests`, commit `e8c217a`,
   estado `Failure`, `exit code 1`, 44 s (sin acceso al log detallado sin sesión).
-- **PR:** pendiente de push de la rama (ver estado final de la respuesta).
+- **Run del fix (PR #2):** https://github.com/Eirom16/Doremi-Rust/actions/runs/38194743416 —
+  `conclusion: success`. `Run parity tests`: **17 passed in 0.18s en Python 3.12**,
+  incluido `TestComputeColorVariants::test_matches_qcolor` (el que fallaba por
+  `libEGL.so.1`). Esto además confirma la compatibilidad con Python 3.12, que no
+  pudo verificarse con intérprete local. PR: https://github.com/Eirom16/Doremi-Rust/pull/2
+  (abierto, sin fusionar).
 
 ## 4. Bloqueos / no verificado
 
-1. Ejecución del workflow corregido en GitHub Actions (requiere push/PR).
-2. Conformidad en intérprete Python 3.12 local (sin intérprete disponible).
+1. ~~Ejecución del workflow corregido en GitHub Actions (requiere push/PR).~~
+   Verificado: run 38194743416 en verde (17 passed, Python 3.12).
+2. ~~Conformidad en intérprete Python 3.12 local (sin intérprete disponible).~~
+   Cubierto por el run de CI en 3.12.
 3. Sistema de releases: solo diagnosticado (F0B), sin cambios aplicados a propósito.
