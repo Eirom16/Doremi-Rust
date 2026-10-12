@@ -1,0 +1,231 @@
+name: Windows installer (Inno Setup)
+
+# F0B-2B: per-user x64 installer built from the SAME commit's PyInstaller
+# bundle (no reuse of old/expired artifacts). No tags, no Releases.
+# Unsigned installer (SmartScreen warning documented; signing is a later
+# pre-release task).
+
+on:
+  push:
+    branches: [build/f0b2b-windows-installer]
+    paths:
+      - "doremi.spec"
+      - ".github/workflows/windows-installer.yml"
+      - "packaging/windows/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+  pull_request:
+    branches: [build/f0b2a-windows-portable]
+    paths:
+      - "doremi.spec"
+      - ".github/workflows/windows-installer.yml"
+      - "packaging/windows/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  installer:
+    name: Windows x64 Setup.exe (Inno)
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/doremi/native_rs
+
+      - name: Install VLC (lib + plugins source)
+        run: choco install vlc --yes --no-progress
+
+      - name: Record VLC + toolchain versions (license manifest)
+        shell: pwsh
+        run: |
+          choco info vlc --local-only | Out-File installer-manifest.txt -Encoding UTF8
+          & "C:\Program Files\VideoLAN\VLC\vlc.exe" --version | Out-File installer-manifest.txt -Append -Encoding UTF8
+          python --version | Out-File installer-manifest.txt -Append -Encoding UTF8
+          rustc --version | Out-File installer-manifest.txt -Append -Encoding UTF8
+          Get-Content installer-manifest.txt
+
+      - name: Install app deps + build tools
+        run: pip install . pyinstaller maturin
+
+      - name: Copy VLC DLLs and plugins
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path vlc_libs\plugins | Out-Null
+          $vlcPath = "C:\Program Files\VideoLAN\VLC"
+          Copy-Item "$vlcPath\libvlc.dll" vlc_libs\
+          Copy-Item "$vlcPath\libvlccore.dll" vlc_libs\
+          Copy-Item -Recurse "$vlcPath\plugins\*" vlc_libs\plugins\
+          Get-ChildItem vlc_libs\libvlc.dll, vlc_libs\libvlccore.dll | ForEach-Object { Write-Host $_.FullName $_.Length }
+
+      - name: Build native module wheel
+        shell: pwsh
+        run: |
+          Set-Location src/doremi/native_rs
+          maturin build --release --locked --out dist
+
+      - name: Install wheel + run native tests
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem src/doremi/native_rs/dist/*.whl | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wheel) { throw "no wheel found in src/doremi/native_rs/dist" }
+          pip install $wheel
+          pip install pytest PySide6
+          $env:PYTHONPATH = "src"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -c "import native_rs; assert 'site-packages' in native_rs.__file__.replace(chr(92), '/'), native_rs.__file__"
+          python -m pytest tests/test_native_rs.py -q
+
+      - name: Stamp frozen build version (same SHA as installer)
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $shortSha = "${{ github.sha }}".Substring(0, 12)
+          $buildId = "f0b2b.windows.$shortSha"
+          Set-Content src/doremi/_build_version.py "BUILD_VERSION = `"$pyVersion`"`nBUILD_ID = `"$buildId`"`n"
+          Get-Content src/doremi/_build_version.py
+          "BUILD $buildId SHA ${{ github.sha }}" | Out-File installer-manifest.txt -Append -Encoding UTF8
+
+      - name: Build with PyInstaller (same bundle the installer ships)
+        run: pyinstaller doremi.spec
+
+      - name: Verify bundle structure
+        # PyInstaller 6 onedir layout: exe at dist\Doremi\, everything else
+        # under dist\Doremi\_internal (== sys._MEIPASS).
+        shell: pwsh
+        run: |
+          $exe = "dist\Doremi\Doremi.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $checks = @(
+            "dist\Doremi\Doremi.exe",
+            "dist\Doremi\_internal\doremi\ui\qml\MainShell.qml",
+            "dist\Doremi\_internal\doremi\ui\qml\Doremi\qmldir",
+            "dist\Doremi\_internal\doremi\assets\fonts\Inter-Regular.ttf",
+            "dist\Doremi\_internal\doremi\locales\es.json",
+            "dist\Doremi\_internal\doremi\db\migrations\env.py",
+            "dist\Doremi\_internal\assets\Doremi.png",
+            "dist\Doremi\_internal\vlc_libs\libvlc.dll",
+            "dist\Doremi\_internal\vlc_libs\libvlccore.dll",
+            "dist\Doremi\_internal\vlc_libs\plugins",
+            "packaging\windows\THIRD-PARTY-NOTICES.txt",
+            "LICENSE"
+          )
+          foreach ($p in $checks) { if (-not (Test-Path $p)) { throw "missing bundle entry: $p" } }
+          $pyd = Get-ChildItem dist\Doremi\_internal\doremi\native_rs\*.pyd -ErrorAction SilentlyContinue
+          if (-not $pyd) { throw "missing Rust extension next to doremi.native_rs bridge" }
+          Write-Host ("bundle MB: {0:N1}" -f (((Get-ChildItem dist\Doremi -Recurse | Measure-Object Length -Sum).Sum) / 1MB))
+
+      - name: Smoke test frozen executable (dist, before installer)
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "doremi-smoke"
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+          Set-Location $smokeRoot
+          $env:XDG_CONFIG_HOME = Join-Path $smokeRoot "config"
+          $env:XDG_DATA_HOME = Join-Path $smokeRoot "data"
+          $env:XDG_CACHE_HOME = Join-Path $smokeRoot "cache"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:DOREMI_SMOKE_OUT = Join-Path $smokeRoot "smoke-result.json"
+          # GUI-subsystem exe: & does NOT wait; Start-Process -Wait is required.
+          $proc = Start-Process -FilePath "$env:GITHUB_WORKSPACE\dist\Doremi\Doremi.exe" -ArgumentList "--smoke-test" -Wait -PassThru -NoNewWindow
+          $code = $proc.ExitCode
+          if (Test-Path $env:DOREMI_SMOKE_OUT) { Get-Content $env:DOREMI_SMOKE_OUT }
+          else { throw "smoke-result.json not written to $env:DOREMI_SMOKE_OUT" }
+          if ($code -ne 0) { throw "smoke test exit code: $code" }
+          python -c "import json,os,sys; r = json.load(open(os.environ['DOREMI_SMOKE_OUT'])); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
+
+      - name: Install Inno Setup 6
+        run: choco install innosetup --yes --no-progress
+
+      - name: Verify Inno Setup version accepts x64compatible
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found" }
+          & $iscc /? | Select-Object -First 5
+          "ISCC $iscc" | Out-File installer-manifest.txt -Append -Encoding UTF8
+
+      - name: Stamp + lint installer.iss (version coherence, no data deletion)
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          python packaging/windows/stamp_installer_version.py
+          python packaging/windows/stamp_installer_version.py --check
+          if ($LASTEXITCODE -ne 0) { throw "installer.iss lint failed" }
+          "installer.iss stamped for $pyVersion" | Out-File installer-manifest.txt -Append -Encoding UTF8
+
+      - name: Compile installer with Inno Setup
+        shell: pwsh
+        run: |
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe" }
+          & $iscc "packaging\windows\installer.iss"
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed: $LASTEXITCODE" }
+
+      - name: Verify installer exists + version coherence
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $expected = "dist\installer\Doremi-v$pyVersion-Setup.exe"
+          if (-not (Test-Path $expected)) { throw "missing $expected"; Get-ChildItem dist\installer }
+          $sizeMB = [math]::Round((Get-Item $expected).Length / 1MB, 1)
+          Write-Host "installer: $expected ($sizeMB MB)"
+          "installer $expected ${sizeMB}MB" | Out-File installer-manifest.txt -Append -Encoding UTF8
+          pip freeze | Out-File installer-pip-freeze.txt -Encoding UTF8
+
+      - name: Install / reinstall / upgrade-sim / uninstall tests (sentinels)
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $setup = "dist\installer\Doremi-v$pyVersion-Setup.exe"
+          pwsh -NoProfile -File packaging/windows/test_installer.ps1 -SetupExe $setup -Version $pyVersion
+          if ($LASTEXITCODE -ne 0) { throw "installer scenario tests failed" }
+
+      - name: SHA-256 + manifest
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $setup = "dist\installer\Doremi-v$pyVersion-Setup.exe"
+          $hash = (Get-FileHash $setup -Algorithm SHA256).Hash
+          "$hash  Doremi-v$pyVersion-Setup.exe" | Set-Content "dist\installer\Doremi-v$pyVersion-Setup.exe.sha256" -Encoding UTF8
+          Write-Host $hash
+          Copy-Item $env:RUNNER_TEMP\doremi-installer-results.json dist\installer\ -ErrorAction SilentlyContinue
+          Get-Content "dist\installer\Doremi-v$pyVersion-Setup.exe.sha256"
+          Get-ChildItem dist\installer\
+
+      - name: Upload installer artifact (temporary, no Release)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doremi-Windows-x64-Setup
+          path: |
+            dist/installer/Doremi-v*-Setup.exe
+            dist/installer/Doremi-v*-Setup.exe.sha256
+            dist/installer/doremi-installer-results.json
+            installer-manifest.txt
+            installer-pip-freeze.txt
+          retention-days: 14

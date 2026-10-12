@@ -1,0 +1,135 @@
+DOREMI — THIRD-PARTY NOTICES (F0B-2B, Windows x64 installer)
+==========================================================
+Doremi itself: GNU General Public License v3.0 (see LICENSE.txt,
+installed alongside this file as {app}\LICENSE.txt).
+
+This bundle redistributes third-party binaries. This file lists them,
+their licenses as published by their owners, and what remains to fully
+satisfy redistribution obligations. It is NOT legal advice. A public
+release stays BLOCKED until the items marked BLOCKED below are closed.
+
+How versions are pinned
+-----------------------
+- Python packages: resolved at build time by pip on the CI runner
+  (Windows, Python 3.12). The exact resolved set is captured per build
+  (`pip freeze` + VLC version, see CI log / installer-manifest.txt
+  artifact). Constraints at F0B-2B (pyproject.toml):
+    PySide6>=6.7.0, qasync, qt-material, ytmusicapi, yt-dlp>=2026.8.19,
+    python-vlc, SQLAlchemy+aiosqlite, alembic, pydantic, tomli-w,
+    httpx[http2], syncedlyrics, pystray, pillow, loguru, keyring.
+- Rust extension: exact versions in src/doremi/native_rs/Cargo.lock
+  (committed): doremi-native-rs 0.1.0, pyo3 0.23.5, aho-corasick 1.1.4,
+  memchr 2.8.2, libc 0.2.186, once_cell 1.21.4, portable-atomic 1.13.1,
+  + build-time transitive deps (proc-macro2, quote, syn, unicode-ident,
+  autocfg, cfg-if, heck, indoc, unindent, memoffset, pyo3-build-config,
+  pyo3-ffi, pyo3-macros, pyo3-macros-backend, rustversion,
+  target-lexicon). All are MIT and/or Apache-2.0 (crates.io metadata).
+- VLC: installed on CI via `choco install vlc`, then libvlc.dll,
+  libvlccore.dll and the full plugins/ tree are copied into
+  vlc_libs/ and collected by PyInstaller (doremi.spec). The concrete
+  VLC version varies with Chocolatey at build time and is recorded in
+  the CI log (`vlc --version` / choco info). No VLC version is vendored
+  in git.
+
+1. VideoLAN libVLC / libvlccore / plugins
+   Upstream: https://www.videolan.org / https://code.videolan.org
+   Files: vlc_libs/libvlc.dll, vlc_libs/libvlccore.dll, vlc_libs/plugins/**
+   License (libraries): GNU Lesser General Public License v2.1 or later
+     (LGPL-2.1+). VideoLAN relicensed libVLC and libVLCCore from GPL to
+     LGPL; press release: https://images.videolan.org/press/lgpl-libvlc.html
+     ("libVLC and libVLCcore are now relicensed under the LGPL").
+     FAQ on redistribution: https://vlc-user-documentation.readthedocs.io/
+     en/latest/support/faq/legalconcerns.html ("May I redistribute libVLC
+     in my application? Yes, ... as long as you comply with its license").
+   License (plugins): MIXED. The VLC plugin tree contains modules under
+     GPL-2.0-or-later (and some LGPL). The full plugins/ directory is
+     shipped, so GPL-licensed code IS redistributed.
+   What this installer does: ships the DLLs + full plugin tree as
+     received from the VLC install; includes this notice.
+   BLOCKED for public release: (a) bundle the LGPL-2.1 and GPL-2.0 license
+     texts for VLC; (b) provide the required source offer / written offer
+     for libVLC/libvlccore (and GPL plugins) — e.g. link + instructions to
+     obtain the exact VLC sources matching the shipped build (VLC source
+     per version: https://download.videolan.org/pub/videolan/vlc/); (c) audit
+     which plugins are actually loaded vs. shipped and either ship sources
+     or trim the tree deliberately (do NOT silently drop plugins to dodge
+     the audit). Doremi itself is GPL-3.0, which is compatible with
+     LGPL-2.1+ and GPL-2.0+ plugin code as a combined work, but the source
+     offer obligation remains.
+
+2. Qt 6 via PySide6 (The Qt Company / Qt Project)
+   Upstream: https://www.qt.io / https://doc.qt.io
+   Files: Qt6*.dll, PySide6/** inside _internal (PyInstaller collection).
+   License: dual GPL-3.0 / LGPL-3.0 for the framework; PySide6 bindings
+     under LGPL-3.0. Some Qt add-on modules are GPL-only (not LGPL).
+     Obligations summary: https://www.qt.io/development/open-source-lgpl-obligations
+     (deliver corresponding source/written offer, preserve notices, ship
+     LGPL text, allow relinking/reverse-engineering, no further
+     restrictions).
+   What this installer does: ships Qt binaries as collected; includes this
+     notice; Doremi is GPL-3.0 so the GPL route is available.
+   BLOCKED for public release: (a) bundle LGPL-3.0 (+ GPL-3.0) license texts;
+     (b) confirm no GPL-only Qt module is pulled into the bundle
+     (audit PyInstaller collection list) or accept full GPL terms;
+     (c) publish the written source offer for the exact Qt/PySide6 versions
+     shipped (pip freeze in CI log is the version record; add links to
+     Qt + PySide6 sources, e.g. https://download.qt.io + PySide6 sdist).
+
+3. Python runtime + packages (PyInstaller bundle)
+   Python 3.12 embedded interpreter: PSF License 2.x (https://docs.python.org/3/license.html).
+   Per-package licenses as published on PyPI (names only here; full texts
+   NOT yet bundled — see BLOCKED):
+     - PySide6 (LGPL-3.0 / GPL-3.0, see §2)
+     - qasync (BSD-2-Clause), qt-material (MIT), ytmusicapi (MIT),
+       yt-dlp (The Unlicense — public domain, https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE),
+       python-vlc (LGPL-2.1 — thin ctypes wrapper; the VLC binaries it drives are §1),
+       SQLAlchemy (MIT), aiosqlite (MIT), alembic (MIT), Mako (MIT),
+       pydantic (MIT), tomli-w (MIT), httpx (BSD-3-Clause), h2 (MIT),
+       httpcore (BSD-3-Clause), syncedlyrics (MIT), pystray (LGPL-3.0),
+       Pillow (HPND), loguru (MIT), keyring (MIT), win32ctypes (BSD-2-Clause),
+       cffi/pywin32 transitive (MIT/PSF).
+   License texts verified in-repo at audit time: NONE beyond this summary
+     (metadata taken from PyPI project pages, not re-verified per file).
+   BLOCKED for public release: collect the actual license texts of the
+     exact resolved versions (pip `freeze` + `pip show -f` / wheel METADATA
+     LICENSE fields) into a licenses/ directory shipped with the app, or
+     document why each is not required. "A list of names is not compliance."
+
+4. Rust extension (doremi-native-rs + crates.io deps)
+   Upstream: https://crates.io (pyo3 0.23.5, aho-corasick 1.1.4, memchr,
+     libc, once_cell, portable-atomic, + macros/build helpers listed above).
+   License: MIT and/or Apache-2.0 (per crates.io; e.g. pyo3 is MIT/Apache-2.0
+     dual, aho-corasick/memchr are MIT/Unlicense-style). The extension is
+     statically linked into native_rs*.pyd and distributed inside the bundle.
+     MIT/Apache-2.0 require preserving copyright + license notices.
+   BLOCKED for public release: bundle the generated NOTICE text
+     (`cargo about` / `cargo license` output for the locked tree) with
+     copyright lines; one command on the committed Cargo.lock reproduces it.
+
+5. Fonts and artwork
+   - Inter (Bold/ExtraBold/Light/Medium/Regular/SemiBold): SIL Open Font
+     License 1.1. Text bundled in-repo at
+     src/doremi/assets/fonts/Inter-LICENSE.txt and shipped in the bundle
+     (doremi/assets/fonts/). Upstream: https://github.com/rsms/inter
+   - JetBrains Mono (Medium/Regular): SIL Open Font License 1.1. Text
+     bundled at src/doremi/assets/fonts/JetBrainsMono-OFL.txt and shipped.
+     Upstream: https://github.com/JetBrains/JetBrainsMono
+   - Material Symbols Rounded: Apache License 2.0 (Google Fonts / Material
+     Symbols, https://github.com/google/material-design-icons). The .ttf is
+     shipped but NO license text is currently vendored in the repo.
+     BLOCKED for public release: vendor the Apache-2.0 text + attribution
+     (or replace the font) — do not ship the .ttf bare.
+   - App icons/artwork (assets/Doremi.png, assets/icon.ico): original
+     Doremi artwork, same license as the app (GPL-3.0) unless stated
+     otherwise.
+
+6. What the installer ships for compliance TODAY
+   - {app}\LICENSE.txt (Doremi GPL-3.0)
+   - {app}\THIRD-PARTY-NOTICES.txt (this file)
+   That satisfies "prominent notice" but NOT the source-offer and
+   full-text obligations above.
+
+Verdict: PUBLIC RELEASE BLOCKED pending §1(b)(c), §2(b)(c), §3, §4, §5
+(Material Symbols text). Internal test distribution of the unsigned
+installer is acceptable with this file included and the SmartScreen
+warning documented (no code signature yet; signing is a pre-release task).
