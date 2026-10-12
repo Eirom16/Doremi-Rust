@@ -1,0 +1,168 @@
+name: Windows portable (PyInstaller)
+
+# F0B-2A: full Doremi application bundle for Windows x64 (portable ZIP).
+# No Inno Setup installer, no GitHub Releases — those come later.
+
+on:
+  push:
+    branches: [build/f0b2a-windows-portable]
+    paths:
+      - "doremi.spec"
+      - ".github/workflows/windows-portable.yml"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+  pull_request:
+    paths:
+      - "doremi.spec"
+      - ".github/workflows/windows-portable.yml"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  portable:
+    name: Windows x64 portable ZIP
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/doremi/native_rs
+
+      - name: Install VLC (lib + plugins source)
+        run: choco install vlc --yes --no-progress
+
+      - name: Install app deps + build tools
+        run: pip install . pyinstaller maturin
+
+      - name: Copy VLC DLLs and plugins
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path vlc_libs\plugins | Out-Null
+          $vlcPath = "C:\Program Files\VideoLAN\VLC"
+          Copy-Item "$vlcPath\libvlc.dll" vlc_libs\
+          Copy-Item "$vlcPath\libvlccore.dll" vlc_libs\
+          Copy-Item -Recurse "$vlcPath\plugins\*" vlc_libs\plugins\
+          Get-ChildItem vlc_libs\libvlc.dll, vlc_libs\libvlccore.dll | ForEach-Object { Write-Host $_.FullName $_.Length }
+
+      - name: Build native module wheel
+        shell: pwsh
+        run: |
+          Set-Location src/doremi/native_rs
+          maturin build --release --locked --out dist
+
+      - name: Install wheel + run native tests
+        shell: pwsh
+        run: |
+          $wheel = Get-ChildItem src/doremi/native_rs/dist/*.whl | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $wheel) { throw "no wheel found in src/doremi/native_rs/dist" }
+          pip install $wheel
+          pip install pytest PySide6
+          $env:PYTHONPATH = "src"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          python -c "import native_rs; assert 'site-packages' in native_rs.__file__.replace(chr(92), '/'), native_rs.__file__"
+          python -m pytest tests/test_native_rs.py -q
+
+      - name: Stamp frozen build version
+        shell: pwsh
+        run: |
+          $pyVersion = python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])"
+          $shortSha = "${{ github.sha }}".Substring(0, 12)
+          $buildId = "f0b2a.windows.$shortSha"
+          Set-Content src/doremi/_build_version.py "BUILD_VERSION = `"$pyVersion`"`nBUILD_ID = `"$buildId`"`n"
+          Get-Content src/doremi/_build_version.py
+
+      - name: Build with PyInstaller
+        run: pyinstaller doremi.spec
+
+      - name: Verify bundle structure
+        shell: pwsh
+        run: |
+          $exe = "dist\Doremi\Doremi.exe"
+          if (-not (Test-Path $exe)) { throw "missing $exe" }
+          $checks = @(
+            "dist\Doremi\Doremi.exe",
+            "dist\Doremi\doremi\ui\qml\MainShell.qml",
+            "dist\Doremi\doremi\ui\qml\Doremi\qmldir",
+            "dist\Doremi\doremi\assets\fonts\Inter-Regular.ttf",
+            "dist\Doremi\doremi\locales\es.json",
+            "dist\Doremi\doremi\db\migrations\env.py",
+            "dist\Doremi\assets\Doremi.png",
+            "dist\Doremi\vlc_libs\libvlc.dll",
+            "dist\Doremi\vlc_libs\libvlccore.dll",
+            "dist\Doremi\vlc_libs\plugins"
+          )
+          foreach ($p in $checks) { if (-not (Test-Path $p)) { throw "missing bundle entry: $p" } }
+          $pyd = Get-ChildItem dist\Doremi\doremi\native_rs\*.pyd -ErrorAction SilentlyContinue
+          if (-not $pyd) { throw "missing Rust extension next to doremi.native_rs bridge" }
+          $pyd | ForEach-Object { Write-Host "rust ext: $($_.FullName) $($_.Length)" }
+          $qmlCount = (Get-ChildItem dist\Doremi\doremi\ui\qml -Recurse -Filter *.qml).Count
+          Write-Host "qml files: $qmlCount"
+          Write-Host ("exe MB: {0:N1}" -f ((Get-Item $exe).Length / 1MB))
+          Write-Host ("bundle MB: {0:N1}" -f (((Get-ChildItem dist\Doremi -Recurse | Measure-Object Length -Sum).Sum) / 1MB))
+
+      # The bundle is windowed (console=False), so smoke output is captured via
+      # the exit code and smoke-result.json — NOT via stdout. A process that
+      # merely stays alive until a timeout proves nothing; this step requires
+      # exit code 0 AND ok==true from the result file.
+      - name: Smoke test frozen executable
+        shell: pwsh
+        run: |
+          $smokeRoot = Join-Path $env:RUNNER_TEMP "doremi-smoke"
+          New-Item -ItemType Directory -Force -Path $smokeRoot | Out-Null
+          Set-Location $smokeRoot
+          $env:XDG_CONFIG_HOME = Join-Path $smokeRoot "config"
+          $env:XDG_DATA_HOME = Join-Path $smokeRoot "data"
+          $env:XDG_CACHE_HOME = Join-Path $smokeRoot "cache"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & "$env:GITHUB_WORKSPACE\dist\Doremi\Doremi.exe" --smoke-test
+          $code = $LASTEXITCODE
+          if (Test-Path ./smoke-result.json) { Get-Content ./smoke-result.json }
+          else { throw "smoke-result.json not written" }
+          if ($code -ne 0) { throw "smoke test exit code: $code" }
+          python -c "import json,sys; r = json.load(open('smoke-result.json')); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
+
+      - name: Package portable ZIP with manifest
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path portable | Out-Null
+          Copy-Item -Recurse dist\Doremi portable\Doremi
+          $files = Get-ChildItem portable\Doremi -Recurse -File | Sort-Object FullName
+          $files | ForEach-Object { $_.FullName.Replace("$pwd\portable\", "") + "  " + $_.Length } | Set-Content portable\MANIFEST.txt
+          $files | ForEach-Object { (Get-FileHash $_.FullName -Algorithm SHA256).Hash + "  " + $_.FullName.Replace("$pwd\portable\", "") } | Set-Content portable\SHA256SUMS.txt
+          Compress-Archive -Path portable\* -DestinationPath Doremi-Windows-x64-Portable.zip
+          Write-Host ("zip MB: {0:N1}" -f ((Get-Item Doremi-Windows-x64-Portable.zip).Length / 1MB))
+          Write-Host ("files: {0}" -f $files.Count)
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doremi-Windows-x64-Portable
+          path: |
+            Doremi-Windows-x64-Portable.zip
+            portable/MANIFEST.txt
+            portable/SHA256SUMS.txt
+          retention-days: 7
