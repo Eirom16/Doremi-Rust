@@ -99,27 +99,31 @@ jobs:
         run: pyinstaller doremi.spec
 
       - name: Verify bundle structure
+        # PyInstaller 6 onedir layout: the exe sits at dist\Doremi\ while every
+        # collected file (datas AND binaries) lives under dist\Doremi\_internal,
+        # which is also what sys._MEIPASS points to. Checks mirror that layout.
         shell: pwsh
         run: |
           $exe = "dist\Doremi\Doremi.exe"
           if (-not (Test-Path $exe)) { throw "missing $exe" }
+          Get-ChildItem dist\Doremi | ForEach-Object { Write-Host "top: $($_.Name)" }
           $checks = @(
             "dist\Doremi\Doremi.exe",
-            "dist\Doremi\doremi\ui\qml\MainShell.qml",
-            "dist\Doremi\doremi\ui\qml\Doremi\qmldir",
-            "dist\Doremi\doremi\assets\fonts\Inter-Regular.ttf",
-            "dist\Doremi\doremi\locales\es.json",
-            "dist\Doremi\doremi\db\migrations\env.py",
-            "dist\Doremi\assets\Doremi.png",
-            "dist\Doremi\vlc_libs\libvlc.dll",
-            "dist\Doremi\vlc_libs\libvlccore.dll",
-            "dist\Doremi\vlc_libs\plugins"
+            "dist\Doremi\_internal\doremi\ui\qml\MainShell.qml",
+            "dist\Doremi\_internal\doremi\ui\qml\Doremi\qmldir",
+            "dist\Doremi\_internal\doremi\assets\fonts\Inter-Regular.ttf",
+            "dist\Doremi\_internal\doremi\locales\es.json",
+            "dist\Doremi\_internal\doremi\db\migrations\env.py",
+            "dist\Doremi\_internal\assets\Doremi.png",
+            "dist\Doremi\_internal\vlc_libs\libvlc.dll",
+            "dist\Doremi\_internal\vlc_libs\libvlccore.dll",
+            "dist\Doremi\_internal\vlc_libs\plugins"
           )
           foreach ($p in $checks) { if (-not (Test-Path $p)) { throw "missing bundle entry: $p" } }
-          $pyd = Get-ChildItem dist\Doremi\doremi\native_rs\*.pyd -ErrorAction SilentlyContinue
+          $pyd = Get-ChildItem dist\Doremi\_internal\doremi\native_rs\*.pyd -ErrorAction SilentlyContinue
           if (-not $pyd) { throw "missing Rust extension next to doremi.native_rs bridge" }
           $pyd | ForEach-Object { Write-Host "rust ext: $($_.FullName) $($_.Length)" }
-          $qmlCount = (Get-ChildItem dist\Doremi\doremi\ui\qml -Recurse -Filter *.qml).Count
+          $qmlCount = (Get-ChildItem dist\Doremi\_internal\doremi\ui\qml -Recurse -Filter *.qml).Count
           Write-Host "qml files: $qmlCount"
           Write-Host ("exe MB: {0:N1}" -f ((Get-Item $exe).Length / 1MB))
           Write-Host ("bundle MB: {0:N1}" -f (((Get-ChildItem dist\Doremi -Recurse | Measure-Object Length -Sum).Sum) / 1MB))

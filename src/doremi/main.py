@@ -168,6 +168,8 @@ def run_smoke_test() -> int:
     try:
         from doremi import __version__ as _v
         result["version"] = _v
+        result["frozen"] = bool(getattr(sys, "frozen", False))
+        result["meipass"] = getattr(sys, "_MEIPASS", None)
         try:
             from doremi._build_version import BUILD_ID as _bid
             result["build_id"] = _bid
