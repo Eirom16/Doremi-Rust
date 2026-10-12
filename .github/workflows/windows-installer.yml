@@ -61,10 +61,12 @@ jobs:
         run: choco install vlc --yes --no-progress
 
       - name: Record VLC + toolchain versions (license manifest)
+        # NOTE: never execute vlc.exe here (GUI subsystem; --version can
+        # block headless). Read the DLL file version instead.
         shell: pwsh
         run: |
           choco info vlc --local-only | Out-File installer-manifest.txt -Encoding UTF8
-          & "C:\Program Files\VideoLAN\VLC\vlc.exe" --version | Out-File installer-manifest.txt -Append -Encoding UTF8
+          (Get-Item "C:\Program Files\VideoLAN\VLC\libvlc.dll").VersionInfo.ProductVersion | Out-File installer-manifest.txt -Append -Encoding UTF8
           python --version | Out-File installer-manifest.txt -Append -Encoding UTF8
           rustc --version | Out-File installer-manifest.txt -Append -Encoding UTF8
           Get-Content installer-manifest.txt
