@@ -10,7 +10,9 @@ from loguru import logger
 from doremi.services.download_manager import DownloadManager
 from doremi.ui.viewmodels.album_vm import AlbumViewModel
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 
 
 class AlbumScreenQml(QObject):

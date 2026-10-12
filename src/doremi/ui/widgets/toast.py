@@ -16,7 +16,9 @@ from PySide6.QtWidgets import QWidget
 
 from doremi.ui.theme_bridge import theme_bridge
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 
 
 class _ToastViewModel(QObject):

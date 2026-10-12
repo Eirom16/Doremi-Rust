@@ -1,4 +1,14 @@
 def _resolve_version() -> str:
+    # Frozen builds (PyInstaller) stamp src/doremi/_build_version.py at build
+    # time: no .git metadata and no importable dist-info exist in the bundle,
+    # so neither fallback below would yield the real build version.
+    try:
+        from doremi._build_version import BUILD_VERSION as _stamped
+        if _stamped:
+            return _stamped
+    except Exception:
+        pass
+
     try:
         import subprocess
         from pathlib import Path

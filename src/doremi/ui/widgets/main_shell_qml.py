@@ -11,7 +11,9 @@ from loguru import logger
 
 from doremi.ui.theme_bridge import theme_bridge
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 
 
 class MainShellQml(QQuickWidget):

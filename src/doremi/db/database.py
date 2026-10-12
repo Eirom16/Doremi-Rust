@@ -52,8 +52,9 @@ def _sync_database_url(database_url: str) -> str:
 
 def _alembic_config():
     from alembic.config import Config
+    from doremi.config.paths import bundle_package_dir
 
-    migrations_dir = Path(__file__).resolve().parent / "migrations"
+    migrations_dir = bundle_package_dir("db", "migrations")
     project_root = Path(__file__).resolve().parents[3]
     config_file = project_root / "alembic.ini"
     config = Config(str(config_file) if config_file.exists() else None)

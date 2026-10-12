@@ -9,7 +9,9 @@ from loguru import logger
 
 from doremi.ui.viewmodels.home_vm import HomeViewModel
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 
 
 class HomeScreenQml(QObject):

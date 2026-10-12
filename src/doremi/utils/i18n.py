@@ -18,7 +18,8 @@ class TranslationManager(QObject):
         self.load_translations(self.current_language)
 
     def _read_translations(self, lang_code: str) -> dict[str, str]:
-        base_dir = Path(__file__).parent.parent
+        from doremi.config.paths import bundle_package_dir
+        base_dir = bundle_package_dir()
         locale_path = base_dir / "locales" / f"{lang_code}.json"
 
         if locale_path.exists():

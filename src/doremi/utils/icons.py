@@ -48,7 +48,8 @@ class MaterialIcons:
         if cls._font_id != -1:
             return
             
-        font_path = Path(__file__).parent.parent / "assets" / "fonts" / "MaterialSymbolsRounded.ttf"
+        from doremi.config.paths import bundle_package_dir
+        font_path = bundle_package_dir("assets", "fonts") / "MaterialSymbolsRounded.ttf"
         if not font_path.exists():
             logger.warning(f"Material Symbols font not found at {font_path}")
             return

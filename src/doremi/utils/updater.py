@@ -27,7 +27,7 @@ except Exception:
 
 CURRENT_VERSION = f"v{__version__}"
 GITHUB_API_URL  = (
-    "https://api.github.com/repos/Eirom16/doremi/releases/latest"
+    "https://api.github.com/repos/Eirom16/Doremi-Rust/releases/latest"
 )
 GITHUB_HEADERS  = {
     "Accept": "application/vnd.github+json",

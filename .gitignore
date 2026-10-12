@@ -40,6 +40,7 @@ browser.json
 *.log
 *.patch
 *.spec
+!doremi.spec
 
 # Test artifacts (generated data/fixtures)
 test_*.json
@@ -80,3 +81,6 @@ src/pyrolist/native_rs/native_rs*.pyd
 
 # Wheels Python generados (artefactos de build, ver F0B-1)
 *.whl
+
+# Versión estampada por CI para bundles congelados (generado, ver F0B-2A)
+src/doremi/_build_version.py

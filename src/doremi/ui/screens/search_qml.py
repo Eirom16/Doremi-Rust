@@ -10,7 +10,9 @@ from loguru import logger
 from doremi.utils.i18n import _
 from doremi.ui.viewmodels.search_vm import SearchViewModel
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 
 
 class SearchScreenQml(QObject):

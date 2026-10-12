@@ -64,4 +64,17 @@ class _AppDirs:
             d.mkdir(parents=True, exist_ok=True)
 
 
+def bundle_package_dir(*parts: str) -> Path:
+    """Package-data directory that works both from source and frozen.
+
+    From source it resolves inside ``src/doremi/``; in a PyInstaller bundle
+    datas are collected under ``doremi/`` relative to ``sys._MEIPASS`` (the
+    ``__file__``-based lookup would point into ``_internal`` instead).
+    """
+    import sys
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        return Path(sys._MEIPASS) / "doremi" / Path(*parts)
+    return Path(__file__).resolve().parent.parent / Path(*parts)
+
+
 AppDirs = _AppDirs()
