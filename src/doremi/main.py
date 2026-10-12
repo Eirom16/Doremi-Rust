@@ -228,7 +228,10 @@ def run_smoke_test() -> int:
 
         result["ok"] = all(result["checks"].values())
     except Exception as e:  # noqa: BLE001 - smoke must report, never crash silently
+        import traceback as _tb
+
         result["error"] = f"{type(e).__name__}: {e}"
+        result["traceback"] = _tb.format_exc(limit=12)
 
     marker = "DOREMI_SMOKE_OK" if result["ok"] else "DOREMI_SMOKE_FAIL"
     print(f"{marker} {json.dumps(result, default=str)}", flush=True)

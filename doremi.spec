@@ -72,6 +72,10 @@ hiddenimports = [
     "h2",
     "httpcore",
     "webbrowser",
+    # stdlib modules only reached through attribute access (alembic/SQLAlchemy
+    # logging setup); modulegraph cannot see them statically.
+    "logging.config",
+    "logging.handlers",
     # keyring backend discovery uses entry points; pin the Windows ones.
     "keyring.backends.Windows",
     "keyring.backends.fail",
