@@ -85,12 +85,54 @@ def main() -> int:
         if not m2 or m2.group(1).strip() != expected:
             print(f"FAIL: OutputBaseFilename={m2.group(1) if m2 else None!r} != {expected!r}")
             return 1
+        m3 = re.search(r"^AppVerName=(.+)$", text, re.M)
+        if not m3 or m3.group(1).strip() != f"Doremi v{ver}":
+            print(f"FAIL: AppVerName={m3.group(1) if m3 else None!r} != 'Doremi v{ver}'")
+            return 1
+        # Every non-comment line inside [Setup] must be Key=Value (other
+        # sections legitimately use "Name:"/"Source:" syntax).
+        in_setup = False
+        for i, ln in enumerate(text.splitlines(), 1):
+            s = ln.strip()
+            if s.startswith("["):
+                in_setup = s.lower() == "[setup]"
+                continue
+            if not in_setup:
+                continue
+            if not s or s.startswith(";"):
+                continue
+            if "=" not in s:
+                print(f"FAIL: [Setup] line {i} is not Key=Value: {s!r}")
+                return 1
+        # No duplicate keys inside [Setup] (Inno aborts on them).
+        seen: dict[str, int] = {}
+        in_setup = False
+        for i, ln in enumerate(text.splitlines(), 1):
+            s = ln.strip()
+            if s.startswith("["):
+                in_setup = s.lower() == "[setup]"
+                continue
+            if not in_setup or not s or s.startswith(";") or "=" not in s:
+                continue
+            key = s.split("=", 1)[0].strip().lower()
+            if key in seen:
+                print(f"FAIL: duplicate [Setup] key '{key}' (lines {seen[key]} and {i})")
+                return 1
+            seen[key] = i
         print(f"OK: installer.iss stamped for {ver} ({expected}.exe)")
         return 0
 
     new = text
+    # Self-heal a previously mutilated AppVerName line (bare "Doremi vX.Y.Z"
+    # without the key): repair it instead of duplicating the entry.
+    new = re.sub(
+        r"^Doremi v\d+\.\d+\.\d+\s*$",
+        f"AppVerName=Doremi v{ver}",
+        new,
+        flags=re.M,
+    )
     new = re.sub(r"^AppVersion=.*$", f"AppVersion={ver}", new, flags=re.M)
-    new = re.sub(r"^AppVerName=.*$", f"Doremi v{ver}", new, flags=re.M)
+    new = re.sub(r"^AppVerName=.*$", f"AppVerName=Doremi v{ver}", new, flags=re.M)
     # If AppVerName line is missing (legacy file), insert after AppVersion.
     if "AppVerName=" not in new:
         new = re.sub(
