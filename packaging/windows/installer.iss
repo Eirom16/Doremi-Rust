@@ -2,8 +2,10 @@
 ; FASE F0B-2B.
 ;
 ; Per-user install, no elevation, Windows x64.
-; Compile from the REPO ROOT:
-;   iscc packaging\windows\installer.iss
+; Compile from the packaging\windows directory (SourceDir=..\.. is resolved
+; against the compiler's working directory, NOT the script location):
+;   cd packaging\windows
+;   iscc installer.iss
 ;
 ; SourceDir resolves relative to THIS script (packaging/windows),
 ; so "..\\.." is the repo root. All Source/Output paths below are
