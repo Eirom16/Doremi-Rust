@@ -12,7 +12,9 @@ from doremi.ui.viewmodels.now_playing_vm import NowPlayingViewModel
 from doremi.utils.image_cache import ImageCache
 from doremi.utils.i18n import _
 
-QML_DIR = Path(__file__).resolve().parent.parent / "qml"
+from doremi.ui.qml_paths import qml_dir
+
+QML_DIR = qml_dir()
 _image_cache = ImageCache()
 
 

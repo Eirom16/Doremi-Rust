@@ -144,6 +144,99 @@ def handle_async_exception(loop, context):
         logger.error(msg)
 
 
+def run_smoke_test() -> int:
+    """Non-interactive frozen-bundle validation (``--smoke-test``).
+
+    Initializes Qt offscreen with isolated temp dirs and verifies, in order:
+    Rust native module, VLC instance, DB migrations, fonts, theme bridge and
+    the MainShell QML load. Prints ``DOREMI_SMOKE_OK`` + JSON, writes
+    ``smoke-result.json`` into the current directory and returns the exit code.
+    A process that merely stays alive proves nothing; this one must print the
+    positive marker AND exit 0 by itself.
+    """
+    import json
+    import tempfile
+    from pathlib import Path as _Path
+
+    tmp = _Path(tempfile.mkdtemp(prefix="doremi-smoke-"))
+    os.environ["XDG_CONFIG_HOME"] = str(tmp / "config")
+    os.environ["XDG_DATA_HOME"] = str(tmp / "data")
+    os.environ["XDG_CACHE_HOME"] = str(tmp / "cache")
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    result: dict = {"ok": False, "checks": {}}
+    try:
+        from doremi import __version__ as _v
+        result["version"] = _v
+        try:
+            from doremi._build_version import BUILD_ID as _bid
+            result["build_id"] = _bid
+        except Exception:
+            pass
+
+        from PySide6.QtWidgets import QApplication
+        from PySide6.QtQuickWidgets import QQuickWidget
+
+        app = QApplication([sys.argv[0] if sys.argv else "doremi"])
+        result["checks"]["qt_app"] = True
+
+        from doremi.utils.vlc_check import check_vlc_available, setup_vlc_env
+        setup_vlc_env()
+        result["checks"]["vlc"] = bool(check_vlc_available())
+
+        from doremi.config.paths import AppDirs
+        AppDirs.setup()
+        result["checks"]["app_dirs"] = True
+
+        # doremi.db.database binds DATABASE_URL at import time (before the
+        # XDG overrides above took effect when running from source). Rebind it
+        # explicitly so the smoke test never touches the real user database.
+        import doremi.db.database as _dbmod
+        _dbmod.DATABASE_URL = f"sqlite+aiosqlite:///{AppDirs.database}"
+        _dbmod._engine = None
+        _dbmod._session_factory = None
+        await_init = _dbmod.init_db
+        asyncio.run(await_init())
+        result["checks"]["db_migrations"] = True
+
+        from doremi.ui.design.fonts import load_fonts
+        load_fonts()
+        result["checks"]["fonts"] = True
+
+        from doremi.native_rs import compute_color_variants
+        _cv = compute_color_variants("#A78BFA", "dark")
+        result["checks"]["rust"] = bool(_cv.bright_hex)
+
+        from doremi.ui.theme_bridge import theme_bridge
+        _bridge = theme_bridge()
+        result["checks"]["theme_bridge"] = bool(_bridge.colors)
+
+        from doremi.ui.qml_paths import qml_dir
+        qml_root = qml_dir()
+        result["checks"]["qml_files"] = bool((qml_root / "MainShell.qml").exists())
+        widget = QQuickWidget()
+        widget.engine().addImportPath(str(qml_root))
+        widget.rootContext().setContextProperty("themeBridge", _bridge)
+        from PySide6.QtCore import QUrl
+        widget.setSource(QUrl.fromLocalFile(str(qml_root / "MainShell.qml")))
+        ready = widget.status() == QQuickWidget.Status.Ready
+        if not ready:
+            result["qml_errors"] = [e.toString() for e in widget.errors()][:10]
+        result["checks"]["qml_shell"] = bool(ready)
+
+        result["ok"] = all(result["checks"].values())
+    except Exception as e:  # noqa: BLE001 - smoke must report, never crash silently
+        result["error"] = f"{type(e).__name__}: {e}"
+
+    marker = "DOREMI_SMOKE_OK" if result["ok"] else "DOREMI_SMOKE_FAIL"
+    print(f"{marker} {json.dumps(result, default=str)}", flush=True)
+    try:
+        _Path("smoke-result.json").write_text(json.dumps(result, indent=2, default=str))
+    except OSError:
+        pass
+    return 0 if result["ok"] else 1
+
+
 async def main_async(app: QApplication, settings: AppSettings, loop: qasync.QEventLoop) -> None:
     loop.set_exception_handler(handle_async_exception)
     
@@ -181,6 +274,8 @@ async def main_async(app: QApplication, settings: AppSettings, loop: qasync.QEve
 
 def main() -> None:
     multiprocessing.freeze_support()
+    if "--smoke-test" in sys.argv:
+        raise SystemExit(run_smoke_test())
     import os
     # En Linux congelado (AppImage), forzar xcb y renderizado por software
     # para evitar fallos de Wayland EGL y de GLX dentro del sandbox del AppImage
