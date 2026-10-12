@@ -145,8 +145,10 @@ jobs:
           # Explicit absolute result path: a windowed exe must not depend on
           # inherited CWD for its report file.
           $env:DOREMI_SMOKE_OUT = Join-Path $smokeRoot "smoke-result.json"
-          & "$env:GITHUB_WORKSPACE\dist\Doremi\Doremi.exe" --smoke-test
-          $code = $LASTEXITCODE
+          # NOTE: call operator (&) does NOT wait for GUI-subsystem exes; use
+          # Start-Process -Wait, otherwise the checks below race the app.
+          $proc = Start-Process -FilePath "$env:GITHUB_WORKSPACE\dist\Doremi\Doremi.exe" -ArgumentList "--smoke-test" -Wait -PassThru -NoNewWindow
+          $code = $proc.ExitCode
           if (Test-Path $env:DOREMI_SMOKE_OUT) { Get-Content $env:DOREMI_SMOKE_OUT }
           else { throw "smoke-result.json not written to $env:DOREMI_SMOKE_OUT" }
           if ($code -ne 0) { throw "smoke test exit code: $code" }
