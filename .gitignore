@@ -69,8 +69,12 @@ Thumbs.db
 !README.MD
 !AUDIT_POLISH.md
 !docs/PRODUCT_EXPERIENCE_IMPLEMENTATION.md
+!docs/PLAN_REFERENCIAS_VISUALES.md
+!docs/release/*.md
 
 # Módulos nativos compilados (se recompilan localmente / en CI)
+src/doremi/native_rs/target/
+src/doremi/native_rs/native_rs*.pyd
 src/pyrolist/native_rs/target/
 src/pyrolist/native_rs/native_rs*.so
 src/pyrolist/native_rs/native_rs*.pyd
