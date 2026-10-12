@@ -234,11 +234,14 @@ def run_smoke_test() -> int:
         result["traceback"] = _tb.format_exc(limit=12)
 
     marker = "DOREMI_SMOKE_OK" if result["ok"] else "DOREMI_SMOKE_FAIL"
+    result["cwd"] = os.getcwd()
+    out_path = _Path(os.environ.get("DOREMI_SMOKE_OUT") or "smoke-result.json")
     print(f"{marker} {json.dumps(result, default=str)}", flush=True)
     try:
-        _Path("smoke-result.json").write_text(json.dumps(result, indent=2, default=str))
-    except OSError:
-        pass
+        out_path.write_text(json.dumps(result, indent=2, default=str))
+        result["result_file"] = str(out_path)
+    except OSError as e:
+        print(f"DOREMI_SMOKE_NOFILE {e}", flush=True)
     return 0 if result["ok"] else 1
 
 

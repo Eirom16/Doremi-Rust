@@ -142,12 +142,15 @@ jobs:
           $env:XDG_DATA_HOME = Join-Path $smokeRoot "data"
           $env:XDG_CACHE_HOME = Join-Path $smokeRoot "cache"
           $env:QT_QPA_PLATFORM = "offscreen"
+          # Explicit absolute result path: a windowed exe must not depend on
+          # inherited CWD for its report file.
+          $env:DOREMI_SMOKE_OUT = Join-Path $smokeRoot "smoke-result.json"
           & "$env:GITHUB_WORKSPACE\dist\Doremi\Doremi.exe" --smoke-test
           $code = $LASTEXITCODE
-          if (Test-Path ./smoke-result.json) { Get-Content ./smoke-result.json }
-          else { throw "smoke-result.json not written" }
+          if (Test-Path $env:DOREMI_SMOKE_OUT) { Get-Content $env:DOREMI_SMOKE_OUT }
+          else { throw "smoke-result.json not written to $env:DOREMI_SMOKE_OUT" }
           if ($code -ne 0) { throw "smoke test exit code: $code" }
-          python -c "import json,sys; r = json.load(open('smoke-result.json')); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
+          python -c "import json,os,sys; r = json.load(open(os.environ['DOREMI_SMOKE_OUT'])); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
 
       - name: Package portable ZIP with manifest
         shell: pwsh
