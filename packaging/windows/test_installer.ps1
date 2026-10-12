@@ -103,16 +103,57 @@ function Install-Doremi([string]$stage) {
     Write-Host "[$stage] Doremi.exe present ($([math]::Round((Get-Item $exe).Length / 1MB, 1)) MB)"
 }
 
+function Find-UninstallKeys {
+    # Inno Setup is a 32-bit process by default, so on 64-bit Windows its
+    # uninstall registration may land in the native Uninstall view or the
+    # WOW6432Node view. Search every plausible per-user/machine view for
+    # our stable AppId GUID instead of assuming one path.
+    $guid = "b2285fdf-22de-411a-93b2-4ce4d8a5fa8a"
+    $roots = @(
+        "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKCU:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+        "HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall"
+    )
+    $found = @()
+    foreach ($r in $roots) {
+        if (-not (Test-Path $r)) { continue }
+        foreach ($k in (Get-ChildItem $r -ErrorAction SilentlyContinue)) {
+            if ($k.PSChildName -like "*$guid*") { $found += $k.PSPath }
+        }
+    }
+    return $found
+}
+
 function Check-AppId([string]$stage) {
-    # Per-user uninstall key for AppId {b2285fdf-22de-411a-93b2-4ce4d8a5fa8a}
-    $key = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{b2285fdf-22de-411a-93b2-4ce4d8a5fa8a}_is1"
-    if (-not (Test-Path $key)) { Fail "[$stage] uninstall registry key missing: $key" }
-    $props = Get-ItemProperty $key
-    Write-Host "[$stage] AppId key: DisplayName='$($props.DisplayName)' DisplayVersion='$($props.DisplayVersion)' InstallLocation='$($props.InstallLocation)'"
+    $keys = @(Find-UninstallKeys)
+    if ($keys.Count -eq 0) {
+        Write-Host "[$stage] DIAGNOSTICS: listing Doremi-ish uninstall entries (all views):"
+        foreach ($r in @("HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+                         "HKCU:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall")) {
+            if (Test-Path $r) {
+                Get-ChildItem $r -ErrorAction SilentlyContinue |
+                    Where-Object { $_.PSChildName -like "*oremi*" -or $_.PSChildName -like "*{*}" } |
+                    Select-Object -First 5 PSPath | ForEach-Object { Write-Host "  $($_.PSPath)" }
+            } else { Write-Host "  (missing view: $r)" }
+        }
+        $log = Join-Path $env:RUNNER_TEMP ("doremi-install-{0}.log" -f $stage)
+        if ($stage -eq "A" -and (Test-Path $log)) {
+            Write-Host "[$stage] install log tail:"; Get-Content $log -Tail 25
+        }
+        Fail "[$stage] uninstall registry key for AppId GUID missing in HKCU/HKLM x64+WOW6432Node views"
+    }
+    if ($keys.Count -gt 1) { Fail "[$stage] multiple uninstall keys for AppId: $($keys -join ', ')" }
+    $keyPath = $keys[0]
+    if ($keyPath -notlike "*HKEY_CURRENT_USER*") {
+        Fail "[$stage] per-user install registered outside HKCU (elevation leak?): $keyPath"
+    }
+    $props = Get-ItemProperty $keyPath
+    Write-Host "[$stage] AppId key: $keyPath DisplayName='$($props.DisplayName)' DisplayVersion='$($props.DisplayVersion)' InstallLocation='$($props.InstallLocation)'"
     if ($props.DisplayVersion -ne $Version) {
         Write-Host "WARNING [$stage] DisplayVersion '$($props.DisplayVersion)' != $Version (check stamping)"
     }
-    return $props
+    return $keyPath
 }
 
 function Check-Shortcuts([string]$stage) {
@@ -189,14 +230,17 @@ $summary.sentinels = $sentinels
 Install-Doremi "A-fresh"
 $summary.scenarios["A_fresh_install"] = "pass"
 Assert-Sentinels $sentinels "A"
-Check-AppId "A" | Out-Null
+$keyA = Check-AppId "A"
+$summary.scenarios["A_AppId_key"] = $keyA
 Check-Shortcuts "A"
 Invoke-InstalledSmoke "A"
 
 Install-Doremi "B-reinstall"
 $summary.scenarios["B_reinstall_same_version"] = "pass"
 Assert-Sentinels $sentinels "B"
-Check-AppId "B" | Out-Null
+$keyB = Check-AppId "B"
+if ($keyB -ne $keyA) { Fail "[B] AppId key changed across reinstall: $keyA -> $keyB" }
+Write-Host "[B] AppId stable across reinstall (good)"
 Invoke-InstalledSmoke "B"
 
 # C: no second version exists yet, so a cross-version upgrade cannot be
@@ -205,8 +249,9 @@ Invoke-InstalledSmoke "B"
 Install-Doremi "C-upgrade-simulated"
 $summary.scenarios["C_upgrade_simulated_same_AppId"] = "pass (same-version reinstall; cross-version NOT verified)"
 Assert-Sentinels $sentinels "C"
-$propsC = Check-AppId "C"
-$summary.scenarios["C_AppId_stable"] = $propsC.PSPath
+$keyC = Check-AppId "C"
+if ($keyC -ne $keyA) { Fail "[C] AppId key changed across simulated upgrade: $keyA -> $keyC" }
+$summary.scenarios["C_AppId_stable"] = $keyC
 
 Uninstall-Doremi
 $summary.scenarios["D_uninstall_binaries_removed"] = "pass"
