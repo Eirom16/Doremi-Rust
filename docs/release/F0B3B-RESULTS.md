@@ -2,10 +2,12 @@
 
 **Fecha:** 2026-10-13 · **Rama:** `build/f0b3b-linux-appimage`
 **Base:** `build/f0b3a-linux-portable @ ef3f173`
-**PR:** contra `build/f0b3a-linux-portable` mientras el PR #7 siga abierto
-(ver §6). **CI:** workflow `linux-appimage.yml` en `ubuntu-22.04` —
-PENDIENTE de run tras el push (este documento registra la PoC local;
-se actualizará con el run verde).
+**PR:** https://github.com/Eirom16/Doremi-Rust/pull/8 contra
+`build/f0b3a-linux-portable` (el PR #7 sigue abierto).
+**CI:** workflow `linux-appimage.yml` en `ubuntu-22.04` — VERDE en
+`38337053313` (push) y `38337057033` (PR), commit `0ebe132`
+(`BUILD_ID=f0b3b.linux.0ebe1327cdf8`). La §1 documenta además la PoC
+local.
 
 ## 1. Validación local (worktree, venv Python 3.12.14, CachyOS glibc 2.44)
 
@@ -103,37 +105,87 @@ libfontconfig1 libsm6 libxext6 libxrender1 libpulse0` + glibc (≥2.34
 local; ≥2.35 baseline CI). Intencionadamente NO se empaquetan glibc ni
 drivers.
 
-## 2. CI — `linux-appimage.yml` en `ubuntu-22.04`
+## 2. CI — `linux-appimage.yml` en `ubuntu-22.04` (run 38337053313, `success`)
 
-PENDIENTE de run tras el push de esta rama. El workflow (11 pasos §11
-del enunciado) reconstruye desde ESTE commit: toolchain + `vlc_libs`
-Ubuntu 22.04, wheel `--locked`, `test_linux_packaging` +
-`test_linux_appimage` + suite completa, `git diff --check`, stamp
-`BUILD_ID=f0b3b.linux.<sha>`, PyInstaller, validación del portable
-previo (directo + launcher), `build-appdir.sh`, `desktop-file-validate`,
-appimagetool 1.9.1 sin FUSE, generación tipo 2 x86_64, pruebas A/B/C/D
-del AppImage real, clean-env `ubuntu:22.04` sin VLC, probe `ubuntu:24.04`,
-Xvfb xcb, probe VLC/audio con wav sintético, persistencia con centinela,
-auditoría ELF/glibc, SHA-256 + manifiesto + comparativa de tamaños y
-artifact de 7 días. Sin tags ni Releases. Se actualizará esta sección
-con el run verde (o PARTIAL/BLOCKED honesto si algo queda pendiente).
+https://github.com/Eirom16/Doremi-Rust/actions/runs/38337053313
+(commit `0ebe132`, todos los pasos en verde; el run PR espejo
+`38337057033` también `success`. Runs previos `38335631037` /
+`38335560757` documentan los fallos intermedios con causa raíz y fix:
+`open(sentin)` → NameError en el paso de persistencia — typo en el
+snippet, renombrado a `probe_file` —, más `VLCDIR` sin exportar en el
+probe de audio.)
 
-## 3. Tamaños (PoC local, registrados, sin límite)
+Baseline registrado (`BUILD-MANIFEST-AppImage.txt` del artifact):
+`ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35`, Python 3.12.15, rustc 1.99.0,
+maturin 1.15.0 `--locked`, PyInstaller 6.22.3, PySide6 6.12.0, VLC Ubuntu
+3.0.16-1build7 (`libvlc5` + `libvlccore9` + `vlc-plugin-base`),
+python-vlc 3.0.21203. appimagetool 1.9.1, SHA-256
+`ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0`,
+versión `continuous build (git 8c8c91f), build 296 built on 2025-12-04
+17:55:56 UTC`; runtime `type2-runtime/continuous` (944632 B, BuildID
+`6068f2cec943069c072c32fe680557d1e5f7ec6f`, idéntico al local).
 
-| Artefacto | Tamaño |
+| Paso | Resultado |
 |---|---|
-| `Doremi` (ELF) | 19 497 424 B (~18,6 MB) |
-| Bundle `dist/Doremi` (4077 ficheros) | 926 MB (958894102 B) |
-| `Doremi.AppDir` (4083 ficheros) | 927 MB (959761552 B) |
-| `Doremi-2.1.4-x86_64.AppImage` | **334 MB (350038520 B)** |
-| Referencia F0B-3A tar.gz oficial (CI) | 361 MB (378458556 B) |
+| Wheel release Linux (`maturin build --release --locked`) | OK |
+| Tests nativos en runner | **17 passed** |
+| Tests regresión packaging (portable + appimage) | **16 passed** |
+| Suite completa (sin skips) | **392 passed** en 11.71 s |
+| Stamp `BUILD_VERSION=2.1.4` + `BUILD_ID=f0b3b.linux.0ebe1327cdf8` | OK |
+| PyInstaller `doremi-linux.spec` (onedir) + launcher | OK (bundle 917 MB, 4052 ficheros, rust ext 1 057 432 B) |
+| Smoke directo (offscreen, XDG aislados, DB real intacta) | `DOREMI_SMOKE_OK` 9/9, exit 0 |
+| Smoke vía launcher desde `/` (otro CWD) | `DOREMI_SMOKE_OK` 9/9, exit 0 |
+| AppDir (`build-appdir.sh`, launcher byte-idéntico) | OK (918 MB, 4058 ficheros) |
+| `desktop-file-validate` (fuente + AppDir) + `.DirIcon` | `DESKTOP_VALIDATE=PASS` |
+| AppImage tipo 2 x86_64 sin FUSE (`squashfs-root/AppRun`) | OK (`Doremi-2.1.4-x86_64.AppImage`, 331 MB, `file` = ELF static-pie) |
+| A. `--appimage-extract-and-run --smoke-test` | `SMOKE_A=PASS` 9/9 |
+| B. `--appimage-extract` + `squashfs-root/AppRun --smoke-test` | `SMOKE_B=PASS` 9/9 |
+| C. otro CWD (`/`) | `SMOKE_C=PASS`, `cwd=/` |
+| D. FUSE directo (`/dev/fuse` presente) | `FUSE=PASS` (montaje `.mount_*`, no extracción) |
+| Clean-env `ubuntu:22.04` sin VLC del sistema | `CLEAN_ENV_2204=PASS` 9/9 |
+| Probe `ubuntu:24.04` (informativo) | `DISTRO_24_04_EXIT=0` 9/9 |
+| X11 xcb bajo Xvfb | `X11_XVFB=FAILED` en este run (causa raíz: al runner mínimo le falta `libxcb-cursor0`, exigida por Qt 6.5+; ver REPORT §3 — fix con `apt-get install libxcb-cursor0` + `pipefail` en el siguiente commit, pendiente de re-run) |
+| VLC probe (wav sintético 440Hz, sin red) | `VLC_INSTANCE=OK` desde `.../squashfs-root/usr/bin/_internal/vlc_libs/libvlc.so.5`, `play() -> 0`, `State.Ended` (time 0 ms headless); salida audible NO afirmada |
+| Persistencia XDG (probe, sin DB real) | `PERSISTENCE_PROBE=OK` + `SECOND_RUN=OK` → `PERSISTENCE=PASS` |
+| Auditoría ELF/glibc | exe máx `GLIBC_2.14`, libvlc `2.14`, rust ext `2.34`; host: `libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 libxcb-cursor0 (xcb)` + glibc ≥ 2.35 |
+| SHA-256 + manifiesto + artifact 7 días | OK (ver §3–§4) |
+
+Salida literal del smoke congelado vía AppImage (A, CI):
+
+```text
+DOREMI_SMOKE_OK {"ok": true, "checks": {"qt_app": true, "vlc": true, "app_dirs": true,
+"db_migrations": true, "fonts": true, "rust": true, "theme_bridge": true,
+"qml_files": true, "qml_shell": true}, "version": "2.1.4", "frozen": true,
+"meipass": ".../appimage_extracted_*/usr/bin/_internal",
+"build_id": "f0b3b.linux.0ebe1327cdf8", "cwd": "/home/runner/work/_temp/appimage-smoke-a"}
+```
+
+Regresión Windows: sin cambios compartidos en esta fase (solo
+`packaging/appimage/`, workflow Linux, tests Linux y docs;
+`doremi.spec` byte-idéntico, `git diff HEAD -- doremi.spec` vacío), el
+pipeline Windows verificado de F0B-3A no se altera.
+
+## 3. Tamaños (oficial CI + PoC local, registrados, sin límite)
+
+| Artefacto | Oficial CI (run 38337053313) | PoC local (glibc 2.44) |
+|---|---|---|
+| `Doremi` (ELF) | onedir 917 MB, 4052 ficheros (rust ext 1 057 432 B) | 19 497 424 B, 4077 ficheros, 926 MB |
+| `Doremi.AppDir` | **918 MB (951192035 B), 4058 ficheros** | 927 MB (959761552 B), 4083 ficheros |
+| `Doremi-2.1.4-x86_64.AppImage` | **331 MB (346855928 B)** | 334 MB (350038520 B) |
+| Referencia F0B-3A tar.gz oficial (CI) | 361 MB (378458556 B) | — |
 
 El AppImage (squashfs zstd) es menor que el tarball portable pese a
 añadir runtime (944632 B) + wrapper; la funcionalidad es prioritaria y
 no se recortó ningún plugin. Oportunidades de dieta (plugins VLC/Qt
 redundantes) quedan documentadas para fase posterior, no aplicadas.
 
-SHA-256 (PoC local, `f0b3b.linux.local` — el oficial será el del run CI):
+SHA-256 oficial (CI, `BUILD_ID=f0b3b.linux.0ebe1327cdf8`):
+
+```text
+a627c74d181bd6c24435d0eab4391b1fda7d54fc2ac625499345a5d86aa6f109  Doremi-2.1.4-x86_64.AppImage
+```
+
+SHA-256 PoC local (`f0b3b.linux.local`, NO distribuir):
 
 ```text
 43005f7d4e0d8a54d1ecc82f4c32dae37b2fdfa644235cd2d53753acbec385c4  Doremi-2.1.4-x86_64.AppImage
@@ -143,13 +195,17 @@ appimagetool: `ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0`
 
 ## 4. Artifact
 
-PoC local (NO distribuir; build glibc 2.44, `BUILD_ID=f0b3b.linux.local`).
-El artifact oficial será `Doremi-2.1.4-x86_64.AppImage` + `.sha256` +
-`BUILD-MANIFEST-AppImage.txt` + `pip-freeze-appimage.txt` +
-`appimagetool.log` + `appimagetool.sha256` publicados por el run CI con
-retención de 7 días. Uso: `chmod +x ...AppImage; ./...AppImage
---appimage-extract-and-run --smoke-test` (esperar `DOREMI_SMOKE_OK`,
-exit 0). Requiere en el host solo las bibliotecas base listadas en §1.
+Oficial (run 38337053313 → Artifacts `Doremi-Linux-x86_64-AppImage`,
+expira en 7 días): `Doremi-2.1.4-x86_64.AppImage` (331 MB, SHA-256
+`a627c74d…aa6f109`) + `.sha256` + `BUILD-MANIFEST-AppImage.txt` +
+`pip-freeze-appimage.txt` + `appimagetool.log` + `appimagetool.sha256`.
+Uso: `chmod +x Doremi-2.1.4-x86_64.AppImage;
+./Doremi-2.1.4-x86_64.AppImage --appimage-extract-and-run --smoke-test`
+(esperar `DOREMI_SMOKE_OK` 9/9, exit 0). Requiere en el host solo las
+bibliotecas base listadas en §2 (incluido `libxcb-cursor0` para xcb).
+
+PoC local (NO distribuir; build glibc 2.44,
+`BUILD_ID=f0b3b.linux.local`, SHA `43005f7d…385c4`).
 
 ## 5. Git
 
@@ -162,14 +218,19 @@ no tocar `main`).
 
 ## 6. Verificado / fuera de alcance (honesto)
 
-- AppImage real ejecutado (A + B + C + FUSE directo) → VERIFICADO local.
+- AppImage real ejecutado (A + B + C + FUSE directo) → VERIFICADO local
+  y en CI oficial (run 38337053313).
 - `AppDir/AppRun` solo → NO se considera validación del AppImage.
-- FUSE → VERIFICADO local (montaje `.mount_*`); en CI se revalida y NO
-  se declarará PASS solo con extract-and-run.
-- X11 xcb + Wayland nativo (smoke) → VERIFICADO local; Xvfb + ventana
-  real → PENDIENTE.
-- VLC incluido + apertura/avance con fixture → VERIFICADO local;
-  escucha audible → PENDIENTE.
-- XDG persistencia con centinela + DB real intacta → VERIFICADO local.
-- Ubuntu 22.04/24.04 limpios, suite CI verde, artifact oficial →
-  PENDIENTE de run (sección §2 se actualizará).
+- FUSE → VERIFICADO local y en CI (`FUSE=PASS` con montaje `.mount_*`
+  en ambos); NO se declara PASS solo con extract-and-run.
+- X11 xcb + Wayland nativo (smoke) → VERIFICADO local; Xvfb en CI
+  falló por `libxcb-cursor0` ausente en el runner (causa raíz
+  documentada, fix aplicado, re-run pendiente); ventana real →
+  PENDIENTE (el smoke solo carga MainShell con controladores a null).
+- VLC incluido + apertura/avance con fixture → VERIFICADO local y en CI
+  (`play() -> 0`, `State.Ended`); escucha audible → PENDIENTE.
+- XDG persistencia con probe + DB real intacta → VERIFICADO local y en
+  CI (`PERSISTENCE=PASS`).
+- Ubuntu 22.04 limpio sin VLC → VERIFICADO en CI (`CLEAN_ENV_2204=PASS`);
+  Ubuntu 24.04 → VERIFICADO informativo (`DISTRO_24_04_EXIT=0`);
+  CachyOS independiente → PENDIENTE (solo PoC en la máquina del build).

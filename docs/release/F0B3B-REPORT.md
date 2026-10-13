@@ -95,6 +95,22 @@ con el mismo commit (ver workflow y RESULTS §2).
    `.venv` 3.12 con `.python-version` 3.13.9. Fix: borrar `uv.lock` /
    cachés, documentar que el venv local es 3.12.14 (coherente con el
    baseline) y no commitearlo (gitignored).
+4. **Typo en el paso de persistencia del workflow (`open(sentin)`).**
+   La variable se define como `sentinel` pero el `assert` la nombraba
+   `sentin`: NameError en CI (run 38335631037 rojo solo en ese paso;
+   todo lo anterior — build, smokes A/B/C/D, clean-env, 24.04, VLC —
+   ya estaba verde). Fix: renombrado a `probe_file`/`.f0b3b-probe`/
+   `probe-1`, verificado compilando y ejecutando el snippet exacto del
+   workflow en local antes de pushear (run 38337053313 verde).
+5. **X11/Xvfb en CI: falta `libxcb-cursor0` en el runner.** Qt 6.5+
+   exige esa lib del host para cargar `libqxcb.so`
+   (`qt.qpa.plugin: ... xcb-cursor0 ... needed`); el runner mínimo no la
+   trae (en CachyOS local sí existe, por eso el xcb local pasaba). No es
+   defecto del bundle: es lib cliente X11 estándar como las demás que el
+   host aporta. Fix: `sudo apt-get install -y libxcb-cursor0` en el paso
+   X11 + `set -o pipefail` (el `code=$?` tras `... | tee` capturaba el
+   exit de `tee`, no el del smoke) + registrar la lib como requisito del
+   host en la auditoría ELF (re-run pendiente).
 
 ## 4. Archivos modificados/creados
 
@@ -108,11 +124,13 @@ con el mismo commit (ver workflow y RESULTS §2).
 
 ## 5. Versiones y herramientas
 
-- Oficial (CI `ubuntu-22.04`, PENDIENTE de run — ver RESULTS §2):
-  Python 3.12, Rust estable + `maturin build --release --locked`,
-  PyInstaller 6.x, VLC Ubuntu 22.04 (`libvlc5` + `libvlccore9` +
-  `vlc-plugin-base`), `appimagetool 1.9.1` (ver abajo). Registro por
-  build en `BUILD-MANIFEST-AppImage.txt` + `pip-freeze-appimage.txt`.
+- Oficial (CI run 38337053313, `success`, commit `0ebe132`):
+  Ubuntu 22.04 x86_64, `ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35`,
+  Python 3.12.15, rustc 1.99.0, maturin 1.15.0 `--locked`, PyInstaller
+  6.22.3, PySide6 6.12.0, VLC Ubuntu 3.0.16-1build7 (`libvlc5` +
+  `libvlccore9` + `vlc-plugin-base`), python-vlc 3.0.21203,
+  `BUILD_ID=f0b3b.linux.0ebe1327cdf8`. Registro por build en
+  `BUILD-MANIFEST-AppImage.txt` + `pip-freeze-appimage.txt` del artifact.
 - Local (prueba de concepto, este informe): CachyOS rolling x86_64,
   glibc 2.44 (`ldd (GNU libc) 2.44`), Python 3.12.14 (uv), rustc 1.99.0,
   maturin 1.15.0, PyInstaller 6.22.3, PySide6 6.12.0, VLC sistema 3.0.24
@@ -136,9 +154,12 @@ con el mismo commit (ver workflow y RESULTS §2).
   sesión completa con red/login. La experiencia de escritorio real (ventana
   principal, interacción) NO se declara verificada por superar smokes
   (aunque offscreen + xcb/XWayland + wayland nativo pasen).
-- Tamaño local: AppDir 927 MB / 4083 ficheros, AppImage 334 MB (squashfs
-  zstd). Sin dieta antes de demostrar funcionamiento; oportunidades de
-  optimización (plugins VLC/Qt redundantes) quedan para fase posterior.
+- Tamaños oficiales: AppDir 918 MB / 4058 ficheros, AppImage 331 MB
+  (346855928 B, squashfs zstd). Sin dieta antes de demostrar
+  funcionamiento; oportunidades de optimización (plugins VLC/Qt
+  redundantes) quedan para fase posterior.
+- Hosts compatibles deben aportar las X11/audio/glibc base, incluido
+  `libxcb-cursor0` para xcb (Qt 6.5+).
 - Licencias: el AppDir incluye `LICENSE.txt` + `THIRD-PARTY-NOTICES.txt`
   + `APPIMAGE-NOTICES.txt` (runtime MIT + musl/libfuse-LGPL2/squashfuse/
   libzstd/zlib). La release pública sigue BLOCKED hasta cerrar

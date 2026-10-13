@@ -399,7 +399,13 @@ jobs:
       - name: X11 virtual smoke via Xvfb (xcb, if available)
         continue-on-error: true
         run: |
+          set -o pipefail
           if ! command -v xvfb-run >/dev/null 2>&1; then echo "X11=SKIPPED (no xvfb-run)" | tee -a appimage-manifest.txt; exit 0; fi
+          # Qt 6.5+ xcb needs the host libxcb-cursor0 (standard X11 client lib,
+          # same category as the other host X11 libs the bundle relies on;
+          # deliberately NOT bundled). Minimal runners may lack it.
+          sudo apt-get install -y -qq libxcb-cursor0
+          dpkg -l libxcb-cursor0 | tail -1 | tee -a appimage-manifest.txt
           smokeRoot="$RUNNER_TEMP/appimage-x11"; mkdir -p "$smokeRoot"; cd "$smokeRoot"
           export XDG_CONFIG_HOME="$smokeRoot/config" XDG_DATA_HOME="$smokeRoot/data" XDG_CACHE_HOME="$smokeRoot/cache"
           export QT_QPA_PLATFORM=xcb
@@ -519,7 +525,8 @@ jobs:
           echo "--- host libs still required (informational: Ubuntu 22.04 baseline provides them) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
           cat >> "$GITHUB_WORKSPACE/appimage-manifest.txt" <<'EOF'
           libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6
-          libxrender1 libpulse0 (audio) + glibc>=2.35. Deliberately NOT bundled:
+          libxrender1 libpulse0 (audio) libxcb-cursor0 (Qt 6.5+ xcb) + glibc>=2.35.
+          Deliberately NOT bundled:
           glibc, GPU drivers, X11/Wayland host sockets.
           EOF
           echo "ELF_AUDIT=LOGGED" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
