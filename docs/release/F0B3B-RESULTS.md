@@ -110,7 +110,11 @@ drivers.
 
 https://github.com/Eirom16/Doremi-Rust/actions/runs/38338041664
 (commit `2dde34f`, todos los pasos en verde, incluido X11/Xvfb; el run
-PR espejo `38338045717` también `success`. Runs previos documentan los
+PR espejo `38338045717` también `success`. El HEAD `b1a1cf2` (solo
+cambia docs respecto a `2dde34f`; los docs no entran al bundle) quedó
+revalidado en verde por el run PR `38338686233` (artifact
+`d1634c00edb607315b70db2efc2061727ea59fa2adb801b5eb1a9dbc8d36d556`,
+`BUILD_ID=f0b3b.linux.5d418256554e`). Runs previos documentan los
 fallos intermedios con causa raíz y fix: `38335631037` (`open(sentin)`
 → NameError en persistencia, renombrado a `probe_file`) y `38337053313`
 (`X11_XVFB=FAILED` por `libxcb-cursor0` ausente en el runner, ver
