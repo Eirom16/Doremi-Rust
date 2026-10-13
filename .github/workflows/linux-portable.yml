@@ -83,7 +83,8 @@ jobs:
           ls /usr/lib/x86_64-linux-gnu/vlc/plugins | tee -a linux-manifest.txt
 
       - name: Install app deps + build tools
-        run: pip install . pyinstaller maturin pytest
+        # .[dev] provides pytest + pytest-asyncio (full suite needs both).
+        run: pip install ".[dev]" pyinstaller maturin
 
       - name: Prepare vlc_libs from Ubuntu packages
         run: |
