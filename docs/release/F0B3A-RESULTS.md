@@ -96,7 +96,13 @@ DOREMI_SMOKE_OK {"ok": true, "checks": {"qt_app": true, "vlc": true, "app_dirs":
 
 Regresión Windows: el workflow `Windows portable (PyInstaller)` disparado por
 el PR #7 sobre `abc17e1` (incluye el fix compartido de `vlc_check.py`) terminó
-`success` — el pipeline Windows verificado no se altera.
+`success` — el pipeline Windows verificado no se altera. Re-confirmado en
+verde sobre el HEAD final `13d56ea` (run PR 38330426050, `success`).
+
+Nota HEAD final: el run push autoritativo 38329666926 validó `e61ae57`
+(código idéntico al final salvo informes); los runs PR 38330426054 (Linux)
+y 38330426050 (Windows) reconstruyeron y validaron en verde el HEAD final
+`13d56ea` completo.
 
 ## 3. Tamaños (CI oficial, registrados, sin límite)
 
