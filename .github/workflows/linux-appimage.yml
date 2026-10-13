@@ -419,7 +419,7 @@ jobs:
         run: |
           work="$RUNNER_TEMP/vlc-probe"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
           "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
-          VLCDIR="$work/squashfs-root/usr/bin/_internal/vlc_libs"
+          export VLCDIR="$work/squashfs-root/usr/bin/_internal/vlc_libs"
           ls "$VLCDIR" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
           echo "--- ldd bundled libvlc (from AppImage payload) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
           ldd "$VLCDIR/libvlc.so.5" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
@@ -435,14 +435,11 @@ jobs:
                   w.writeframes(struct.pack("<h", v))
           print("wrote", path)
           EOF
-          LD_LIBRARY_PATH="$VLCDIR:${LD_LIBRARY_PATH:-}" \
-          PYTHON_VLC_LIB_PATH="$VLCDIR/libvlc.so.5" \
-          VLC_PLUGIN_PATH="$VLCDIR/plugins" \
-          python3 - "$work/tone.wav" 2>&1 | tee "$work/vlc-probe.log" || true
+          export LD_LIBRARY_PATH="$VLCDIR:${LD_LIBRARY_PATH:-}"
+          export PYTHON_VLC_LIB_PATH="$VLCDIR/libvlc.so.5"
+          export VLC_PLUGIN_PATH="$VLCDIR/plugins"
           python3 - "$work/tone.wav" <<'EOF' 2>&1 | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt" || true
           import os, sys, time
-          os.environ["PYTHON_VLC_LIB_PATH"] = os.path.join(os.environ["VLCDIR"], "libvlc.so.5")
-          os.environ["VLC_PLUGIN_PATH"] = os.path.join(os.environ["VLCDIR"], "plugins")
           import vlc
           print("vlc lib:", vlc.dll._name)
           assert "_internal/vlc_libs" in str(vlc.dll._name) or "squashfs-root" in str(vlc.dll._name), vlc.dll._name
@@ -465,10 +462,6 @@ jobs:
           print("VLC_OPEN_PROBE_DONE (audible output not asserted headless)")
           EOF
           echo "VLC_PROBE=LOGGED (see log; audible output not asserted headless)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
-        env:
-          VLCDIR: ""
-        # NOTE: env VLCDIR is set inside the script; the outer empty default
-        # only keeps the runner environment clean.
 
       - name: XDG persistence (sentinel, no real DB touched)
         run: |
