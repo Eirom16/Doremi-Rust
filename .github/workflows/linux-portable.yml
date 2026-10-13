@@ -66,6 +66,8 @@ jobs:
           python -c "import platform; print('libc:', platform.libc_ver())" | tee -a linux-manifest.txt
 
       - name: Install system deps (VLC source + Qt runtime libs)
+        # NOTE: libdbus-1-dev/libglib2.0-dev are BUILD deps: dbus-python has
+        # no PyPI wheel and compiles from sdist via meson (needs dbus-1.pc).
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq \
@@ -73,7 +75,8 @@ jobs:
             libgl1 libegl1 libxkbcommon0 libdbus-1-3 \
             libfontconfig1 libfreetype6 libglib2.0-0 \
             libsm6 libxext6 libxrender1 libnspr4 libnss3 \
-            libasound2 libpulse0 binutils file
+            libasound2 libpulse0 binutils file \
+            libdbus-1-dev libglib2.0-dev pkg-config
           dpkg -l | grep -Ei 'vlc|libvlc' | tee -a linux-manifest.txt
           ldconfig -p | grep -E 'libvlc' | tee -a linux-manifest.txt
           ls -la /usr/lib/x86_64-linux-gnu/libvlc.so* /usr/lib/x86_64-linux-gnu/libvlccore.so* | tee -a linux-manifest.txt
