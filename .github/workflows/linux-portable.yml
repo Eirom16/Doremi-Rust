@@ -254,6 +254,7 @@ jobs:
 
       - name: Package portable tar.gz with manifest
         run: |
+          cd "$GITHUB_WORKSPACE"
           pyVersion=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           portable="Doremi-Linux-x86_64-Portable"
           rm -rf "$portable"
