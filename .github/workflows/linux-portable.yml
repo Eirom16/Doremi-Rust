@@ -266,7 +266,7 @@ jobs:
           cp linux-manifest.txt "$portable/BUILD-MANIFEST.txt"
           pip freeze > "$portable/pip-freeze.txt"
           (cd "$portable" && find . -type f | sort | xargs -I{} sh -c 'printf "%s  %s\n" "$(stat -c%s "{}")" "{}"' > MANIFEST.txt)
-          (cd "$portable" && sha256sum $(find . -type f | sort) > SHA256SUMS.txt)
+          (cd "$portable" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
           tar czf "$portable.tar.gz" "$portable"
           echo "tarball MB: $(du -m "$portable.tar.gz" | cut -f1)"
           echo "files: $(find "$portable" -type f | wc -l)"
