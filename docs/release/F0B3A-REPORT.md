@@ -105,10 +105,11 @@ El artifact oficial lo construye CI sobre `ubuntu-22.04` (ver §5 y workflow).
 
 ## 5. Versiones y herramientas
 
-- Oficial (CI, por run): Ubuntu 22.04 x86_64, glibc 2.35, Python 3.12,
-  Rust estable, maturin `--locked`, PyInstaller serie 6, VLC de Ubuntu
-  (`vlc` + `libvlc-dev` + `vlc-plugin-base`), registradas por build en
-  `BUILD-MANIFEST.txt` + `pip-freeze.txt`.
+- Oficial (CI run 38329666926, verificado): Ubuntu 22.04 x86_64, glibc 2.35
+  (`ldd (Ubuntu GLIBC 2.35-0ubuntu3.15)`), Python 3.12.15, Rust estable
+  1.99.0, maturin 1.15.0 `--locked`, PyInstaller 6.22.3, VLC Ubuntu
+  3.0.16-1build7 (`libvlc5` + `libvlccore9` + `vlc-plugin-base`), registradas
+  por build en `BUILD-MANIFEST.txt` + `pip-freeze.txt` del artifact.
 - Local (prueba de concepto): CachyOS rolling, glibc 2.44, Python 3.12.14
   (uv), rustc 1.99.0, maturin 1.15.0, PyInstaller 6.22.3, PySide6 6.12.0,
   VLC sistema 3.0.24 (libvlc 3.0.24-1). Wheel resultante
