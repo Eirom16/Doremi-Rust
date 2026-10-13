@@ -1,0 +1,132 @@
+DOREMI — THIRD-PARTY NOTICES (F0B-3A, Linux x86_64 portable)
+=============================================================
+Doremi itself: GNU General Public License v3.0 (see LICENSE.txt,
+shipped alongside this file).
+
+This bundle redistributes third-party binaries. This file lists them,
+their licenses as published by their owners, and what remains to fully
+satisfy redistribution obligations. It is NOT legal advice. A public
+release stays BLOCKED until the items marked BLOCKED below are closed.
+
+How versions are pinned
+-----------------------
+- Python packages: resolved at build time by pip on the CI runner
+  (Ubuntu 22.04, Python 3.12). The exact resolved set is captured per build
+  (`pip freeze` + VLC/dpkg versions, see CI log / linux-manifest.txt
+  artifact). Constraints at F0B-3A (pyproject.toml):
+    PySide6>=6.7.0, qasync, qt-material, ytmusicapi, yt-dlp>=2026.8.19,
+    python-vlc, SQLAlchemy+aiosqlite, alembic, pydantic, tomli-w,
+    httpx[http2], syncedlyrics, pystray, pillow, loguru, dbus-python (Linux),
+    keyring.
+- Rust extension: exact versions in src/doremi/native_rs/Cargo.lock
+  (committed): doremi-native-rs 0.1.0, pyo3 0.23, aho-corasick 1.x
+  (+ transitive crates.io deps). All are MIT and/or Apache-2.0
+  (crates.io metadata).
+- VLC: installed on CI via `apt-get install vlc libvlc-dev` (Ubuntu 22.04),
+  then libvlc.so.5*, libvlccore.so* and the full plugins/ tree are copied
+  into vlc_libs/ and collected by PyInstaller (doremi-linux.spec). The
+  concrete VLC build is recorded per CI run (`dpkg -l | grep vlc`,
+  `ldconfig -p | grep vlc`). No VLC version is vendored in git.
+
+Build baseline: Ubuntu 22.04 x86_64, glibc 2.35 (recorded per build via
+`ldd --version`). Binaries carry that minimum glibc forward; newer distros
+(glibc >= 2.35) are expected to run them, older ones are not supported.
+
+1. VideoLAN libVLC / libvlccore / plugins
+   Upstream: https://www.videolan.org / https://code.videolan.org
+   Files: vlc_libs/libvlc.so.5*, vlc_libs/libvlccore.so*, vlc_libs/plugins/**
+   (Ubuntu libvlc5 + vlc-plugin-base builds; exact package versions in the
+   per-build manifest, e.g. 3.0.x from Ubuntu 22.04 universe).
+   License (libraries): GNU Lesser General Public License v2.1 or later
+     (LGPL-2.1+). VideoLAN relicensed libVLC and libVLCCore from GPL to
+     LGPL; press release: https://images.videolan.org/press/lgpl-libvlc.html
+     ("libVLC and libVLCcore are now relicensed under the LGPL").
+   License (plugins): MIXED. The VLC plugin tree contains modules under
+     GPL-2.0-or-later (and some LGPL). The full plugins/ directory is
+     shipped, so GPL-licensed code IS redistributed.
+   What this portable does: ships the .so files + full plugin tree as
+     received from the Ubuntu packages; includes this notice; the launcher
+     (doremi.sh) and in-process setup (utils/vlc_check.py) pin the bundled
+     copies via PYTHON_VLC_LIB_PATH / LD_LIBRARY_PATH / VLC_PLUGIN_PATH.
+   Deliberately NOT bundled: glibc, GPU drivers and other host-specific
+     system libraries — those always come from the host system.
+   BLOCKED for public release: (a) bundle the LGPL-2.1 and GPL-2.0 license
+     texts for VLC; (b) provide the required source offer / written offer
+     for libVLC/libvlccore (and GPL plugins) — e.g. link + instructions to
+     obtain the exact Ubuntu source packages matching the shipped build
+     (`apt-get source libvlc5 vlc-plugin-base` for the recorded versions);
+     (c) audit which plugins are actually loaded vs. shipped and either ship
+     sources or trim the tree deliberately (do NOT silently drop plugins to
+     dodge the audit). Doremi itself is GPL-3.0, which is compatible with
+     LGPL-2.1+ and GPL-2.0+ plugin code as a combined work, but the source
+     offer obligation remains.
+
+2. Qt 6 via PySide6 (The Qt Company / Qt Project)
+   Upstream: https://www.qt.io / https://doc.qt.io
+   Files: libQt6*.so, PySide6/** inside _internal (PyInstaller collection).
+   License: dual GPL-3.0 / LGPL-3.0 for the framework; PySide6 bindings
+     under LGPL-3.0. Some Qt add-on modules are GPL-only (not LGPL).
+   What this portable does: ships Qt binaries as collected; includes this
+     notice; Doremi is GPL-3.0 so the GPL route is available.
+   BLOCKED for public release: (a) bundle LGPL-3.0 (+ GPL-3.0) license texts;
+     (b) confirm no GPL-only Qt module is pulled into the bundle
+     (audit PyInstaller collection list) or accept full GPL terms;
+     (c) publish the written source offer for the exact Qt/PySide6 versions
+     shipped (pip freeze in CI log is the version record; add links to
+     Qt + PySide6 sources, e.g. https://download.qt.io + PySide6 sdist).
+   NOTE: this audit is independent from the Windows F0B-2B one — the Linux
+     Qt binaries (different platform build) are NOT covered by it.
+
+3. Python runtime + packages (PyInstaller bundle)
+   Python 3.12 embedded interpreter: PSF License 2.x (https://docs.python.org/3/license.html).
+   Per-package licenses as published on PyPI (names only here; full texts
+   NOT yet bundled — see BLOCKED):
+     - PySide6 (LGPL-3.0 / GPL-3.0, see §2)
+     - qasync (BSD-2-Clause), qt-material (MIT), ytmusicapi (MIT),
+       yt-dlp (The Unlicense — public domain, https://github.com/yt-dlp/yt-dlp/blob/master/LICENSE),
+       python-vlc (LGPL-2.1 — thin ctypes wrapper; the VLC binaries it drives are §1),
+       SQLAlchemy (MIT), aiosqlite (MIT), alembic (MIT), Mako (MIT),
+       pydantic (MIT), tomli-w (MIT), httpx (BSD-3-Clause), h2 (MIT),
+       httpcore (BSD-3-Clause), syncedlyrics (MIT), pystray (LGPL-3.0),
+       Pillow (HPND), loguru (MIT), keyring (MIT), secretstorage (BSD-3-Clause),
+       dbus-python (MIT/X11-style).
+   BLOCKED for public release: collect the actual license texts of the
+     exact resolved versions (pip `freeze` + wheel METADATA LICENSE fields)
+     into a licenses/ directory shipped with the app, or document why each
+     is not required. "A list of names is not compliance."
+
+4. Rust extension (doremi-native-rs + crates.io deps)
+   Upstream: https://crates.io (pyo3 0.23, aho-corasick, memchr, libc,
+     once_cell, portable-atomic, + macros/build helpers per Cargo.lock).
+   License: MIT and/or Apache-2.0 (per crates.io). The extension is
+     statically linked into native_rs.abi3.so and distributed inside the bundle.
+     MIT/Apache-2.0 require preserving copyright + license notices.
+   BLOCKED for public release: bundle the generated NOTICE text
+     (`cargo about` / `cargo license` output for the locked tree) with
+     copyright lines; one command on the committed Cargo.lock reproduces it.
+
+5. Fonts and artwork
+   - Inter: SIL Open Font License 1.1. Text bundled in-repo at
+     src/doremi/assets/fonts/Inter-LICENSE.txt and shipped in the bundle
+     (doremi/assets/fonts/). Upstream: https://github.com/rsms/inter
+   - JetBrains Mono: SIL Open Font License 1.1. Text bundled at
+     src/doremi/assets/fonts/JetBrainsMono-OFL.txt and shipped.
+     Upstream: https://github.com/JetBrains/JetBrainsMono
+   - Material Symbols Rounded: Apache License 2.0 (Google Fonts /
+     Material Symbols, https://github.com/google/material-design-icons).
+     The .ttf is shipped but NO license text is currently vendored.
+     BLOCKED for public release: vendor the Apache-2.0 text + attribution
+     (or replace the font) — do not ship the .ttf bare.
+   - App icons/artwork (assets/Doremi.png): original Doremi artwork, same
+     license as the app (GPL-3.0) unless stated otherwise. No .ico is
+     shipped on Linux (PyInstaller does not support exe icons there).
+
+6. What the portable ships for compliance TODAY
+   - LICENSE.txt (Doremi GPL-3.0)
+   - THIRD-PARTY-NOTICES.txt (this file)
+   That satisfies "prominent notice" but NOT the source-offer and
+   full-text obligations above.
+
+Verdict: PUBLIC RELEASE BLOCKED pending §1(b)(c), §2(b)(c), §3, §4, §5
+(Material Symbols text). Internal test distribution of the portable
+tarball is acceptable with this file included.

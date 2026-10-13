@@ -41,6 +41,7 @@ browser.json
 *.patch
 *.spec
 !doremi.spec
+!doremi-linux.spec
 
 # Test artifacts (generated data/fixtures)
 test_*.json
