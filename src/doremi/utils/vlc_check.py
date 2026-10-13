@@ -114,6 +114,17 @@ def setup_vlc_env() -> None:
     else:
         vlc_lib = str(vlc_dir)
         os.environ["LD_LIBRARY_PATH"] = f"{vlc_lib}:{os.environ.get('LD_LIBRARY_PATH', '')}"
+        # python-vlc binds the library at *import* time via find_library()
+        # (ldconfig cache), which ignores the bundle. Pin the bundled file
+        # deterministically so a system libvlc never shadows it. Pre-set
+        # values (e.g. from the portable launcher) are respected.
+        if not os.environ.get("PYTHON_VLC_LIB_PATH"):
+            for _name in ("libvlc.so.5", "libvlc.so"):
+                _cand = vlc_dir / _name
+                if _cand.exists():
+                    os.environ["PYTHON_VLC_LIB_PATH"] = str(_cand)
+                    logger.info(f"Setting PYTHON_VLC_LIB_PATH to {_cand}")
+                    break
 
     if not os.environ.get("VLC_PLUGIN_PATH"):
         plugin_dir = vlc_dir / "plugins"

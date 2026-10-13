@@ -1,0 +1,284 @@
+name: Linux portable (PyInstaller)
+
+# F0B-3A: full Doremi application bundle for Linux x86_64 (portable tar.gz).
+# Ubuntu 22.04 baseline (glibc 2.35) for cross-distro compatibility.
+# No AppImage, no .deb/.rpm, no GitHub Releases.
+
+on:
+  push:
+    branches: [build/f0b3a-linux-portable]
+    paths:
+      - "doremi-linux.spec"
+      - ".github/workflows/linux-portable.yml"
+      - "packaging/linux/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+      - "tests/test_linux_packaging.py"
+  pull_request:
+    paths:
+      - "doremi-linux.spec"
+      - ".github/workflows/linux-portable.yml"
+      - "packaging/linux/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+      - "tests/test_linux_packaging.py"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  portable:
+    name: Linux x86_64 portable tar.gz
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/doremi/native_rs
+
+      - name: Record build baseline (glibc, toolchain)
+        run: |
+          ldd --version | head -1 | tee linux-manifest.txt
+          python --version | tee -a linux-manifest.txt
+          rustc --version | tee -a linux-manifest.txt
+          uname -m | tee -a linux-manifest.txt
+          python -c "import platform; print('libc:', platform.libc_ver())" | tee -a linux-manifest.txt
+
+      - name: Install system deps (VLC source + Qt runtime libs)
+        # NOTE: libdbus-1-dev/libglib2.0-dev are BUILD deps: dbus-python has
+        # no PyPI wheel and compiles from sdist via meson (needs dbus-1.pc).
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            vlc libvlc-dev vlc-plugin-base \
+            libgl1 libegl1 libxkbcommon0 libdbus-1-3 \
+            libfontconfig1 libfreetype6 libglib2.0-0 \
+            libsm6 libxext6 libxrender1 libnspr4 libnss3 \
+            libasound2 libpulse0 binutils file \
+            libdbus-1-dev libglib2.0-dev pkg-config
+          dpkg -l | grep -Ei 'vlc|libvlc' | tee -a linux-manifest.txt
+          ldconfig -p | grep -E 'libvlc' | tee -a linux-manifest.txt
+          ls -la /usr/lib/x86_64-linux-gnu/libvlc.so* /usr/lib/x86_64-linux-gnu/libvlccore.so* | tee -a linux-manifest.txt
+          ls /usr/lib/x86_64-linux-gnu/vlc/plugins | tee -a linux-manifest.txt
+
+      - name: Install app deps + build tools
+        # .[dev] provides pytest + pytest-asyncio (full suite needs both).
+        run: pip install ".[dev]" pyinstaller maturin
+
+      - name: Prepare vlc_libs from Ubuntu packages
+        run: |
+          mkdir -p vlc_libs/plugins
+          cp -P /usr/lib/x86_64-linux-gnu/libvlc.so.5* vlc_libs/
+          cp -P /usr/lib/x86_64-linux-gnu/libvlccore.so* vlc_libs/
+          cp -r /usr/lib/x86_64-linux-gnu/vlc/plugins/* vlc_libs/plugins/
+          ls -la vlc_libs/ | tee -a linux-manifest.txt
+          echo "--- ldd bundled libvlc ---" | tee -a linux-manifest.txt
+          ldd vlc_libs/libvlc.so.5 | tee -a linux-manifest.txt
+          echo "--- readelf NEEDED ---" | tee -a linux-manifest.txt
+          readelf -d vlc_libs/libvlc.so.5 | grep NEEDED | tee -a linux-manifest.txt
+          echo "--- unresolved libs (should be empty) ---"
+          ldd vlc_libs/libvlc.so.5 | grep "not found" && exit 1 || echo "all resolved"
+          du -sh vlc_libs vlc_libs/plugins
+
+      - name: Build native module wheel
+        run: |
+          cd src/doremi/native_rs
+          maturin build --release --locked --out dist
+
+      - name: Install wheel + run native tests
+        run: |
+          wheel=$(ls src/doremi/native_rs/dist/*.whl | head -1)
+          test -n "$wheel" || { echo "no wheel found"; exit 1; }
+          pip install "$wheel"
+          echo "wheel: $wheel" | tee -a linux-manifest.txt
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -c "import native_rs; assert 'site-packages' in native_rs.__file__, native_rs.__file__; print(native_rs.__file__)"
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/test_native_rs.py -q
+
+      - name: Run Linux packaging regression tests
+        run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/test_linux_packaging.py -q
+
+      - name: Run full test suite (no skips forced)
+        run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
+
+      - name: Check no stray diff markers
+        run: git diff --check
+
+      - name: Stamp frozen build version
+        run: |
+          pyVersion=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          shortSha="${{ github.sha }}"
+          shortSha=${shortSha:0:12}
+          buildId="f0b3a.linux.$shortSha"
+          printf 'BUILD_VERSION = "%s"\nBUILD_ID = "%s"\n' "$pyVersion" "$buildId" > src/doremi/_build_version.py
+          cat src/doremi/_build_version.py
+          echo "BUILD $buildId SHA ${{ github.sha }}" | tee -a linux-manifest.txt
+
+      - name: Build with PyInstaller
+        run: pyinstaller doremi-linux.spec
+
+      - name: Install launcher into bundle (flat onedir layout)
+        run: |
+          cp packaging/linux/doremi.sh dist/Doremi/doremi.sh
+          chmod +x dist/Doremi/doremi.sh
+          file dist/Doremi/Doremi | tee -a linux-manifest.txt
+          readelf -n dist/Doremi/Doremi 2>/dev/null | head -5 || true
+
+      - name: Verify bundle structure
+        # PyInstaller 6 onedir layout: exe at dist/Doremi/ while every
+        # collected file lives under dist/Doremi/_internal (== sys._MEIPASS).
+        run: |
+          test -x dist/Doremi/Doremi || { echo "missing dist/Doremi/Doremi"; exit 1; }
+          ls dist/Doremi
+          checks=(
+            "dist/Doremi/Doremi"
+            "dist/Doremi/doremi.sh"
+            "dist/Doremi/_internal/doremi/ui/qml/MainShell.qml"
+            "dist/Doremi/_internal/doremi/ui/qml/Doremi/qmldir"
+            "dist/Doremi/_internal/doremi/assets/fonts/Inter-Regular.ttf"
+            "dist/Doremi/_internal/doremi/locales/es.json"
+            "dist/Doremi/_internal/doremi/db/migrations/env.py"
+            "dist/Doremi/_internal/assets/Doremi.png"
+            "dist/Doremi/_internal/vlc_libs/libvlc.so.5"
+            "dist/Doremi/_internal/vlc_libs/plugins"
+          )
+          for p in "${checks[@]}"; do test -e "$p" || { echo "missing bundle entry: $p"; exit 1; }; done
+          # No Windows exe icon resource on Linux (quoted code forms only;
+          # the spec docstring names it for contrast).
+          grep -E '"assets/icon\.ico"' doremi-linux.spec && { echo "windows icon leaked into linux spec"; exit 1; } || true
+          rust_ext=$(ls dist/Doremi/_internal/doremi/native_rs/*.so 2>/dev/null | head -1)
+          test -n "$rust_ext" || { echo "missing Rust extension next to doremi.native_rs bridge"; exit 1; }
+          echo "rust ext: $rust_ext $(stat -c%s "$rust_ext")"
+          echo "qml files: $(find dist/Doremi/_internal/doremi/ui/qml -name '*.qml' | wc -l)"
+          echo "exe MB: $(python3 -c "print(round($(stat -c%s dist/Doremi/Doremi)/1048576,1))")"
+          echo "bundle MB: $(du -sm dist/Doremi | cut -f1)"
+          echo "bundle files: $(find dist/Doremi -type f | wc -l)"
+
+      - name: Smoke test frozen executable (direct, offscreen)
+        run: |
+          smokeRoot="$RUNNER_TEMP/doremi-smoke"
+          mkdir -p "$smokeRoot"
+          cd "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-result.json"
+          # Guard: the real user DB must stay untouched.
+          realDb="$HOME/.local/share/doremi/doremi.db"
+          if [ -f "$realDb" ]; then stat -c '%Y %s' "$realDb" > "$smokeRoot/realdb.before"; fi
+          "$GITHUB_WORKSPACE/dist/Doremi/Doremi" --smoke-test | tee "$smokeRoot/smoke-stdout.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "smoke exit code: $code"; exit 1; }
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
+          if [ -f "$smokeRoot/realdb.before" ]; then
+            stat -c '%Y %s' "$realDb" > "$smokeRoot/realdb.after"
+            diff "$smokeRoot/realdb.before" "$smokeRoot/realdb.after" || { echo "REAL USER DB MODIFIED"; exit 1; }
+          fi
+
+      - name: Smoke test via launcher from another CWD
+        run: |
+          smokeRoot="$RUNNER_TEMP/doremi-smoke-launcher"
+          mkdir -p "$smokeRoot"
+          cd /
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-result.json"
+          "$GITHUB_WORKSPACE/dist/Doremi/doremi.sh" --smoke-test | tee "$smokeRoot/smoke-stdout.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "launcher smoke exit code: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-stdout.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); sys.exit(0 if r['ok'] else 1)"
+
+      - name: Clean-env test (ubuntu:22.04 container, NO system VLC)
+        # Proves the bundle uses its own libvlc instead of the host's.
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/dist/Doremi:/mnt/Doremi:ro" \
+            ubuntu:22.04 bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 > /dev/null
+              echo "--- container: no vlc expected ---"
+              (ldconfig -p | grep libvlc && echo "SYSTEM VLC PRESENT - test invalid" && exit 1) || echo "no system libvlc, good"
+              export QT_QPA_PLATFORM=offscreen
+              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
+              export DOREMI_SMOKE_OUT=/tmp/smoke-clean.json
+              /mnt/Doremi/doremi.sh --smoke-test | tail -c 2000
+              python3 -c "import json; r=json.load(open(\"/tmp/smoke-clean.json\")); print(\"clean-env smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
+            ' | tee "$RUNNER_TEMP/clean-env.log"
+          echo "CLEAN_ENV=PASS (ubuntu:22.04, no system VLC)" | tee -a linux-manifest.txt
+
+      - name: Extra distro probe (ubuntu:24.04, informational)
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/dist/Doremi:/mnt/Doremi:ro" \
+            ubuntu:24.04 bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 > /dev/null
+              export QT_QPA_PLATFORM=offscreen
+              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
+              export DOREMI_SMOKE_OUT=/tmp/smoke-2404.json
+              /mnt/Doremi/doremi.sh --smoke-test | tail -c 2000
+              python3 -c "import json; r=json.load(open(\"/tmp/smoke-2404.json\")); print(\"24.04 smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
+            ' | tee "$RUNNER_TEMP/distro-24.04.log"
+          echo "DISTRO_24_04_EXIT=$?" | tee -a linux-manifest.txt
+
+      - name: Package portable tar.gz with manifest
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          pyVersion=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          portable="Doremi-Linux-x86_64-Portable"
+          rm -rf "$portable"
+          mkdir -p "$portable"
+          cp -r dist/Doremi/* "$portable/"
+          cp packaging/linux/README-Portable.md "$portable/README.md"
+          cp LICENSE "$portable/LICENSE.txt"
+          cp packaging/linux/THIRD-PARTY-NOTICES.txt "$portable/THIRD-PARTY-NOTICES.txt"
+          cp linux-manifest.txt "$portable/BUILD-MANIFEST.txt"
+          pip freeze > "$portable/pip-freeze.txt"
+          (cd "$portable" && find . -type f | sort | xargs -I{} sh -c 'printf "%s  %s\n" "$(stat -c%s "{}")" "{}"' > MANIFEST.txt)
+          (cd "$portable" && find . -type f -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS.txt)
+          tar czf "$portable.tar.gz" "$portable"
+          echo "tarball MB: $(du -m "$portable.tar.gz" | cut -f1)"
+          echo "files: $(find "$portable" -type f | wc -l)"
+          sha256sum "$portable.tar.gz" | tee "$portable.tar.gz.sha256"
+          echo "artifact=$portable.tar.gz version=$pyVersion" | tee -a linux-manifest.txt
+
+      - name: Upload portable artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doremi-Linux-x86_64-Portable
+          path: |
+            Doremi-Linux-x86_64-Portable.tar.gz
+            Doremi-Linux-x86_64-Portable.tar.gz.sha256
+            linux-manifest.txt
+          retention-days: 7

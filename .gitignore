@@ -41,6 +41,7 @@ browser.json
 *.patch
 *.spec
 !doremi.spec
+!doremi-linux.spec
 
 # Test artifacts (generated data/fixtures)
 test_*.json
@@ -70,6 +71,7 @@ Thumbs.db
 !README.MD
 !AUDIT_POLISH.md
 !docs/release/*.md
+!packaging/linux/*.md
 
 # Módulos nativos compilados (se recompilan localmente / en CI)
 src/doremi/native_rs/target/
