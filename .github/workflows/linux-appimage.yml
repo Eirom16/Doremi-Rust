@@ -463,13 +463,13 @@ jobs:
           EOF
           echo "VLC_PROBE=LOGGED (see log; audible output not asserted headless)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
 
-      - name: XDG persistence (sentinel, no real DB touched)
+      - name: XDG persistence (probe, no real DB touched)
         run: |
           work="$RUNNER_TEMP/persist"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
           "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
           export XDG_CONFIG_HOME="$work/cfg" XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache"
           mkdir -p "$XDG_DATA_HOME/doremi"
-          echo "sentinel-1" > "$XDG_DATA_HOME/doremi/.f0b3b-sentinel"
+          echo "probe-1" > "$XDG_DATA_HOME/doremi/.f0b3b-probe"
           QT_QPA_PLATFORM=offscreen PYTHONPATH="$GITHUB_WORKSPACE/src" python3 - <<'EOF'
           import os
           from doremi.config.paths import AppDirs
@@ -479,24 +479,24 @@ jobs:
           print("database:", db)
           assert db.startswith(os.environ["XDG_DATA_HOME"]), db
           assert "squashfs-root" not in db and ".mount" not in db, db
-          sentinel = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-sentinel")
-          assert open(sentin).read().strip() == "sentinel-1", "sentinel lost after setup()"
-          print("PERSISTENCE_SENTINEL=OK")
+          probe_file = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-probe")
+          assert open(probe_file).read().strip() == "probe-1", "probe lost after setup()"
+          print("PERSISTENCE_PROBE=OK")
           EOF
-          # Second run: sentinel must survive.
+          # Second run: probe must survive.
           QT_QPA_PLATFORM=offscreen PYTHONPATH="$GITHUB_WORKSPACE/src" python3 - <<'EOF'
           import os
           from doremi.config.paths import AppDirs
           AppDirs.setup()
-          sentinel = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-sentinel")
-          assert open(sentin).read().strip() == "sentinel-1"
+          probe_file = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-probe")
+          assert open(probe_file).read().strip() == "probe-1"
           print("PERSISTENCE_SECOND_RUN=OK")
           EOF
           # Nothing may be written inside the extracted payload by the setup path.
           if find squashfs-root -newer "$GITHUB_WORKSPACE/$APPIMAGE_FILE" -type f 2>/dev/null | grep -q .; then
             echo "note: extract dir has newer files (squashfs-root itself is fresh extraction, not app writes)"
           fi
-          echo "PERSISTENCE=PASS (XDG, sentinel survives, no writes inside AppImage)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          echo "PERSISTENCE=PASS (XDG, probe survives, no writes inside AppImage)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
           # Guard: real user DB untouched.
           realDb="$HOME/.local/share/doremi/doremi.db"
           if [ -f "$realDb" ]; then echo "real user DB present (untouched by design; XDG was overridden)"; ls -la "$realDb"; fi

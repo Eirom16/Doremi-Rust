@@ -84,7 +84,7 @@ la salida audible por altavoces NO se afirma (sin assert de escucha).
 
 Persistencia XDG (centinela, sin tocar DB real): `AppDirs.database`
 resuelve a `$XDG_DATA_HOME/doremi/doremi.db` (nunca a `squashfs-root` ni
-`.mount`), `.f0b3b-sentinel` sobrevive a `setup()` + segunda ejecución;
+`.mount`), `.f0b3b-probe` sobrevive a `setup()` + segunda ejecución;
 DB real `~/.local/share/doremi/doremi.db` intacta. `PERSISTENCE=PASS`.
 
 Compatibilidad:
