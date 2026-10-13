@@ -1,0 +1,37 @@
+#!/bin/sh
+# Doremi AppRun (F0B-3B, AppImage type 2).
+#
+# Invokes the verified portable launcher (usr/bin/doremi, copy of
+# packaging/linux/doremi.sh) which already pins the bundled VLC env
+# (LD_LIBRARY_PATH / PYTHON_VLC_LIB_PATH / VLC_PLUGIN_PATH) and execs the
+# PyInstaller onedir binary. No logic is duplicated here on purpose: the
+# launcher remains the single source of truth for bundle env.
+#
+# Layout:
+#   $APPDIR/AppRun
+#   $APPDIR/usr/bin/Doremi (+ sibling $APPDIR/usr/bin/_internal/ == _MEIPASS)
+#   $APPDIR/usr/bin/doremi (launcher)
+#
+# Works in three modes:
+#   1. Mounted via FUSE runtime: $APPDIR is set by the runtime.
+#   2. --appimage-extract-and-run: $APPDIR is set, same as (1).
+#   3. Extracted squashfs-root/AppRun executed directly: $APPDIR unset,
+#      resolved from the script location via readlink -f.
+# Never changes directory: the caller's CWD is preserved (OWD respected
+# by the runtime), so `--smoke-test` reports the real invocation CWD.
+set -eu
+
+SELF="$(readlink -f "$0")"
+HERE="${SELF%/*}"
+# The AppImage runtime exports APPDIR; fall back to the AppRun directory
+# for direct extracted execution.
+APPDIR="${APPDIR:-$HERE}"
+export APPDIR
+
+LAUNCHER="$APPDIR/usr/bin/doremi"
+if [ ! -x "$LAUNCHER" ]; then
+    echo "Doremi AppRun: cannot locate launcher at $LAUNCHER" >&2
+    exit 1
+fi
+
+exec "$LAUNCHER" "$@"

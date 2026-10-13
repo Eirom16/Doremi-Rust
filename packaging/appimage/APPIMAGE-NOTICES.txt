@@ -1,0 +1,45 @@
+DOREMI — APPIMAGE ADDENDUM (F0B-3B, Linux x86_64 AppImage type 2)
+================================================================
+Companion to packaging/linux/THIRD-PARTY-NOTICES.txt (F0B-3A), which
+remains fully applicable: the AppImage embeds the SAME PyInstaller onedir
+payload (Qt, VLC, Python, Rust, fonts) with the SAME obligations and the
+SAME verdict: PUBLIC RELEASE BLOCKED.
+
+What the AppImage format adds
+-----------------------------
+1. AppImage type-2 runtime stub (embedded at the head of the .AppImage file
+   by appimagetool; mounts the squashfs payload via FUSE and execs AppRun).
+   Upstream: https://github.com/AppImage/type2-runtime
+   License: MIT (Copyright (c) 2004-23 probonopd). The runtime is
+   statically linked and additionally contains:
+     - musl libc (https://git.musl-libc.org/cgit/musl/tree/COPYRIGHT)
+     - libfuse (LGPL-2, https://github.com/libfuse/libfuse/blob/master/LGPL2.txt)
+     - squashfuse (https://github.com/vasi/squashfuse/blob/master/LICENSE)
+     - libzstd (https://github.com/facebook/zstd/blob/dev/LICENSE)
+     - zlib (https://zlib.net/zlib_license.html)
+   Tool: appimagetool (https://github.com/AppImage/appimagetool, MIT
+   Copyright (c) 2004-25 Simon Peter and the AppImage Team). Only the
+   runtime stub is redistributed inside the AppImage; appimagetool itself
+   is a build-time tool and is NOT shipped.
+
+2. AppDir wrapper files (this repo, same license as Doremi, GPL-3.0):
+   AppRun, doremi.desktop, doremi.png/.DirIcon, usr/bin/doremi (copy of
+   the verified portable launcher). No extra third-party code.
+
+What this AppImage does TODAY
+------------------------------
+- Ships LICENSE.txt (Doremi GPL-3.0) + THIRD-PARTY-NOTICES.txt (F0B-3A)
+  + this addendum under usr/share/doc/doremi/ inside the AppDir.
+- Records the exact appimagetool version, URL and SHA-256 per build
+  (see BUILD-MANIFEST-AppImage.txt in the CI artifact).
+
+BLOCKED for public release (in addition to all F0B-3A items)
+--------------------------------------------------------------
+(a) Bundle the MIT license text for the type-2 runtime + the license
+    texts of its statically linked components (musl, LGPL-2 libfuse,
+    squashfuse, libzstd, zlib) — or link the exact sources.
+(b) Provide the written source/compliance offer for the runtime matching
+    the embedded build (type2-runtime release tag + appimagetool build).
+(c) Generating an AppImage is NOT authorization to distribute it publicly.
+
+Internal test use with this addendum included is acceptable.
