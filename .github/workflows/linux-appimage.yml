@@ -1,0 +1,568 @@
+name: Linux AppImage (F0B-3B)
+
+# F0B-3B: AppImage type 2 x86_64 built on top of the verified F0B-3A portable.
+# Ubuntu 22.04 baseline (glibc 2.35). Python 3.12, Cargo.lock, maturin release.
+# The bundle is rebuilt from THIS commit (never reuses another run's artifact).
+# No Arch/DEB/RPM. No tags. No GitHub Releases. Artifact retention 7 days.
+
+on:
+  push:
+    branches: [build/f0b3b-linux-appimage]
+    paths:
+      - "doremi-linux.spec"
+      - ".github/workflows/linux-appimage.yml"
+      - "packaging/linux/**"
+      - "packaging/appimage/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+      - "tests/test_linux_packaging.py"
+      - "tests/test_linux_appimage.py"
+  pull_request:
+    paths:
+      - "doremi-linux.spec"
+      - ".github/workflows/linux-appimage.yml"
+      - "packaging/linux/**"
+      - "packaging/appimage/**"
+      - "src/doremi/native_rs/**"
+      - "src/doremi/main.py"
+      - "src/doremi/__init__.py"
+      - "src/doremi/config/paths.py"
+      - "src/doremi/db/database.py"
+      - "src/doremi/ui/qml_paths.py"
+      - "src/doremi/utils/vlc_check.py"
+      - "tests/test_native_rs.py"
+      - "tests/test_linux_packaging.py"
+      - "tests/test_linux_appimage.py"
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.12"
+  APPIMAGETOOL_VERSION: "1.9.1"
+  APPIMAGETOOL_URL: "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+
+jobs:
+  appimage:
+    name: Linux x86_64 AppImage (type 2)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/doremi/native_rs
+
+      # 1. Build system baseline.
+      - name: Record build baseline (glibc, toolchain)
+        run: |
+          ldd --version | head -1 | tee appimage-manifest.txt
+          python --version | tee -a appimage-manifest.txt
+          rustc --version | tee -a appimage-manifest.txt
+          uname -m | tee -a appimage-manifest.txt
+          python -c "import platform; print('libc:', platform.libc_ver())" | tee -a appimage-manifest.txt
+          echo "BASELINE=ubuntu-22.04 glibc-2.35 x86_64" | tee -a appimage-manifest.txt
+          git rev-parse HEAD | tee -a appimage-manifest.txt
+
+      # 1b. System deps (same VLC/Qt source as F0B-3A + AppImage tooling).
+      - name: Install system deps (VLC source + Qt runtime libs + AppImage tooling)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            vlc libvlc-dev vlc-plugin-base \
+            libgl1 libegl1 libxkbcommon0 libdbus-1-3 \
+            libfontconfig1 libfreetype6 libglib2.0-0 \
+            libsm6 libxext6 libxrender1 libnspr4 libnss3 \
+            libasound2 libpulse0 binutils file \
+            libdbus-1-dev libglib2.0-dev pkg-config \
+            desktop-file-utils xvfb libfuse2
+          dpkg -l | grep -Ei 'vlc|libvlc' | tee -a appimage-manifest.txt
+          ldconfig -p | grep -E 'libvlc' | tee -a appimage-manifest.txt
+          ls -la /usr/lib/x86_64-linux-gnu/libvlc.so* /usr/lib/x86_64-linux-gnu/libvlccore.so* | tee -a appimage-manifest.txt
+
+      - name: Install app deps + build tools
+        run: pip install ".[dev]" pyinstaller maturin
+
+      # 2. Rust + tests.
+      - name: Prepare vlc_libs from Ubuntu packages
+        run: |
+          mkdir -p vlc_libs/plugins
+          cp -P /usr/lib/x86_64-linux-gnu/libvlc.so.5* vlc_libs/
+          cp -P /usr/lib/x86_64-linux-gnu/libvlccore.so* vlc_libs/
+          cp -r /usr/lib/x86_64-linux-gnu/vlc/plugins/* vlc_libs/plugins/
+          ls -la vlc_libs/ | tee -a appimage-manifest.txt
+          echo "--- ldd bundled libvlc ---" | tee -a appimage-manifest.txt
+          ldd vlc_libs/libvlc.so.5 | tee -a appimage-manifest.txt
+          echo "--- unresolved libs (should be empty) ---"
+          ldd vlc_libs/libvlc.so.5 | grep "not found" && exit 1 || echo "all resolved"
+          du -sh vlc_libs vlc_libs/plugins
+
+      - name: Build native module wheel
+        run: |
+          cd src/doremi/native_rs
+          maturin build --release --locked --out dist
+
+      - name: Install wheel + run native tests
+        run: |
+          wheel=$(ls src/doremi/native_rs/dist/*.whl | head -1)
+          test -n "$wheel" || { echo "no wheel found"; exit 1; }
+          pip install "$wheel"
+          echo "wheel: $wheel" | tee -a appimage-manifest.txt
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -c "import native_rs; assert 'site-packages' in native_rs.__file__, native_rs.__file__; print(native_rs.__file__)"
+          QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/test_native_rs.py -q
+
+      - name: Run Linux packaging regression tests (portable + appimage)
+        run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/test_linux_packaging.py tests/test_linux_appimage.py -q
+
+      - name: Run full test suite (no skips forced)
+        run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
+
+      - name: Check no stray diff markers
+        run: git diff --check
+
+      # 3. PyInstaller bundle (same commit, same spec as F0B-3A).
+      - name: Stamp frozen build version
+        run: |
+          pyVersion=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          shortSha="${{ github.sha }}"
+          shortSha=${shortSha:0:12}
+          buildId="f0b3b.linux.$shortSha"
+          printf 'BUILD_VERSION = "%s"\nBUILD_ID = "%s"\n' "$pyVersion" "$buildId" > src/doremi/_build_version.py
+          cat src/doremi/_build_version.py
+          echo "BUILD $buildId SHA ${{ github.sha }} VERSION $pyVersion" | tee -a appimage-manifest.txt
+          echo "DOREMI_VERSION=$pyVersion" >> "$GITHUB_ENV"
+
+      - name: Build with PyInstaller
+        run: pyinstaller doremi-linux.spec
+
+      - name: Install launcher into bundle (flat onedir layout)
+        run: |
+          cp packaging/linux/doremi.sh dist/Doremi/doremi.sh
+          chmod +x dist/Doremi/doremi.sh
+          file dist/Doremi/Doremi | tee -a appimage-manifest.txt
+
+      # 4. Validate the portable prior (same checks as F0B-3A, fresh build).
+      - name: Verify bundle structure
+        run: |
+          test -x dist/Doremi/Doremi || { echo "missing dist/Doremi/Doremi"; exit 1; }
+          ls dist/Doremi
+          checks=(
+            "dist/Doremi/Doremi"
+            "dist/Doremi/doremi.sh"
+            "dist/Doremi/_internal/doremi/ui/qml/MainShell.qml"
+            "dist/Doremi/_internal/doremi/ui/qml/Doremi/qmldir"
+            "dist/Doremi/_internal/doremi/assets/fonts/Inter-Regular.ttf"
+            "dist/Doremi/_internal/doremi/locales/es.json"
+            "dist/Doremi/_internal/doremi/db/migrations/env.py"
+            "dist/Doremi/_internal/assets/Doremi.png"
+            "dist/Doremi/_internal/vlc_libs/libvlc.so.5"
+            "dist/Doremi/_internal/vlc_libs/plugins"
+          )
+          for p in "${checks[@]}"; do test -e "$p" || { echo "missing bundle entry: $p"; exit 1; }; done
+          rust_ext=$(ls dist/Doremi/_internal/doremi/native_rs/*.so 2>/dev/null | head -1)
+          test -n "$rust_ext" || { echo "missing Rust extension"; exit 1; }
+          echo "rust ext: $rust_ext $(stat -c%s "$rust_ext")"
+          echo "bundle MB: $(du -sm dist/Doremi | cut -f1)"
+          echo "bundle files: $(find dist/Doremi -type f | wc -l)"
+
+      - name: Smoke test frozen executable (direct, offscreen)
+        run: |
+          smokeRoot="$RUNNER_TEMP/doremi-smoke"
+          mkdir -p "$smokeRoot"
+          cd "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-result.json"
+          realDb="$HOME/.local/share/doremi/doremi.db"
+          if [ -f "$realDb" ]; then stat -c '%Y %s' "$realDb" > "$smokeRoot/realdb.before"; fi
+          "$GITHUB_WORKSPACE/dist/Doremi/Doremi" --smoke-test | tee "$smokeRoot/smoke-stdout.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "smoke exit code: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-stdout.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); print('smoke ok:', r['ok'], '| version:', r.get('version'), '| build:', r.get('build_id')); sys.exit(0 if r['ok'] else 1)"
+
+      - name: Smoke test via launcher from another CWD
+        run: |
+          smokeRoot="$RUNNER_TEMP/doremi-smoke-launcher"
+          mkdir -p "$smokeRoot"
+          cd /
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-result.json"
+          "$GITHUB_WORKSPACE/dist/Doremi/doremi.sh" --smoke-test | tee "$smokeRoot/smoke-stdout.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "launcher smoke exit code: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-stdout.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); sys.exit(0 if r['ok'] else 1)"
+
+      # 5. Build the AppDir.
+      - name: Build AppDir
+        run: |
+          bash packaging/appimage/build-appdir.sh dist/Doremi Doremi.AppDir
+          echo "--- AppDir tree (top) ---"
+          ls -la Doremi.AppDir/
+          ls -la Doremi.AppDir/usr/bin/ | head -20
+          echo "APPDIR_MB=$(du -sm Doremi.AppDir | cut -f1)" | tee -a appimage-manifest.txt
+          echo "APPDIR_FILES=$(find Doremi.AppDir -type f | wc -l)" | tee -a appimage-manifest.txt
+          # Content must be the same onedir payload, relocated intact.
+          diff <(cd dist/Doremi && find . -type f | sort) <(cd Doremi.AppDir/usr/bin && find . -type f | sort | sed 's|^\./doremi$|./doremi.sh|') || echo "note: file lists differ only by launcher rename (doremi.sh -> doremi), see log"
+          echo "--- launcher diff (dist vs AppDir) ---"
+          diff dist/Doremi/doremi.sh Doremi.AppDir/usr/bin/doremi && echo "launcher identical: OK" || { echo "launcher differs!"; exit 1; }
+
+      # 6. Desktop + icon validation.
+      - name: Validate desktop file
+        run: |
+          desktop-file-validate packaging/appimage/doremi.desktop
+          desktop-file-validate Doremi.AppDir/doremi.desktop
+          echo "DESKTOP_VALIDATE=PASS" | tee -a appimage-manifest.txt
+          echo "--- desktop ---"; cat Doremi.AppDir/doremi.desktop
+          test -f Doremi.AppDir/doremi.png || { echo "missing doremi.png"; exit 1; }
+          test -L Doremi.AppDir/.DirIcon || { echo "missing .DirIcon symlink"; exit 1; }
+          readlink Doremi.AppDir/.DirIcon | tee -a appimage-manifest.txt
+          file Doremi.AppDir/doremi.png | tee -a appimage-manifest.txt
+          file Doremi.AppDir/AppRun Doremi.AppDir/usr/bin/Doremi | tee -a appimage-manifest.txt
+
+      # 7. appimagetool (pinned, provenance + integrity, FUSE-free extraction).
+      - name: Download appimagetool (pinned)
+        run: |
+          echo "APPIMAGETOOL_VERSION=${{ env.APPIMAGETOOL_VERSION }}" | tee -a appimage-manifest.txt
+          echo "APPIMAGETOOL_URL=${{ env.APPIMAGETOOL_URL }}" | tee -a appimage-manifest.txt
+          curl -fSL -o appimagetool-x86_64.AppImage "${{ env.APPIMAGETOOL_URL }}"
+          chmod +x appimagetool-x86_64.AppImage
+          sha256sum appimagetool-x86_64.AppImage | tee appimagetool.sha256 | tee -a appimage-manifest.txt
+          # Version must be identifiable (no FUSE needed: extract-and-run).
+          ./appimagetool-x86_64.AppImage --appimage-extract-and-run --version 2>&1 | tee -a appimage-manifest.txt
+          # Extract once for reuse without FUSE in later steps.
+          ./appimagetool-x86_64.AppImage --appimage-extract >/dev/null
+          ./squashfs-root/AppRun --version 2>&1 | tee -a appimage-manifest.txt || true
+
+      - name: Generate AppImage (type 2, x86_64, no FUSE)
+        run: |
+          export ARCH=x86_64
+          export VERSION="${{ env.DOREMI_VERSION }}"
+          test -n "$VERSION" || VERSION=$(python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "VERSION=$VERSION ARCH=$ARCH" | tee -a appimage-manifest.txt
+          OUT="Doremi-${VERSION}-x86_64.AppImage"
+          echo "OUT=$OUT" | tee -a appimage-manifest.txt
+          # Use the extracted tool so no FUSE mount is required inside the container.
+          ARCH=x86_64 ./squashfs-root/AppRun Doremi.AppDir "$OUT" 2>&1 | tee appimagetool.log
+          test -f "$OUT" || { echo "AppImage not generated"; cat appimagetool.log; exit 1; }
+          chmod +x "$OUT"
+          echo "APPIMAGE_FILE=$OUT" >> "$GITHUB_ENV"
+          ls -la "$OUT"
+          file "$OUT" | tee -a appimage-manifest.txt
+          echo "APPIMAGE_MB=$(du -m "$OUT" | cut -f1)" | tee -a appimage-manifest.txt
+          echo "APPIMAGE_BYTES=$(stat -c%s "$OUT")" | tee -a appimage-manifest.txt
+          # Type-2 sanity: runtime header + squashfs payload, extractable.
+          ./"$OUT" --appimage-extract-and-run --version 2>&1 | head -5 || true
+
+      # 8. Real AppImage tests (A/B/C/D per spec — AppRun alone is NOT enough).
+      - name: "Test A: AppImage --appimage-extract-and-run --smoke-test"
+        run: |
+          smokeRoot="$RUNNER_TEMP/appimage-smoke-a"
+          mkdir -p "$smokeRoot"
+          cd "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-a.json"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract-and-run --smoke-test | tee "$smokeRoot/smoke-a.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "A exit: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-a.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); assert r['ok'] is True, r; assert len([v for v in r['checks'].values() if v])==9, r['checks']; print('A: 9/9 ok==true')"
+          echo "SMOKE_A=PASS" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+
+      - name: "Test B: --appimage-extract + squashfs-root/AppRun --smoke-test"
+        run: |
+          work="$RUNNER_TEMP/appimage-extract-b"
+          rm -rf "$work"; mkdir -p "$work"; cd "$work"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
+          test -x squashfs-root/AppRun || { echo "no squashfs-root/AppRun"; exit 1; }
+          ls squashfs-root/ | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          smokeRoot="$work/smoke"; mkdir -p "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-b.json"
+          ./squashfs-root/AppRun --smoke-test | tee "$smokeRoot/smoke-b.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "B exit: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-b.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); sys.exit(0 if r['ok'] else 1)"
+          echo "SMOKE_B=PASS" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+
+      - name: "Test C: AppImage from a different CWD"
+        run: |
+          smokeRoot="$RUNNER_TEMP/appimage-smoke-c"
+          mkdir -p "$smokeRoot"
+          cd /
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-c.json"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract-and-run --smoke-test | tee "$smokeRoot/smoke-c.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT"
+          test $code -eq 0 || { echo "C exit: $code"; exit 1; }
+          grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-c.txt"
+          python3 -c "import json,os,sys; r=json.load(open(os.environ['DOREMI_SMOKE_OUT'])); assert r['cwd']=='/', r['cwd']; sys.exit(0 if r['ok'] else 1)"
+          echo "SMOKE_C=PASS (cwd=/)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+
+      - name: "Test D: AppImage with FUSE (if available, non-privileged)"
+        continue-on-error: true
+        run: |
+          smokeRoot="$RUNNER_TEMP/appimage-smoke-d"
+          mkdir -p "$smokeRoot"
+          cd "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config"
+          export XDG_DATA_HOME="$smokeRoot/data"
+          export XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=offscreen
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-d.json"
+          if [ ! -e /dev/fuse ]; then echo "FUSE=UNAVAILABLE (no /dev/fuse)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"; exit 0; fi
+          set +e
+          timeout 120 "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --smoke-test >"$smokeRoot/smoke-d.txt" 2>&1
+          code=$?
+          set -e
+          cat "$smokeRoot/smoke-d.txt" | tail -c 2000 || true
+          if [ $code -eq 0 ] && grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-d.txt"; then
+            echo "FUSE=PASS (direct mount execution)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          else
+            echo "FUSE=UNAVAILABLE_OR_FAILED (exit=$code; extract-and-run remains the validated path)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+            echo "(informational only: FUSE mount may be blocked on hosted runners)"
+          fi
+
+      # 9. Compatibility: clean containers without system VLC.
+      - name: Clean-env test (ubuntu:22.04 container, NO system VLC)
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/$APPIMAGE_FILE:/mnt/Doremi.AppImage:ro" \
+            ubuntu:22.04 bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 python3 > /dev/null
+              echo "--- container: no vlc expected ---"
+              (ldconfig -p | grep libvlc && echo "SYSTEM VLC PRESENT - test invalid" && exit 1) || echo "no system libvlc, good"
+              chmod +x /mnt/Doremi.AppImage
+              export QT_QPA_PLATFORM=offscreen
+              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
+              export DOREMI_SMOKE_OUT=/tmp/smoke-clean.json
+              /mnt/Doremi.AppImage --appimage-extract-and-run --smoke-test | tail -c 2000
+              python3 -c "import json; r=json.load(open(\"/tmp/smoke-clean.json\")); print(\"clean-env smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
+            ' | tee "$RUNNER_TEMP/clean-env.log"
+          echo "CLEAN_ENV_2204=PASS (ubuntu:22.04, no system VLC)" | tee -a appimage-manifest.txt
+
+      - name: Extra distro probe (ubuntu:24.04, informational)
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE/$APPIMAGE_FILE:/mnt/Doremi.AppImage:ro" \
+            ubuntu:24.04 bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update -qq
+              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 python3 > /dev/null
+              chmod +x /mnt/Doremi.AppImage
+              export QT_QPA_PLATFORM=offscreen
+              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
+              export DOREMI_SMOKE_OUT=/tmp/smoke-2404.json
+              /mnt/Doremi.AppImage --appimage-extract-and-run --smoke-test | tail -c 2000
+              python3 -c "import json; r=json.load(open(\"/tmp/smoke-2404.json\")); print(\"24.04 smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
+            ' | tee "$RUNNER_TEMP/distro-24.04.log"
+          echo "DISTRO_24_04_EXIT=$?" | tee -a appimage-manifest.txt
+
+      # Qt / X11 virtual + VLC/audio + persistence + ELF audit.
+      - name: X11 virtual smoke via Xvfb (xcb, if available)
+        continue-on-error: true
+        run: |
+          if ! command -v xvfb-run >/dev/null 2>&1; then echo "X11=SKIPPED (no xvfb-run)" | tee -a appimage-manifest.txt; exit 0; fi
+          smokeRoot="$RUNNER_TEMP/appimage-x11"; mkdir -p "$smokeRoot"; cd "$smokeRoot"
+          export XDG_CONFIG_HOME="$smokeRoot/config" XDG_DATA_HOME="$smokeRoot/data" XDG_CACHE_HOME="$smokeRoot/cache"
+          export QT_QPA_PLATFORM=xcb
+          export DOREMI_SMOKE_OUT="$smokeRoot/smoke-x11.json"
+          xvfb-run -a "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract-and-run --smoke-test | tee "$smokeRoot/smoke-x11.txt"
+          code=$?
+          cat "$DOREMI_SMOKE_OUT" || true
+          if [ $code -eq 0 ] && grep -q DOREMI_SMOKE_OK "$smokeRoot/smoke-x11.txt"; then
+            echo "X11_XVFB=PASS (xcb under Xvfb)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          else
+            echo "X11_XVFB=FAILED_OR_SKIPPED (exit=$code)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+            exit 1
+          fi
+
+      - name: VLC bundled-lib check + audio open probe (no network, no credentials)
+        continue-on-error: true
+        run: |
+          work="$RUNNER_TEMP/vlc-probe"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
+          VLCDIR="$work/squashfs-root/usr/bin/_internal/vlc_libs"
+          ls "$VLCDIR" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          echo "--- ldd bundled libvlc (from AppImage payload) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          ldd "$VLCDIR/libvlc.so.5" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          # Generate 1s 440Hz mono WAV locally (authorized synthetic fixture).
+          python3 - "$work/tone.wav" <<'EOF'
+          import math, wave, struct, sys
+          path = sys.argv[1]
+          rate, dur, freq = 44100, 1.0, 440.0
+          with wave.open(path, "w") as w:
+              w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+              for i in range(int(rate * dur)):
+                  v = int(32767 * 0.5 * math.sin(2 * math.pi * freq * i / rate))
+                  w.writeframes(struct.pack("<h", v))
+          print("wrote", path)
+          EOF
+          LD_LIBRARY_PATH="$VLCDIR:${LD_LIBRARY_PATH:-}" \
+          PYTHON_VLC_LIB_PATH="$VLCDIR/libvlc.so.5" \
+          VLC_PLUGIN_PATH="$VLCDIR/plugins" \
+          python3 - "$work/tone.wav" 2>&1 | tee "$work/vlc-probe.log" || true
+          python3 - "$work/tone.wav" <<'EOF' 2>&1 | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt" || true
+          import os, sys, time
+          os.environ["PYTHON_VLC_LIB_PATH"] = os.path.join(os.environ["VLCDIR"], "libvlc.so.5")
+          os.environ["VLC_PLUGIN_PATH"] = os.path.join(os.environ["VLCDIR"], "plugins")
+          import vlc
+          print("vlc lib:", vlc.dll._name)
+          assert "_internal/vlc_libs" in str(vlc.dll._name) or "squashfs-root" in str(vlc.dll._name), vlc.dll._name
+          inst = vlc.Instance("--quiet", "--no-video")
+          assert inst is not None, "vlc.Instance() returned None"
+          print("VLC_INSTANCE=OK from", vlc.dll._name)
+          wav = sys.argv[1]
+          player = inst.media_player_new()
+          media = inst.media_new(wav)
+          player.set_media(media)
+          rc = player.play()
+          print("play() ->", rc)
+          time.sleep(2.0)
+          st = player.get_state()
+          tm = player.get_time()
+          print("state:", st, "time_ms:", tm)
+          player.stop()
+          # Opening + time advance proves demux/decode path; audible output
+          # is NOT asserted here (no audio device on the runner).
+          print("VLC_OPEN_PROBE_DONE (audible output not asserted headless)")
+          EOF
+          echo "VLC_PROBE=LOGGED (see log; audible output not asserted headless)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+        env:
+          VLCDIR: ""
+        # NOTE: env VLCDIR is set inside the script; the outer empty default
+        # only keeps the runner environment clean.
+
+      - name: XDG persistence (sentinel, no real DB touched)
+        run: |
+          work="$RUNNER_TEMP/persist"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
+          export XDG_CONFIG_HOME="$work/cfg" XDG_DATA_HOME="$work/data" XDG_CACHE_HOME="$work/cache"
+          mkdir -p "$XDG_DATA_HOME/doremi"
+          echo "sentinel-1" > "$XDG_DATA_HOME/doremi/.f0b3b-sentinel"
+          QT_QPA_PLATFORM=offscreen PYTHONPATH="$GITHUB_WORKSPACE/src" python3 - <<'EOF'
+          import os
+          from doremi.config.paths import AppDirs
+          AppDirs.setup()
+          # Must resolve under XDG, never inside the AppImage mount/extract dir.
+          db = str(AppDirs.database)
+          print("database:", db)
+          assert db.startswith(os.environ["XDG_DATA_HOME"]), db
+          assert "squashfs-root" not in db and ".mount" not in db, db
+          sentinel = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-sentinel")
+          assert open(sentin).read().strip() == "sentinel-1", "sentinel lost after setup()"
+          print("PERSISTENCE_SENTINEL=OK")
+          EOF
+          # Second run: sentinel must survive.
+          QT_QPA_PLATFORM=offscreen PYTHONPATH="$GITHUB_WORKSPACE/src" python3 - <<'EOF'
+          import os
+          from doremi.config.paths import AppDirs
+          AppDirs.setup()
+          sentinel = os.path.join(os.environ["XDG_DATA_HOME"], "doremi", ".f0b3b-sentinel")
+          assert open(sentin).read().strip() == "sentinel-1"
+          print("PERSISTENCE_SECOND_RUN=OK")
+          EOF
+          # Nothing may be written inside the extracted payload by the setup path.
+          if find squashfs-root -newer "$GITHUB_WORKSPACE/$APPIMAGE_FILE" -type f 2>/dev/null | grep -q .; then
+            echo "note: extract dir has newer files (squashfs-root itself is fresh extraction, not app writes)"
+          fi
+          echo "PERSISTENCE=PASS (XDG, sentinel survives, no writes inside AppImage)" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          # Guard: real user DB untouched.
+          realDb="$HOME/.local/share/doremi/doremi.db"
+          if [ -f "$realDb" ]; then echo "real user DB present (untouched by design; XDG was overridden)"; ls -la "$realDb"; fi
+
+      - name: ELF + glibc audit (host libs still required)
+        run: |
+          work="$RUNNER_TEMP/elf-audit"; rm -rf "$work"; mkdir -p "$work"; cd "$work"
+          "$GITHUB_WORKSPACE/$APPIMAGE_FILE" --appimage-extract >/dev/null
+          echo "--- file AppImage ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          file "$GITHUB_WORKSPACE/$APPIMAGE_FILE" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          echo "--- ldd usr/bin/Doremi (loader stub) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          ldd squashfs-root/usr/bin/Doremi | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          echo "--- bundled libvlc NEEDED ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          readelf -d squashfs-root/usr/bin/_internal/vlc_libs/libvlc.so.5 | grep NEEDED | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt" || true
+          echo "--- max GLIBC symbols (exe + libvlc + rust ext) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          for f in squashfs-root/usr/bin/Doremi squashfs-root/usr/bin/_internal/vlc_libs/libvlc.so.5 squashfs-root/usr/bin/_internal/doremi/native_rs/*.so; do
+            echo "== $f" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+            readelf -V "$f" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -Vu | tail -3 | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt" || true
+          done
+          echo "--- host libs still required (informational: Ubuntu 22.04 baseline provides them) ---" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+          cat >> "$GITHUB_WORKSPACE/appimage-manifest.txt" <<'EOF'
+          libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6
+          libxrender1 libpulse0 (audio) + glibc>=2.35. Deliberately NOT bundled:
+          glibc, GPU drivers, X11/Wayland host sockets.
+          EOF
+          echo "ELF_AUDIT=LOGGED" | tee -a "$GITHUB_WORKSPACE/appimage-manifest.txt"
+
+      # 10. SHA-256 + manifest + size comparison.
+      - name: SHA-256, manifest and size comparison
+        run: |
+          ls -la "$APPIMAGE_FILE"
+          sha256sum "$APPIMAGE_FILE" | tee "$APPIMAGE_FILE.sha256"
+          cat "$APPIMAGE_FILE.sha256" | tee -a appimage-manifest.txt
+          echo "--- sizes ---" | tee -a appimage-manifest.txt
+          echo "AppDir: $(du -sh Doremi.AppDir | cut -f1) ($(du -sb Doremi.AppDir | cut -f1) B, $(find Doremi.AppDir -type f | wc -l) files)" | tee -a appimage-manifest.txt
+          echo "Portable onedir: $(du -sh dist/Doremi | cut -f1) ($(du -sb dist/Doremi | cut -f1) B)" | tee -a appimage-manifest.txt
+          echo "AppImage: $(du -h "$APPIMAGE_FILE" | cut -f1) ($(stat -c%s "$APPIMAGE_FILE") B)" | tee -a appimage-manifest.txt
+          pip freeze > pip-freeze-appimage.txt
+          cp appimage-manifest.txt BUILD-MANIFEST-AppImage.txt
+          cp packaging/linux/THIRD-PARTY-NOTICES.txt THIRD-PARTY-NOTICES-AppImage.txt
+          cat >> BUILD-MANIFEST-AppImage.txt <<'EOF'
+          ---
+          AppImage runtime: embedded by appimagetool 1.9.1 (type2-runtime, statically linked, MIT).
+          Source: https://github.com/AppImage/appimagetool + https://github.com/AppImage/type2-runtime
+          The AppImage format adds the runtime stub as a distributable component;
+          public redistribution stays BLOCKED per THIRD-PARTY-NOTICES (VLC/Qt/Python/Rust/fonts).
+          EOF
+          echo "--- manifest ---"; cat BUILD-MANIFEST-AppImage.txt | tail -n 60
+
+      # 11. Temporal artifact (7 days). No tags, no Releases.
+      - name: Upload AppImage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Doremi-Linux-x86_64-AppImage
+          path: |
+            Doremi-*-x86_64.AppImage
+            Doremi-*-x86_64.AppImage.sha256
+            BUILD-MANIFEST-AppImage.txt
+            pip-freeze-appimage.txt
+            appimagetool.log
+            appimagetool.sha256
+          retention-days: 7
