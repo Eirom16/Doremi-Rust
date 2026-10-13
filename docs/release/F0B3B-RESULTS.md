@@ -5,9 +5,10 @@
 **PR:** https://github.com/Eirom16/Doremi-Rust/pull/8 contra
 `build/f0b3a-linux-portable` (el PR #7 sigue abierto).
 **CI:** workflow `linux-appimage.yml` en `ubuntu-22.04` — VERDE en
-`38337053313` (push) y `38337057033` (PR), commit `0ebe132`
-(`BUILD_ID=f0b3b.linux.0ebe1327cdf8`). La §1 documenta además la PoC
-local.
+`38338041664` (push) y `38338045717` (PR), commit `2dde34f`
+(`BUILD_ID=f0b3b.linux.2dde34f12c29`), con X11/Xvfb ya en PASS.
+Verdes previos `38337053313`/`38337057033` (`0ebe132`, sin el fix X11).
+La §1 documenta además la PoC local.
 
 ## 1. Validación local (worktree, venv Python 3.12.14, CachyOS glibc 2.44)
 
@@ -105,15 +106,15 @@ libfontconfig1 libsm6 libxext6 libxrender1 libpulse0` + glibc (≥2.34
 local; ≥2.35 baseline CI). Intencionadamente NO se empaquetan glibc ni
 drivers.
 
-## 2. CI — `linux-appimage.yml` en `ubuntu-22.04` (run 38337053313, `success`)
+## 2. CI — `linux-appimage.yml` en `ubuntu-22.04` (run 38338041664, `success`)
 
-https://github.com/Eirom16/Doremi-Rust/actions/runs/38337053313
-(commit `0ebe132`, todos los pasos en verde; el run PR espejo
-`38337057033` también `success`. Runs previos `38335631037` /
-`38335560757` documentan los fallos intermedios con causa raíz y fix:
-`open(sentin)` → NameError en el paso de persistencia — typo en el
-snippet, renombrado a `probe_file` —, más `VLCDIR` sin exportar en el
-probe de audio.)
+https://github.com/Eirom16/Doremi-Rust/actions/runs/38338041664
+(commit `2dde34f`, todos los pasos en verde, incluido X11/Xvfb; el run
+PR espejo `38338045717` también `success`. Runs previos documentan los
+fallos intermedios con causa raíz y fix: `38335631037` (`open(sentin)`
+→ NameError en persistencia, renombrado a `probe_file`) y `38337053313`
+(`X11_XVFB=FAILED` por `libxcb-cursor0` ausente en el runner, ver
+REPORT §3). El código validado es idéntico salvo esos fixes.
 
 Baseline registrado (`BUILD-MANIFEST-AppImage.txt` del artifact):
 `ldd (Ubuntu GLIBC 2.35-0ubuntu3.15) 2.35`, Python 3.12.15, rustc 1.99.0,
@@ -131,7 +132,7 @@ versión `continuous build (git 8c8c91f), build 296 built on 2025-12-04
 | Tests nativos en runner | **17 passed** |
 | Tests regresión packaging (portable + appimage) | **16 passed** |
 | Suite completa (sin skips) | **392 passed** en 11.71 s |
-| Stamp `BUILD_VERSION=2.1.4` + `BUILD_ID=f0b3b.linux.0ebe1327cdf8` | OK |
+| Stamp `BUILD_VERSION=2.1.4` + `BUILD_ID=f0b3b.linux.<sha12>` | OK (`f0b3b.linux.2dde34f12c29` en el run canónico) |
 | PyInstaller `doremi-linux.spec` (onedir) + launcher | OK (bundle 917 MB, 4052 ficheros, rust ext 1 057 432 B) |
 | Smoke directo (offscreen, XDG aislados, DB real intacta) | `DOREMI_SMOKE_OK` 9/9, exit 0 |
 | Smoke vía launcher desde `/` (otro CWD) | `DOREMI_SMOKE_OK` 9/9, exit 0 |
@@ -144,7 +145,7 @@ versión `continuous build (git 8c8c91f), build 296 built on 2025-12-04
 | D. FUSE directo (`/dev/fuse` presente) | `FUSE=PASS` (montaje `.mount_*`, no extracción) |
 | Clean-env `ubuntu:22.04` sin VLC del sistema | `CLEAN_ENV_2204=PASS` 9/9 |
 | Probe `ubuntu:24.04` (informativo) | `DISTRO_24_04_EXIT=0` 9/9 |
-| X11 xcb bajo Xvfb | `X11_XVFB=FAILED` en este run (causa raíz: al runner mínimo le falta `libxcb-cursor0`, exigida por Qt 6.5+; ver REPORT §3 — fix con `apt-get install libxcb-cursor0` + `pipefail` en el siguiente commit, pendiente de re-run) |
+| X11 xcb bajo Xvfb | `X11_XVFB=PASS` en el run 38338041664 (tras instalar `libxcb-cursor0` del host; ver REPORT §3) |
 | VLC probe (wav sintético 440Hz, sin red) | `VLC_INSTANCE=OK` desde `.../squashfs-root/usr/bin/_internal/vlc_libs/libvlc.so.5`, `play() -> 0`, `State.Ended` (time 0 ms headless); salida audible NO afirmada |
 | Persistencia XDG (probe, sin DB real) | `PERSISTENCE_PROBE=OK` + `SECOND_RUN=OK` → `PERSISTENCE=PASS` |
 | Auditoría ELF/glibc | exe máx `GLIBC_2.14`, libvlc `2.14`, rust ext `2.34`; host: `libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 libxcb-cursor0 (xcb)` + glibc ≥ 2.35 |
@@ -179,7 +180,13 @@ añadir runtime (944632 B) + wrapper; la funcionalidad es prioritaria y
 no se recortó ningún plugin. Oportunidades de dieta (plugins VLC/Qt
 redundantes) quedan documentadas para fase posterior, no aplicadas.
 
-SHA-256 oficial (CI, `BUILD_ID=f0b3b.linux.0ebe1327cdf8`):
+SHA-256 oficial (CI, `BUILD_ID=f0b3b.linux.2dde34f12c29`, run 38338041664):
+
+```text
+6a6538c33f30a243a2a64943a08c6184288b42135a6c022a1a42fc585c3156b8  Doremi-2.1.4-x86_64.AppImage
+```
+
+SHA-256 del run verde previo (`0ebe132`, referencia):
 
 ```text
 a627c74d181bd6c24435d0eab4391b1fda7d54fc2ac625499345a5d86aa6f109  Doremi-2.1.4-x86_64.AppImage
@@ -195,9 +202,9 @@ appimagetool: `ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0`
 
 ## 4. Artifact
 
-Oficial (run 38337053313 → Artifacts `Doremi-Linux-x86_64-AppImage`,
+Oficial (run 38338041664 → Artifacts `Doremi-Linux-x86_64-AppImage`,
 expira en 7 días): `Doremi-2.1.4-x86_64.AppImage` (331 MB, SHA-256
-`a627c74d…aa6f109`) + `.sha256` + `BUILD-MANIFEST-AppImage.txt` +
+`6a6538c3…c3156b8`) + `.sha256` + `BUILD-MANIFEST-AppImage.txt` +
 `pip-freeze-appimage.txt` + `appimagetool.log` + `appimagetool.sha256`.
 Uso: `chmod +x Doremi-2.1.4-x86_64.AppImage;
 ./Doremi-2.1.4-x86_64.AppImage --appimage-extract-and-run --smoke-test`
@@ -223,9 +230,9 @@ no tocar `main`).
 - `AppDir/AppRun` solo → NO se considera validación del AppImage.
 - FUSE → VERIFICADO local y en CI (`FUSE=PASS` con montaje `.mount_*`
   en ambos); NO se declara PASS solo con extract-and-run.
-- X11 xcb + Wayland nativo (smoke) → VERIFICADO local; Xvfb en CI
-  falló por `libxcb-cursor0` ausente en el runner (causa raíz
-  documentada, fix aplicado, re-run pendiente); ventana real →
+- X11 xcb + Wayland nativo (smoke) → VERIFICADO local; Xvfb en CI →
+  VERIFICADO (`X11_XVFB=PASS` en el run 38338041664 tras instalar
+  `libxcb-cursor0` del host); ventana real con interacción →
   PENDIENTE (el smoke solo carga MainShell con controladores a null).
 - VLC incluido + apertura/avance con fixture → VERIFICADO local y en CI
   (`play() -> 0`, `State.Ended`); escucha audible → PENDIENTE.

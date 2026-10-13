@@ -110,7 +110,7 @@ con el mismo commit (ver workflow y RESULTS §2).
    host aporta. Fix: `sudo apt-get install -y libxcb-cursor0` en el paso
    X11 + `set -o pipefail` (el `code=$?` tras `... | tee` capturaba el
    exit de `tee`, no el del smoke) + registrar la lib como requisito del
-   host en la auditoría ELF (re-run pendiente).
+   host en la auditoría ELF (verde en el run 38338041664).
 
 ## 4. Archivos modificados/creados
 
