@@ -1,10 +1,57 @@
-"""Shared data loading for Playlist screen — used by both widget and QML versions."""
+"""Shared data loading for Playlist screen — used by both widget and QML versions.
+
+REC-03C.3 recovery from rescue working tree
+(``Doremi-Rust-Rescate`` ``src/doremi/ui/screens/playlist_data.py``,
+185 lines). Adaptations vs rescue (no schema/migration changes):
+
+- New ``session:`` / ``local-list:`` / ``smart:`` branches (rescue logic)
+  with ``cover_fields`` mosaics and structured ``artists`` credits where the
+  source already provides them (remote YT payloads).
+- Explicit pagination: ``gather_playlist(..., *, limit=1000, offset=0)``.
+  ``local-list:`` forwards to ``LocalLibraryRepository.tracks`` (never
+  ``tracks(limit=None)``); ``session:`` forwards to
+  ``ListeningPeriods.tracks``; ``smart:`` forwards ``limit`` to
+  ``ExperienceRepository.smart_tracks`` (which has no offset, so
+  ``limit+offset`` rows are fetched then sliced). ``local_`` slices the
+  filtered download list. Remote YT branch returns the full provider
+  response (provider owns its pagination).
+- No silent truncation: paginated branches return ``limit``/``offset`` and
+  ``has_more`` (``len(page) == limit`` heuristic; exact when the store holds
+  more than the page). Callers fetch later pages with ``offset+limit``.
+- Order and duplicate occurrences preserved (``position`` order; ``append``
+  retains duplicates). ``local:`` identities returned as-is, never mapped to
+  YouTube IDs. Offline availability comes from ``track_data``/repo
+  ``is_file`` checks, so disappeared files are never reported as available;
+  offline pages may be short because unavailable items are hidden, not
+  counted. Single bounded repo call per branch (no N-plus-1). No Qt widgets;
+  ``NetworkMonitor`` imported lazily; no network on import; no remote
+  downloads in tests (``yt_client`` is mocked).
+"""
 from __future__ import annotations
 
 from loguru import logger
+from doremi.services.artwork import cover_fields
 
 from doremi.ui.screens.home_data import _extract_thumbnail
 from doremi.utils.time_utils import parse_duration_to_ms
+
+_MAX_LIMIT = 1000
+
+
+def _coerce_limit(value, *, default=_MAX_LIMIT, name="limit"):
+    if value is None:
+        return default
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"Invalid {name}")
+    if value <= 0:
+        raise ValueError(f"Invalid {name}")
+    return min(value, _MAX_LIMIT)
+
+
+def _coerce_offset(value, *, name="offset"):
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Invalid {name}")
+    return value
 
 
 def _duration_display(duration: str | None, dur_ms: int) -> str:
@@ -15,8 +62,17 @@ def _duration_display(duration: str | None, dur_ms: int) -> str:
     return ""
 
 
-async def gather_playlist(yt_client, playlist_id: str) -> dict:
-    """Fetch playlist data (local o YouTube Music) y normalízala."""
+async def gather_playlist(yt_client, playlist_id: str, *, limit=1000, offset=0) -> dict:
+    """Fetch playlist data (local o YouTube Music) y normalízala.
+
+    ``limit``/``offset`` paginate local branches (``session:``,
+    ``local-list:``, ``smart:``, ``local_``). Later pages use
+    ``offset+limit``; ``has_more`` signals a possibly non-empty next page.
+    The remote YT branch ignores pagination and returns the full provider
+    payload.
+    """
+    limit = _coerce_limit(limit, name="limit")
+    offset = _coerce_offset(offset)
     result = {
         "playlist_id": playlist_id or "",
         "is_local": False,
@@ -28,16 +84,63 @@ async def gather_playlist(yt_client, playlist_id: str) -> dict:
         "downloaded_count": 0,
         "is_fully_downloaded": False,
         "local_meta": [],  # metadatos para on_play_local_playlist
+        "limit": limit,
+        "offset": offset,
+        "has_more": False,
     }
     if not playlist_id:
         return result
 
+    from doremi.system.network import NetworkMonitor
+    offline = NetworkMonitor.current_connectivity() is False
+
+    def available_tracks(tracks):
+        return [track for track in tracks if track.get("is_downloaded")] if offline else tracks
+
+    if playlist_id.startswith("session:"):
+        from doremi.services.listening_periods import ListeningPeriods
+        try:
+            first, last, cutoff = ListeningPeriods.parse_identity(playlist_id)
+            tracks = await ListeningPeriods().tracks(first, last, cutoff, limit=limit, offset=offset)
+        except (ValueError, OverflowError):
+            tracks = []
+        tracks = available_tracks(tracks)
+        result.update(title="Sesión musical", author="Tu historial", tracks=tracks,
+                      track_count=len(tracks), has_more=len(tracks) == limit,
+                      **cover_fields(tracks))
+        return result
+
+    if playlist_id.startswith("local-list:"):
+        from doremi.db.local_library_repository import LocalLibraryRepository
+        title, tracks = await LocalLibraryRepository().tracks(playlist_id, limit=limit, offset=offset)
+        tracks = available_tracks(tracks)
+        result.update(title=title, author="Doremi · Playlist local", tracks=tracks, track_count=len(tracks),
+                      has_more=len(tracks) == limit, **cover_fields(tracks))
+        return result
+
+    if playlist_id.startswith("smart:"):
+        from doremi.db.experience_repository import ExperienceRepository, SMART_TITLES
+        rule = playlist_id.split(":", 1)[1]
+        # smart_tracks has limit but no offset: over-fetch then slice.
+        fetched = await ExperienceRepository().smart_tracks(rule, limit=min(_MAX_LIMIT, limit + offset) or limit,
+                                                            offline_only=offline)
+        page = fetched[offset:offset + limit] if offset else fetched[:limit]
+        # smart_tracks already applies offline_only in SQL; keep the filter
+        # for safety without changing order.
+        if offline:
+            page = [t for t in page if t.get("is_downloaded")]
+        result.update(title=SMART_TITLES[rule], author="Doremi · Colección inteligente",
+                      tracks=page, track_count=len(page),
+                      has_more=len(fetched) == min(_MAX_LIMIT, limit + offset),
+                      **cover_fields(page))
+        return result
+
     if playlist_id.startswith("local_"):
-        return await _gather_local_playlist(playlist_id, result)
+        return await _gather_local_playlist(playlist_id, result, limit=limit, offset=offset)
     return await _gather_remote_playlist(yt_client, playlist_id, result)
 
 
-async def _gather_local_playlist(playlist_id: str, result: dict) -> dict:
+async def _gather_local_playlist(playlist_id: str, result: dict, *, limit=1000, offset=0) -> dict:
     from doremi.db.repository import DownloadRepository, SongRepository
 
     actual_pid = playlist_id[len("local_"):]
@@ -64,7 +167,7 @@ async def _gather_local_playlist(playlist_id: str, result: dict) -> dict:
     result["downloaded_count"] = len(tracks)
     result["is_fully_downloaded"] = True
 
-    for t in tracks:
+    for t in tracks[offset:offset + limit]:
         dur_ms = t.duration_ms or 0
         result["tracks"].append({
             "videoId": t.video_id,
@@ -85,6 +188,8 @@ async def _gather_local_playlist(playlist_id: str, result: dict) -> dict:
             "file_path": t.file_path,
             "duration_ms": dur_ms,
         })
+    result["track_count"] = len(result["tracks"])
+    result["has_more"] = len(tracks) > offset + limit
     return result
 
 
@@ -132,6 +237,7 @@ async def _gather_remote_playlist(yt_client, playlist_id: str, result: dict) -> 
             "videoId": video_id,
             "title": str(t.get("title", "Unknown")),
             "artist": artist or "Unknown",
+            "artists": artists,
             "duration": _duration_display(str(t.get("duration", "") or ""), dur_ms),
             "duration_ms": dur_ms,
             "thumbnail_url": _extract_thumbnail(t),
