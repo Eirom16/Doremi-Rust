@@ -22,6 +22,9 @@ on:
       - "src/doremi/db/repository.py"
       - "src/doremi/db/migrations/**"
       - "src/doremi/services/playback_context.py"
+      - "src/doremi/services/artist_credits.py"
+      - "src/doremi/services/artwork.py"
+      - "src/doremi/services/local_metadata.py"
       - "src/doremi/audio/queue.py"
       - "src/doremi/audio/listening.py"
       - "src/doremi/ui/qml_paths.py"
@@ -32,6 +35,7 @@ on:
       - "tests/test_database.py"
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
+      - "tests/test_rec03a*.py"
   pull_request:
     paths:
       - "doremi-linux.spec"
@@ -47,6 +51,9 @@ on:
       - "src/doremi/db/repository.py"
       - "src/doremi/db/migrations/**"
       - "src/doremi/services/playback_context.py"
+      - "src/doremi/services/artist_credits.py"
+      - "src/doremi/services/artwork.py"
+      - "src/doremi/services/local_metadata.py"
       - "src/doremi/audio/queue.py"
       - "src/doremi/audio/listening.py"
       - "src/doremi/ui/qml_paths.py"
@@ -57,6 +64,7 @@ on:
       - "tests/test_database.py"
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
+      - "tests/test_rec03a*.py"
   workflow_dispatch:
 
 env:
