@@ -123,6 +123,8 @@ class HistoryRepository:
         was_played: bool = True,
         context_type: str = "queue",
         context_id: str = "",
+        context_title: str = "",
+        position_ms: int = 0,
     ) -> None:
         async with get_session() as session:
             entry = PlayHistory(
@@ -137,8 +139,20 @@ class HistoryRepository:
                 was_played=was_played,
                 context_type=context_type,
                 context_id=context_id,
+                position_ms=position_ms,
             )
             session.add(entry)
+            if context_id and context_title:
+                from doremi.db.models import Collection
+                collection = await session.get(Collection, (context_type, context_id))
+                if collection is None:
+                    # A queued occurrence can outlive a deleted local playlist.
+                    # Retain its history origin without recreating the playlist.
+                    if not context_id.startswith("local-list:"):
+                        collection = Collection(context_type=context_type, context_id=context_id, title=context_title)
+                        session.add(collection)
+                elif not collection.title:
+                    collection.title = context_title
             await session.commit()
 
     async def get_history(self, limit: int = 100) -> list[tuple[PlayHistory, str | None]]:

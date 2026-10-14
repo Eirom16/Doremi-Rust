@@ -20,6 +20,7 @@ class ListenResult:
     skip_count: int
     completed: bool
     was_played: bool
+    position_ms: int = 0
 
 
 class ListeningSession:
@@ -82,6 +83,7 @@ class ListeningSession:
             skip_count=int(reason in {"skipped", "replaced", "failed", "stopped"} and not completed),
             completed=completed,
             was_played=was_played,
+            position_ms=self._last_position_ms or 0,
         )
         self._item = None
         self._last_position_ms = None
