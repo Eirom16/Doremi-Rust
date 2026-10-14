@@ -7,6 +7,10 @@ Rescate (solo lectura): `/home/eirom/Proyectos/Doremi/Doremi-Rust-Rescate @ c00d
 (`fix/f0a-ci-baseline`, con 9 commits exclusivos sobre el merge-base `1e44a21`
 más modificaciones sin commit). Principal intacto:
 `/home/eirom/Proyectos/Doremi/Doremi-Rust @ 80aaf1e` (limpio).
+PR: `https://github.com/Eirom16/Doremi-Rust/pull/9` (abierto, sin fusionar).
+CI: `https://github.com/Eirom16/Doremi-Rust/actions/runs/38499973485` (success).
+HEAD evaluado: `f6fdd90934702c40921866eb9d362842a41440ac`.
+Estado: VERIFIED (cierre documental post-CI, 2026-10-14).
 
 Nota de ruta: el enunciado cita `src/doremi/audio/playback_context.py`,
 pero el archivo real del rescate es `src/doremi/services/playback_context.py`
@@ -101,17 +105,33 @@ tests de base/datos. Un PR de solo-datos habría omitido el workflow
 `linux-appimage.yml`; ningún job, paso ni script cambió. Sin este cambio, las
 pruebas nuevas nunca se ejecutarían en CI.
 
+Cierre post-CI (2026-10-14): el PR #9 disparó el workflow (evento
+`pull_request`, no `skipped`) y el job Linux AppImage concluyó `success`
+sobre el HEAD `f6fdd90`. Los 15 fallos locales documentados en
+REC02-RESULTS §3 se producen solo cuando falta la extensión Rust compilada
+(`ImportError: native_rs extension module not found`); con el wheel instalado
+la suite completa pasó en CI (405 passed, incluyendo 17 de `test_native_rs.py`).
+
 ## 6. Riesgos
 
 - `downgrade` 0004→0002 elimina artefactos REC-02 (`collections`,
   `local_playlist_tracks`, `position_ms`, `local_path`). Preserva datos
-  pre-0003 por diseño, pero el contenido creado tras el upgrade se pierde al
-  degradar (comportamiento estándar de Alembic, documentado en el `downgrade`).
+  pre-0003 por diseño, pero puede destruir datos creados en las nuevas tablas
+  y columnas (filas de `collections` / `local_playlist_tracks`, valores de
+  `position_ms` / `local_path` escritos tras el upgrade) si se degrada
+  (comportamiento estándar de Alembic, documentado en el `downgrade`).
 - Sin FKs por diseño (desnormalizado para supervivencia de historial). La
   integridad referencial `local_playlist_tracks.video_id → songs.video_id` la
   garantiza la capa de repositorio futura, no la DB.
 - `position_ms` con `server_default="0"` (heredado del rescate) deja el tipo
   como entero SQLite; verificado en upgrade desde 0002 (filas viejas → `0`).
+- El smoke frozen (`DOREMI_SMOKE_OK`, 9/9) valida arranque y contenido del
+  bundle, no demuestra interacción real de las pantallas.
+- Las advertencias QML de propiedades nulas permanecen como limitación
+  conocida de la prueba.
+- Proceso: durante la fase local se creó una `.venv` ignorada dentro del
+  rescate (`uv run --project <rescate>`); no repetirlo — el rescate debe
+  conservarse estrictamente en solo lectura.
 
 ## 7. Pendiente para siguientes fases
 
@@ -123,3 +143,13 @@ pruebas nuevas nunca se ejecutarían en CI.
 4. Cableado de `playback_context` en controladores y `main_window`; `QueueItem.artists`.
 5. `listening_periods.py`, `experience_events.py`, servicios de home/artwork,
    pantallas QML/viewmodels, Rust.
+
+## 8. Cierre post-CI (2026-10-14)
+
+- PR #9 abierto (sin fusionar) sobre `build/f0b3b-linux-appimage @ 80aaf1e`;
+  HEAD de producción evaluado `f6fdd90`.
+- CI run 38499973485 (`pull_request`): job Linux AppImage `success`.
+  Evidencia completa en `REC02-RESULTS.md` §§3–5 (suite 405, nativa 17,
+  packaging 16, AppImage + smoke 9/9 PASS).
+- Este cierre es exclusivamente documental: ningún cambio de producción,
+  tests, workflows o specs. No se inicia REC-03A.

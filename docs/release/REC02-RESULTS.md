@@ -2,7 +2,10 @@
 
 Rama: `recovery/rec02-data-foundation` → destino `build/f0b3b-linux-appimage`.
 Base: `80aaf1e`. Rescate (lectura): `c00d772` (+ working-tree).
-Fecha: 2026-10-13 (UTC-4). Bases de prueba: solo `tmp_path` / `:memory:`.
+PR: `https://github.com/Eirom16/Doremi-Rust/pull/9` (abierto, sin fusionar).
+CI: `https://github.com/Eirom16/Doremi-Rust/actions/runs/38499973485` (success, `pull_request` sobre `f6fdd90`).
+HEAD evaluado: `f6fdd90934702c40921866eb9d362842a41440ac`. Estado: VERIFIED (cierre post-CI, 2026-10-14).
+Fecha: 2026-10-13 (UTC-4); cierre documental 2026-10-14. Bases de prueba: solo `tmp_path` / `:memory:`.
 
 ## 1. Migraciones
 
@@ -44,7 +47,7 @@ Fecha: 2026-10-13 (UTC-4). Bases de prueba: solo `tmp_path` / `:memory:`.
   `test_rec02_listening_session_reports_position` (`15000` tras observes, `0`
   sin posición).
 
-## 3. Tests ejecutados (local)
+## 3. Tests ejecutados (local + CI)
 
 Comando (venv aislado del worktree, Python 3.12):
 
@@ -75,14 +78,38 @@ Regresiones relevantes verdes: `test_database.py`, `test_repository.py`,
 `test_linux_packaging.py`, `test_linux_appimage.py` (estos dos últimos pasan
 sin construir el bundle; validan rutas empaquetadas, no el binario).
 
+### Cierre post-CI (2026-10-14, verificado)
+
+- CI (run 38499973485, job Linux AppImage `success` sobre `f6fdd90`):
+  suite completa **405 passed**; nativa **17 passed** (`test_native_rs.py`);
+  packaging Python **16 passed**; AppImage y smoke frozen PASS
+  (`DOREMI_SMOKE_OK`, 9/9 comprobaciones). Las pruebas REC-02 se ejecutaron
+  dentro de la suite completa del workflow (la ampliación del trigger evitó el
+  `skipped`). PR #9 abierto; base `build/f0b3b-linux-appimage @ 80aaf1e`.
+- Aclaración sobre los 15 fallos locales: se producen únicamente cuando falta
+  la extensión Rust compilada
+  (`ImportError: native_rs extension module not found`); no son regresiones de
+  REC-02. Con el wheel instalado, la suite completa pasó tanto en CI como en
+  local (ver evidencia local adicional abajo).
+- Evidencia local adicional (CachyOS, Python 3.12, `uv` + Maturin): extensión
+  `doremi-native-rs` compilada e instalada con `maturin develop --release`;
+  suite completa local **405 passed in 15.30s**; suite nativa
+  **17 passed in 0.22s**; los 15 errores anteriores desaparecieron tras
+  instalar la extensión; sin modificaciones al código de producción.
+
 ## 4. Empaquetado / nativo
 
 - Sin cambios en `*.spec`, QML, launchers, instaladores, `native_rs/`,
   `config/paths.py`, `db/database.py`. Impacto de empaquetado: nulo por diseño.
 - `doremi/db/migrations` sigue resolviéndose vía `bundle_package_dir`
   (ruta frozen verificada por los tests de packaging existentes).
-- Tests nativos (`test_native_rs.py`) no ejecutados localmente (sin wheel);
-  quedan para CI, que construye el wheel con maturin antes de la suite.
+- Tests nativos (`test_native_rs.py`): **17 passed** en CI (wheel construido
+  con maturin antes de la suite) y **17 passed in 0.22s** en local tras
+  `maturin develop --release`.
+- AppImage y smoke frozen: PASS en CI (`DOREMI_SMOKE_OK`, 9/9
+  comprobaciones). El smoke valida arranque y contenido del bundle; no
+  demuestra interacción real de las pantallas. Las advertencias QML de
+  propiedades nulas permanecen como limitación conocida de la prueba.
 
 ## 5. CI
 
@@ -90,9 +117,13 @@ sin construir el bundle; validan rutas empaquetadas, no el binario).
   workflow) para que un PR de solo-datos dispare el workflow, que a su vez
   ejecuta `pytest tests/ -q` completo. Sin este cambio el workflow se omitiría
   (`skipped`) y no habría evidencia.
-- Estado al cierre de este documento: **PENDING** (PR por abrir; ver informe
-  final para URL y runs). Hasta disponer de run verde con las pruebas REC-02
-  listadas en el log, la fase es `IMPLEMENTED / PENDING_CI`, no `VERIFIED`.
+- Estado verificado (2026-10-14): PR #9
+  (`https://github.com/Eirom16/Doremi-Rust/pull/9`, abierto, sin fusionar,
+  base `build/f0b3b-linux-appimage @ 80aaf1e`) disparó el run
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38499973485` (evento
+  `pull_request`, HEAD `f6fdd90`), job Linux AppImage `success`. Log real:
+  suite **405 passed**, nativa **17 passed**, packaging **16 passed**,
+  AppImage + smoke **PASS (9/9)**. Fase: **VERIFIED**.
 
 ## 6. Repositorios originales
 
@@ -102,3 +133,6 @@ sin construir el bundle; validan rutas empaquetadas, no el binario).
   desde esta fase (solo lectura). Un `uv run --project <rescate>` intermedio
   recreó su `.venv` ignorado (`git check-ignore .venv` OK); ningún fichero
   rastreado cambió por esa acción (`status` sigue con los mismos 84 ficheros).
+  Lección de proceso: no repetirlo — el rescate debe conservarse
+  estrictamente en solo lectura; los entornos de prueba deben crearse en el
+  worktree.
