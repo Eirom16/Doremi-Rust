@@ -6,7 +6,8 @@ Worktree: `/home/eirom/Proyectos/Doremi/worktrees/rec03a-metadata-services`.
 Rescate (solo lectura): `/home/eirom/Proyectos/Doremi/Doremi-Rust-Rescate @ c00d772`
 (`fix/f0a-ci-baseline`, working-tree con 3 ficheros `??` no versionados).
 Principal intacto: `/home/eirom/Proyectos/Doremi/Doremi-Rust @ 80aaf1e` (limpio).
-PR: apilado sobre `recovery/rec02-data-foundation` (no sobre `main`), sin fusionar.
+PR: `https://github.com/Eirom16/Doremi-Rust/pull/10` apilado sobre
+`recovery/rec02-data-foundation` (no sobre `main`), sin fusionar.
 Estado: NO VERIFIED (pendiente de CI verde; ver REC03A-RESULTS §5).
 
 ## 1. Auditoría y matriz de recuperación
@@ -95,8 +96,13 @@ experiencia, navegación, reproducción ni Rust.
 Workflow pertinente: `linux-appimage.yml` (suite completa + bundle + AppImage
 + smoke). Filtros ampliados para que el PR dispare el workflow (no `skipped`).
 PR apilado sobre `recovery/rec02-data-foundation`, sin fusionar, sin tags ni
-releases. Estado: **pendiente de verde** — no declarar VERIFIED hasta entonces.
-Enlaces verificables en REC03A-RESULTS §5 (PR + run).
+releases: `https://github.com/Eirom16/Doremi-Rust/pull/10`
+(HEAD `48ec621`). Runs `pull_request` verificables (disparados, no `skipped`):
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738` (AppImage),
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826` (Linux portable),
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754` (Windows portable).
+Estado: **pendiente de verde** — no declarar VERIFIED hasta entonces.
+Enlaces verificables en REC03A-RESULTS §5 (PR + runs).
 
 ## 6. Riesgos pendientes
 

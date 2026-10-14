@@ -109,8 +109,17 @@ Rescate no usado como entorno (prohibido); `.venv` del worktree no se commitea
 
 - Workflow pertinente: `linux-appimage.yml` (suite completa + build + AppImage
   + smoke). Cambio mínimo de `paths:` justificado en REPORT §2.
-- PR: apilado `recovery/rec03a-metadata-services` → `recovery/rec02-data-foundation`.
-  (URL del PR y run se anotan al crear el PR; sin fusionar, sin tags/releases.)
+- PR: apilado `recovery/rec03a-metadata-services` → `recovery/rec02-data-foundation`:
+  `https://github.com/Eirom16/Doremi-Rust/pull/10` (abierto, sin fusionar,
+  HEAD `48ec6214458c1aa91e92ca69209b71e6c1deaaf2`).
+  Runs `pull_request` disparados (no `skipped`):
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738`
+  (Linux AppImage F0B-3B),
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826`
+  (Linux portable),
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754`
+  (Windows portable). `windows-installer.yml` no dispara por diseño (filtro
+  `branches: [build/f0b2a-windows-portable]`).
 - Estado: **pendiente de verde**. No se declara VERIFIED. Referencia inicial
   405 tests; final esperado 448 (405 + 43) en el run de CI.
 
