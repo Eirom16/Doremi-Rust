@@ -9,7 +9,11 @@ Principal intacto: `/home/eirom/Proyectos/Doremi/Doremi-Rust @ 80aaf1e` (limpio)
 REC-02 worktree intacto: `38c1a1d`. REC-03A worktree intacto: `e657b06`.
 PRs previos abiertos sin fusionar: REC-02 `https://github.com/Eirom16/Doremi-Rust/pull/9`,
 REC-03A `https://github.com/Eirom16/Doremi-Rust/pull/10`.
-Estado: pendiente de CI sobre HEAD exacto del PR (no declarar VERIFIED hasta verde).
+Estado: VERIFIED para el alcance validado (cierre documental post-CI).
+CI: `https://github.com/Eirom16/Doremi-Rust/actions/runs/38648459157`
+(completed / success) sobre HEAD `04f3b2e9299dbfe939362ca6285a2a0c383fa5c0`.
+PR REC-03B: `https://github.com/Eirom16/Doremi-Rust/pull/11` (abierto, apilado
+sobre REC-03A, sin fusionar).
 
 ## 1. Matriz de auditoría y procedencia exacta del código
 
@@ -130,7 +134,10 @@ sin nuevas migraciones ni cambios de arquitectura):
 
 Ver `docs/release/REC03B-RESULTS.md` para comandos y detalle por test.
 Resumen: focalizada 26 passed; completa 474 passed (448 baseline +26);
-nativas 17 passed; packaging 16 passed.
+nativas 17 passed; packaging 16 passed. CI
+(`https://github.com/Eirom16/Doremi-Rust/actions/runs/38648459157`,
+completed / success) confirma sobre el HEAD exacto: suite completa
+474 passed in 12.96s, nativas 17 passed, packaging 16 passed.
 
 ## 6. Estado de empaquetado y CI
 
@@ -143,22 +150,42 @@ nativas 17 passed; packaging 16 passed.
   `db/migrations`; nuevos `.py` bajo `src/doremi/db` incluidos automáticamente;
   `AppDirs`/`bundle_package_dir` frozen-safe.
 - Smoke test no reclama funcionalidad interactiva (repos sin UI).
-- CI sobre HEAD exacto del PR pendiente de verificar antes de VERIFIED
-  (no declarar VERIFIED hasta verde).
+- Cierre VERIFIED (alcance validado): CI
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38648459157`
+  completed / success sobre HEAD `04f3b2e9299dbfe939362ca6285a2a0c383fa5c0`
+  (merge-ref `c1bb73e9d6a3c5880f6a510b6358f43b6cece42d`, REC-03B sobre REC-03A
+  `e657b06`): suite completa 474 passed in 12.96s, nativas 17 passed,
+  packaging 16 passed, AppImage Type 2 construido correctamente, ejecución
+  FUSE PASS, smoke 9/9 PASS.
+- Alcance de la verificación: no se afirman pruebas funcionales interactivas;
+  no se declara una nueva verificación independiente de Windows portable ni de
+  Linux portable más allá del alcance validado por el run citado.
 
 ## 7. Riesgos pendientes
 
-1. Lock solo proceso-local; dos procesos anexando misma playlist pueden
+1. Serialización de playlists limitada al proceso (`asyncio.Lock` en
+   `delete_playlist`/`append`): dos procesos anexando la misma playlist pueden
    colisionar PK o `max(position)` (requiere retry `busy` o serialización DB).
-2. `cover_map`/`smart offline` hacen `is_file` en loop (acotado ≤100/4 por
-   playlist, pero podría moverse a `to_thread` si playlists enormes).
-3. `remember_collections` borra thumb si el item no trae `thumbnail_url`.
-4. `tracks` oculta orphans sin limpiar (acumulación `local_playlist_tracks`
-   huérfanas).
-5. `stats` `sum(listen_time_ms)` incluye intentos inválidos (heredado rescate;
-   documentado, no cambiado para no alterar contratos).
-6. `local_identity` cambia si el archivo se mueve/symlink (duplicado esperado;
-   sin identidad por contenido).
+2. `tracks(limit=None)` sin paginación automática: por defecto devuelve la
+   playlist completa (compatible con rescate); consumidores futuros deben usar
+   `limit/offset` para listas potencialmente grandes.
+3. Comprobaciones síncronas de archivos en algunos métodos de
+   `ExperienceRepository` (`resolve_artwork`/`Path.is_file` en
+   `quick_access`/`continue_listening`/`smart_tracks`/`stats`, acotado por
+   `limit`; `get_available_video_ids` ya usa `to_thread`).
+4. Posible pérdida de thumbnails al actualizar determinadas colecciones:
+   `remember_collections` sobrescribe `thumbnail_url` con `""` si el item no
+   trae thumbnail.
+5. Referencias huérfanas aplazadas: `tracks` oculta `local_playlist_tracks`
+   sin `Song` (inner join) sin limpieza agresiva (acumulación posible).
+6. Identidad de canción local vinculada a la ruta (`local:sha256(resolved)`):
+   mover el archivo o cambiar symlinks genera duplicado (sin identidad por
+   contenido); `resolve()` sigue symlinks.
+7. Advertencias QML preexistentes (fuera del alcance REC-03B; sin cambios QML
+   en esta fase).
+8. Licencias pendientes: publicación pública BLOQUEADA.
+9. `stats` `sum(listen_time_ms)` incluye intentos inválidos (heredado del
+   rescate; documentado, no cambiado para no alterar contratos).
 
 ## 8. Confirmación de integridad de todos los árboles
 
@@ -175,8 +202,9 @@ nativas 17 passed; packaging 16 passed.
 
 ## 9. Siguiente fase recomendada
 
-REC-03C (solo tras CI verde y sin fusionar REC-03B): cablear
-`home_composer/listening_periods` + `playlist_data/library_data/search_data/
-stats_data` sobre estos repositorios, con tests de composición offline y
-`gather_playlist` mixta, manteniendo prohibición QML/viewmodels/controladores
-hasta fase posterior. No iniciar REC-03C ni fusionar ramas en esta entrega.
+REC-03B queda VERIFIED para el alcance validado. La siguiente fase recomendada
+(solo como propuesta, sin iniciar REC-03C ni fusionar ramas en esta entrega)
+sería cablear `home_composer/listening_periods` + `playlist_data/library_data/
+search_data/stats_data` sobre estos repositorios, con tests de composición
+offline y `gather_playlist` mixta, manteniendo la prohibición de
+QML/viewmodels/controladores hasta fase posterior.

@@ -3,8 +3,10 @@
 Rama: `recovery/rec03b-data-repositories` → destino `recovery/rec03a-metadata-services`.
 Base: `e657b06c18b0915b45f5473c2fe2971ce3701447`. Rescate (lectura): `c00d772`
 (+ working-tree modificado auditado con sha256 `e9d226e5…`/`b3650a18…`).
-PR: apilado sobre `recovery/rec03a-metadata-services` (abierto, sin fusionar,
-sin tags/releases). Fecha: 2026-10-14 (UTC). Solo `tmp_path`/`XDG_*` temporales.
+PR: `https://github.com/Eirom16/Doremi-Rust/pull/11` apilado sobre
+`recovery/rec03a-metadata-services` (abierto, sin fusionar, sin tags/releases).
+Fecha: 2026-10-14 (UTC). Solo `tmp_path`/`XDG_*` temporales.
+Estado: VERIFIED para el alcance validado (cierre documental post-CI).
 
 ## 1. Pruebas nuevas (26 passed)
 
@@ -52,6 +54,14 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
 
 Resultado: **474 passed in ~17s** (448 baseline REC-03A +26 nuevas).
 Desglose: 457 no-nativas +17 nativas. Sin skips forzados, sin fallos.
+
+Evidencia CI verificada
+(`https://github.com/Eirom16/Doremi-Rust/actions/runs/38648459157`,
+completed / success, merge-ref
+`c1bb73e9d6a3c5880f6a510b6358f43b6cece42d` correspondiente a REC-03B HEAD
+`04f3b2e` sobre REC-03A `e657b06`): suite completa **474 passed in 12.96s**,
+nativas **17 passed**, packaging **16 passed**, AppImage Type 2 construido
+correctamente, ejecución FUSE PASS, smoke 9/9 PASS.
 
 Nativas:
 
@@ -103,6 +113,20 @@ deps; `AppDirs` frozen-safe.
 
 - Workflows: `linux-appimage/linux-portable/windows-portable` ejecutan suite;
   `native*` no afectados. Cambios activan `test_rec03b_*` + suite.
-- Smoke no reclama UI. CI sobre HEAD exacto del PR pendiente → no VERIFIED
-  hasta verde. Commits pequeños + PR apilado sobre
-  `recovery/rec03a-metadata-services`. No fusionar, no tags/releases, no REC-03C.
+- Smoke no reclama UI (repos sin UI; smoke 9/9 PASS del run citado corresponde
+  al arranque/empaquetado, no a funcionalidad interactiva).
+- Cierre VERIFIED para el alcance validado: CI
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38648459157`
+  completed / success sobre HEAD exacto `04f3b2e` (merge-ref `c1bb73e9…`).
+  No se afirman pruebas funcionales interactivas; no se declara una nueva
+  verificación independiente de Windows portable ni de Linux portable más allá
+  del alcance validado por dicho run.
+- Riesgos que permanecen documentados: serialización de playlists limitada al
+  proceso; `tracks(limit=None)` sin paginación automática; comprobaciones
+  síncronas de archivos en algunos métodos de `ExperienceRepository`; posible
+  pérdida de thumbnails al actualizar determinadas colecciones; referencias
+  huérfanas aplazadas; identidad de canción local vinculada a la ruta;
+  advertencias QML preexistentes; licencias pendientes (publicación pública
+  BLOQUEADA).
+- Commits pequeños + PR #11 apilado sobre `recovery/rec03a-metadata-services`.
+  PR abierto y apilado. No fusionar, no tags/releases, no iniciar REC-03C.
