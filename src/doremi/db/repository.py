@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+import asyncio
+from pathlib import Path
 from sqlalchemy import delete, select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from doremi.db.database import get_session
@@ -30,6 +32,51 @@ class SongRepository:
                 select(Song).where(Song.video_id == video_id)
             )
             return result.scalar_one_or_none()
+
+    async def ensure_songs(self, items):
+        """Insert missing metadata in batches, retaining likes/plays of known IDs.
+
+        REC-03B recovery from rescue working tree
+        (``src/doremi/db/repository.py``,
+        ``SongRepository.ensure_songs``). Idempotent: only missing
+        ``video_id`` are inserted; existing rows (likes/plays) are untouched.
+        """
+        if items is None or not isinstance(items, (list, tuple)):
+            raise ValueError("Invalid items")
+        if not items:
+            return
+        candidates: dict[str, dict] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError("Invalid items")
+            video_id = item.get("video_id")
+            title = item.get("title")
+            artist = item.get("artist")
+            if not isinstance(video_id, str) or not video_id:
+                raise ValueError("Invalid items")
+            if not isinstance(title, str) or not isinstance(artist, str):
+                raise ValueError("Invalid items")
+            candidates[video_id] = item
+        keys = list(candidates)
+        async with get_session() as session:
+            try:
+                known = set()
+                for offset in range(0, len(keys), 500):
+                    known.update((await session.scalars(select(Song.video_id).where(
+                        Song.video_id.in_(keys[offset:offset + 500])))).all())
+                for identity in candidates.keys() - known:
+                    item = candidates[identity]
+                    session.add(Song(video_id=identity, title=item["title"], artist=item["artist"],
+                                     album=item.get("album", "") if isinstance(item.get("album", ""), str) else "",
+                                     duration_ms=item.get("duration_ms", 0) if isinstance(item.get("duration_ms", 0), int) else 0,
+                                     thumbnail_url=item.get("thumbnail_url", "") if isinstance(item.get("thumbnail_url", ""), str) else ""))
+                await session.commit()
+            except Exception:
+                try:
+                    await session.rollback()
+                except Exception:
+                    pass
+                raise
 
     async def get_liked_songs(self) -> list[Song]:
         async with get_session() as session:
@@ -199,6 +246,29 @@ class HistoryRepository:
 
 
 class DownloadRepository:
+
+    async def get_available_video_ids(self, video_ids):
+        """Batch-check only visible candidates; stale DB paths are not offline.
+
+        REC-03B recovery from rescue working tree
+        (``src/doremi/db/repository.py``,
+        ``DownloadRepository.get_available_video_ids``). Filesystem checks
+        run in a worker thread; empty input returns ``set()`` without I/O.
+        """
+        if video_ids is None or not isinstance(video_ids, (list, tuple)):
+            raise ValueError("Invalid video_ids")
+        candidates = list(dict.fromkeys(video_ids))
+        for candidate in candidates:
+            if not isinstance(candidate, str):
+                raise ValueError("Invalid video_ids")
+        if not candidates:
+            return set()
+        paths = []
+        async with get_session() as session:
+            for offset in range(0, len(candidates), 500):
+                paths.extend((await session.execute(select(Download.video_id, Download.file_path)
+                    .where(Download.video_id.in_(candidates[offset:offset + 500])))).all())
+        return await asyncio.to_thread(lambda: {identity for identity, path in paths if path and Path(path).is_file()})
 
     async def get_download(self, video_id: str) -> Download | None:
         async with get_session() as session:
