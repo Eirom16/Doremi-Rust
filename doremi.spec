@@ -83,7 +83,12 @@ hiddenimports = [
     "win32ctypes.core",
     "yt_dlp",
     "PIL",
+    # mutagen.File() dispatches dynamically to format readers
+    # (mp3/flac/mp4/ogg/wav/...) that modulegraph cannot see statically;
+    # collect_submodules guarantees frozen builds include them.
+    "mutagen",
 ]
+hiddenimports += collect_submodules("mutagen")
 hiddenimports += collect_submodules("yt_dlp.extractor")
 hiddenimports += collect_submodules("yt_dlp.postprocessor")
 
