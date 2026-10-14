@@ -2,8 +2,10 @@
 
 Rama: `recovery/rec03a-metadata-services` → destino `recovery/rec02-data-foundation`.
 Base: `38c1a1d1da2ab1f5cc5afc676971cdddbc06487e`. Rescate (lectura): `c00d772` (+ 3 `??`).
-PR: apilado sobre `recovery/rec02-data-foundation` (no sobre `main`), abierto, sin fusionar.
-Estado: NO VERIFIED (pendiente CI verde). Fecha: 2026-10-14 (UTC). Solo `tmp_path`/`XDG_*` temporales.
+PR: `https://github.com/Eirom16/Doremi-Rust/pull/10` apilado sobre
+`recovery/rec02-data-foundation` (no sobre `main`), abierto, sin fusionar.
+Código evaluado: `48ec6214458c1aa91e92ca69209b71e6c1deaaf2`.
+Estado: VERIFIED (cierre documental post-CI). Fecha: 2026-10-14 (UTC). Solo `tmp_path`/`XDG_*` temporales.
 
 ## 1. Pruebas nuevas (43 passed)
 
@@ -44,7 +46,7 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=src .venv/bin/python -m pytest tests/ -q
 ```
 
 Resultado: **448 passed in 17.82s** (405 baseline REC-02 + 43 nuevas).
-Sin skips forzados, sin fallos.
+Sin skips forzados, sin fallos. CI AppImage confirma 448 sobre el mismo código.
 
 Nativas (wheel `maturin build --release --locked`, instalado en venv):
 
@@ -80,11 +82,16 @@ Rescate no usado como entorno (prohibido); `.venv` del worktree no se commitea
 
 - Sin cambios en `datas/binaries/excludes`, QML, launchers, instaladores,
   `native_rs/`, `config/paths.py`, `db/*`. Impacto: +`mutagen` en deps y frozen.
+- PyInstaller procesó los imports ocultos de `mutagen` en los tres bundles:
+  `mutagen-1.48.1` instalado desde `pyproject` y logs con
+  `Analyzing hidden import 'mutagen...'` más
+  `Adding imports: [..., 'mutagen', ...]` (AppImage, Linux portable y Windows
+  portable verificados en §5).
 - `AppDirs` frozen-aware intacto: caché a XDG, nunca a `_MEIPASS` (verificado
   por tests de contención + `is_relative_to`).
 - Nativo Rust sin modificar; solo compilado para pruebas (mismo flujo que CI).
-- Smoke frozen (`DOREMI_SMOKE_OK` 9/9) no se usa como sustituto funcional;
-  queda para CI (AppImage A/B/C + portable) sobre este HEAD.
+- Smoke frozen (`DOREMI_SMOKE_OK` 9/9) no equivale a prueba funcional
+  interactiva; valida arranque y contenido del bundle (ver límites en §6).
 
 ## 4. Archivos y diff
 
@@ -107,27 +114,54 @@ Rescate no usado como entorno (prohibido); `.venv` del worktree no se commitea
 
 ## 5. CI
 
-- Workflow pertinente: `linux-appimage.yml` (suite completa + build + AppImage
-  + smoke). Cambio mínimo de `paths:` justificado en REPORT §2.
-- PR: apilado `recovery/rec03a-metadata-services` → `recovery/rec02-data-foundation`:
-  `https://github.com/Eirom16/Doremi-Rust/pull/10` (abierto, sin fusionar,
-  HEAD `48ec6214458c1aa91e92ca69209b71e6c1deaaf2`).
-  Runs `pull_request` disparados (no `skipped`):
-  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738`
-  (Linux AppImage F0B-3B),
-  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826`
-  (Linux portable),
-  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754`
-  (Windows portable). `windows-installer.yml` no dispara por diseño (filtro
-  `branches: [build/f0b2a-windows-portable]`).
-- Estado: **pendiente de verde**. No se declara VERIFIED. Referencia inicial
-  405 tests; final esperado 448 (405 + 43) en el run de CI.
+- Cambio mínimo de `paths:` en `linux-appimage.yml` justificado en REPORT §2;
+  los tres workflows dispararon por `pull_request` (no `skipped`).
+- PR `https://github.com/Eirom16/Doremi-Rust/pull/10` (abierto, sin fusionar,
+  código evaluado `48ec6214458c1aa91e92ca69209b71e6c1deaaf2`).
 
-## 6. Riesgos (resumen; detalle en REPORT §6)
+**AppImage — SUCCESS**
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738`
+(`pull_request`, job `Linux x86_64 AppImage (type 2)` success):
+**448 passed in 14.92s**, nativas **17 passed in 0.16s**, packaging
+**16 passed in 0.18s**, generación de AppImage y smoke tests completados
+(`DOREMI_SMOKE_OK`, 9/9: directo, launcher, A/B/C).
 
-Packaging real pendiente de bundles CI; rendimiento exige `to_thread` fuera del
-hilo Qt; disco solo escribe carátula atómica (verificado); licencias mantienen
-**bloqueada** la publicación pública (`mutagen` GPLv2 incluida).
+**Linux portable — SUCCESS**
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826`
+(job `Linux x86_64 portable tar.gz` success):
+**447 passed, 1 skipped in 9.43s**, nativas **17 passed in 0.13s**,
+construcción portable y smoke tests completados (`DOREMI_SMOKE_OK`, 9/9).
+Omisión documentada sin ocultarla ni convertirla en fallo: es un skip
+condicional preexistente de packaging Linux (`desktop-file-validate` no
+instalado / `Linux-only env semantics`; `pytest -q` no expone el motivo),
+ajeno a REC-03A; el run AppImage sobre el mismo HEAD registra 448 sin
+omisiones.
+
+**Windows portable — SUCCESS**
+`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754`
+(job `Windows x64 portable ZIP` success):
+nativas **17 passed in 0.50s**, construcción del portable (`doremi.spec`) y
+smoke test completados (`DOREMI_SMOKE_OK`, `ok: True`, 9/9 checks,
+`f0b2a.windows.0c80db4d31eb`). Este workflow no ejecuta la suite completa por
+diseño (solo nativas + build + smoke). `windows-installer.yml` no dispara por
+diseño (`branches: [build/f0b2a-windows-portable]`).
+
+**Pruebas locales:** **448 passed**, incluyendo 43 nuevas
+(`tests/test_rec03a_metadata_services.py` 43 passed; suite completa 448;
+nativas 17; packaging 16).
+
+Estado: **VERIFIED** con los límites de §6. Referencia inicial 405 tests;
+final verificado 448 en AppImage (447 + 1 skipped documentado en portable).
+
+## 6. Límites explícitos de VERIFIED (resumen; detalle en REPORT §6)
+
+- Smoke test no equivale a prueba funcional interactiva (solo arranque/contenido).
+- Persisten advertencias QML preexistentes de propiedades nulas.
+- `read_metadata()` debe ejecutarse fuera del hilo principal de Qt cuando se integre.
+- No están recuperados los repositorios, controladores ni consumidores QML aplazados.
+- Publicación pública bloqueada por licencias (`mutagen` GPLv2 incluida).
+- Packaging verificado en los tres bundles CI (§5); disco solo escribe carátula
+  atómica sin modificar la biblioteca.
 
 ## 7. Árboles intactos
 

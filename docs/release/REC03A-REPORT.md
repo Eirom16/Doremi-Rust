@@ -8,7 +8,7 @@ Rescate (solo lectura): `/home/eirom/Proyectos/Doremi/Doremi-Rust-Rescate @ c00d
 Principal intacto: `/home/eirom/Proyectos/Doremi/Doremi-Rust @ 80aaf1e` (limpio).
 PR: `https://github.com/Eirom16/Doremi-Rust/pull/10` apilado sobre
 `recovery/rec02-data-foundation` (no sobre `main`), sin fusionar.
-Estado: NO VERIFIED (pendiente de CI verde; ver REC03A-RESULTS §5).
+Estado: VERIFIED (cierre documental post-CI; código evaluado `48ec621`; ver §5).
 
 ## 1. Auditoría y matriz de recuperación
 
@@ -85,46 +85,74 @@ experiencia, navegación, reproducción ni Rust.
 
 ## 4. Pruebas (resumen; detalle en REC03A-RESULTS)
 
-- Nuevas: `tests/test_rec03a_metadata_services.py` — **43 passed**.
-- Completa: **448 passed** (405 baseline REC-02 + 43 nuevas).
-- Nativas: **17 passed** (`test_native_rs.py`, wheel `maturin --release`).
-- Packaging Python: **16 passed** (`test_linux_packaging` + `test_linux_appimage`).
+- Nuevas: `tests/test_rec03a_metadata_services.py` — **43 passed** (local).
+- Completa local: **448 passed** (405 baseline REC-02 + 43 nuevas).
+- Nativas local: **17 passed** (`test_native_rs.py`, wheel `maturin --release`).
+- Packaging Python local: **16 passed** (`test_linux_packaging` + `test_linux_appimage`).
+- CI verifica lo mismo sobre el código evaluado `48ec621`: AppImage
+  **448 passed** + 17 nativas + 16 packaging; Linux portable
+  **447 passed, 1 skipped** + 17 nativas (omisión documentada en RESULTS §5,
+  no es fallo); Windows portable 17 nativas + build + smoke. Ver §5.
 - `git diff --check`: OK. Specs `py_compile`: OK.
 
 ## 5. CI
 
-Workflow pertinente: `linux-appimage.yml` (suite completa + bundle + AppImage
-+ smoke). Filtros ampliados para que el PR dispare el workflow (no `skipped`).
-PR apilado sobre `recovery/rec02-data-foundation`, sin fusionar, sin tags ni
-releases: `https://github.com/Eirom16/Doremi-Rust/pull/10`
-(HEAD `48ec621`). Runs `pull_request` verificables (disparados, no `skipped`):
-`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738` (AppImage),
-`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826` (Linux portable),
-`https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754` (Windows portable).
-Estado: **pendiente de verde** — no declarar VERIFIED hasta entonces.
-Enlaces verificables en REC03A-RESULTS §5 (PR + runs).
+Verificado SUCCESS sobre el código evaluado `48ec621` (evento `pull_request`
+del PR #10; filtros `paths:` dispararon los workflows, no `skipped`):
 
-## 6. Riesgos pendientes
+- AppImage SUCCESS —
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766738`:
+  **448 passed in 14.92s**, nativas **17 passed in 0.16s**, packaging
+  **16 passed in 0.18s**, `mutagen-1.48.1` instalado desde `pyproject`,
+  PyInstaller con `Analyzing hidden import 'mutagen...'` y
+  `Adding imports: [..., 'mutagen', ...]`, generación AppImage y smoke tests
+  completados (`DOREMI_SMOKE_OK`, 9/9: directo, launcher, A/B/C).
+- Linux portable SUCCESS —
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766826`:
+  **447 passed, 1 skipped in 9.43s**, nativas **17 passed in 0.13s**,
+  construcción portable y smoke tests completados (`DOREMI_SMOKE_OK`, 9/9).
+  La omisión (1 skipped) se documenta sin ocultarla ni convertirla en fallo:
+  es un skip condicional preexistente de packaging Linux
+  (`desktop-file-validate` no instalado / `Linux-only env semantics`,
+  `pytest -q` no muestra el motivo), ajeno a REC-03A; el run AppImage sobre el
+  mismo HEAD muestra 448 sin omisiones.
+- Windows portable SUCCESS —
+  `https://github.com/Eirom16/Doremi-Rust/actions/runs/38572766754`:
+  nativas **17 passed in 0.50s**, `mutagen-1.48.1` instalado, PyInstaller con
+  `Analyzing hidden import 'mutagen...'` (`doremi.spec` verificado en Windows),
+  construcción del portable y smoke test completados (`DOREMI_SMOKE_OK`,
+  `ok: True`, 9/9 checks, `f0b2a.windows.0c80db4d31eb`). Este workflow no
+  ejecuta la suite completa por diseño (solo nativas + build + smoke).
+- `windows-installer.yml` no dispara por diseño
+  (filtro `branches: [build/f0b2a-windows-portable]`).
+- PR #10 abierto y apilado sobre `recovery/rec02-data-foundation`, sin
+  fusionar, sin tags ni releases. Estado: **VERIFIED** con los límites de §6.
+Enlaces adicionales en REC03A-RESULTS §5.
 
-- **Packaging**: `mutagen` añadido a deps + frozen, pero la compatibilidad real
-  de portable/AppImage/Windows solo queda demostrada cuando CI construya los
-  bundles con el wheel instalado. No se afirma compat Windows sin su workflow
-  verde. `collect_submodules("mutagen")` cubre los 36 lectores, pero un formato
-  exótico no ejercitado podría revelar un import dinámico adicional.
-- **Rendimiento**: `read_metadata` es síncrona (PIL decode + `thumbnail(1024)`
-  + JPEG q90). Llamarla en el hilo Qt bloquearía la UI. Mitigación: contrato
-  documentado + test `test_read_metadata_is_synchronous`; consumidores futuros
-  deben usar `to_thread`/worker. Límite 16 MiB previo a decode + `verify()`
-  acotan memoria/DoS; `thumbnail` acota a 1024px.
-- **Disco**: la única escritura es la carátula content-addressed bajo
-  `artwork_cache` (atómica tmp+`replace`, `missing_ok`, idempotente por hash).
-  Concurrente verificado (8 hilos, sin `*.tmp`). No se modifica la biblioteca
-  musical (bytes idénticos pre/post, verificado).
-- **Licencias**: publicación pública sigue **BLOQUEADA** (VLC/Qt/Python/Rust/
-  fonts, ver `THIRD-PARTY-NOTICES`). Sin releases/tags. `mutagen` es GPLv2 —
-  incorporarla al bundle mantiene el bloqueo vigente; no se publica nada.
-- **Alcance**: cualquier necesidad de QML/controladores/DB/reproducción debe
-  aplazarse a su fase, no ampliarse silenciosamente.
+## 6. Riesgos pendientes y límites explícitos de VERIFIED
+
+- **Packaging verificado**: los tres bundles construyeron con `mutagen`
+  procesado por PyInstaller (ver §5). `collect_submodules("mutagen")` cubrió
+  los lectores dinámicos; un formato exótico no ejercitado podría revelar un
+  import adicional, pero ningún formato soportado falló en CI.
+- **Smoke ≠ funcional interactiva**: `DOREMI_SMOKE_OK` 9/9 valida arranque y
+  contenido del bundle (Qt/VLC/dirs/migraciones/fuentes/Rust/puente/QML),
+  no interacción real de pantallas.
+- **QML**: persisten advertencias preexistentes de propiedades nulas como
+  limitación conocida; no se introducen nuevas superficies QML en REC-03A.
+- **Rendimiento**: `read_metadata()` debe ejecutarse fuera del hilo principal
+  de Qt cuando se integre (`asyncio.to_thread`/worker). Es síncrona por diseño
+  (PIL decode + `thumbnail(1024)` + JPEG q90); el límite 16 MiB previo a decode
+  y `thumbnail` acotan memoria/DoS. Contrato documentado + test síncrono.
+- **Alcance no recuperado**: repositorios (`LocalLibraryRepository`,
+  `ExperienceRepository`), controladores, navegación, reproducción y
+  consumidores QML/viewmodels siguen aplazados a fases posteriores.
+- **Licencias**: publicación pública permanece **BLOQUEADA** (VLC/Qt/Python/
+  Rust/fonts, ver `THIRD-PARTY-NOTICES`). Sin releases/tags. `mutagen` es
+  GPLv2 — incorporarla al bundle mantiene el bloqueo vigente.
+- **Disco/biblioteca**: la única escritura es la carátula content-addressed
+  bajo `artwork_cache` (atómica tmp+`replace`, idempotente por hash,
+  concurrente verificada). La biblioteca musical no se modifica.
 
 ## 7. Integridad de árboles
 
