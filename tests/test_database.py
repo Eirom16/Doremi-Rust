@@ -45,7 +45,7 @@ async def test_database_initialization_uses_alembic_for_file_db(monkeypatch, tmp
 
     async with db.get_session() as session:
         result = await session.execute(text("SELECT version_num FROM alembic_version;"))
-        assert result.scalar_one() == "20260926_0002"
+        assert result.scalar_one() == "20260929_0004"
 
         result = await session.execute(text("PRAGMA table_info(downloads)"))
         download_columns = {row[1] for row in result.fetchall()}
