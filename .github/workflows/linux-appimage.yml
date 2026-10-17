@@ -36,6 +36,11 @@ on:
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
       - "tests/test_rec03a*.py"
+      - "tests/test_rec03b*.py"
+      - "tests/test_rec03c*.py"
+      - "src/doremi/db/experience_repository.py"
+      - "src/doremi/services/listening_periods.py"
+      - "src/doremi/ui/screens/playlist_data.py"
   pull_request:
     paths:
       - "doremi-linux.spec"
@@ -65,6 +70,11 @@ on:
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
       - "tests/test_rec03a*.py"
+      - "tests/test_rec03b*.py"
+      - "tests/test_rec03c*.py"
+      - "src/doremi/db/experience_repository.py"
+      - "src/doremi/services/listening_periods.py"
+      - "src/doremi/ui/screens/playlist_data.py"
   workflow_dispatch:
 
 env:

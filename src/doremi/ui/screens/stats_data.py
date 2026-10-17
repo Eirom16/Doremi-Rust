@@ -1,4 +1,18 @@
-"""Shared data loading for Stats screen — used by both widget and QML versions."""
+"""Shared data loading for Stats screen — used by both widget and QML versions.
+
+REC-03C.2 recovery from rescue working tree
+(``Doremi-Rust-Rescate`` ``src/doremi/ui/screens/stats_data.py``,
+``gather_stats`` only). ``enrich_artist_portraits`` is deliberately NOT
+recovered: it mixes network (``yt_client.search``/``get_artist``) with
+writes to ``Collection`` from a presentation function. Remote portrait
+resolution stays deferred to an explicit later phase.
+
+``gather_stats(period)`` delegates to ``ExperienceRepository.stats`` (SQL
+aggregation, no 500 cap, history as source of truth). ``gather_stats()``
+legacy path is a read-only UI summary over the last 500 history rows plus
+at most 5x2 song/download lookups (bounded, no N+1 over history); it never
+writes. ``today`` is injectable for deterministic tests.
+"""
 from __future__ import annotations
 
 import datetime
@@ -7,8 +21,11 @@ from collections import Counter
 from loguru import logger
 
 
-async def gather_stats() -> dict:
+async def gather_stats(period=None, *, today=None) -> dict:
     """Calcula métricas de escucha desde el historial local."""
+    if period is not None:
+        from doremi.db.experience_repository import ExperienceRepository
+        return await ExperienceRepository().stats(period)
     result = {
         "time_listened": "0m",
         "total_plays": 0,
@@ -72,7 +89,7 @@ async def gather_stats() -> dict:
 
     # Actividad últimos 7 días
     weekday_map = {0: "Lun", 1: "Mar", 2: "Mié", 3: "Jue", 4: "Vie", 5: "Sáb", 6: "Dom"}
-    today = datetime.date.today()
+    today = today or datetime.date.today()
     days: dict[datetime.date, int] = {
         today - datetime.timedelta(days=i): 0 for i in range(6, -1, -1)
     }
