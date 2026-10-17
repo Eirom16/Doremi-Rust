@@ -116,15 +116,37 @@ class ListeningPeriods:
                      **cover_fields(json.loads(r[6] or "[]"))) for r in rows]
 
     async def tracks(self, first_id, last_id, cutoff=None, *, limit=None, offset=0):
+        """Chronological tracks of a listening period with SQL page pushdown.
+
+        Membership keeps the REC-03C.2 window-function semantics: IDs are
+        stable route markers (interleaved import IDs supported), history is
+        never written and the final order is ``(played_at, id)``. When a
+        small page is requested, ``LIMIT :limit OFFSET :offset`` is applied
+        to the period-members CTE in SQLite, so only the page's rows are
+        materialized (the old implementation loaded every member's
+        History/Song/Download rows and sliced in Python). ``limit=None``
+        keeps the legacy full-materialize contract used by
+        ``save_as_playlist``/full views; chunked IN-fetches (≤500 ids) still
+        respect SQLite variable limits, and the same Python sort keeps the
+        sequence identical regardless of chunk boundaries.
+        """
         if first_id < 1 or last_id < first_id:
             return []
         offset = _coerce_offset(offset)
         if limit is not None:
             limit = _coerce_limit(limit, default=_MAX_LIMIT, name="limit")
+        params = {"first": first_id, "last": last_id,
+                  "cutoff": cutoff.isoformat(sep=" ") if cutoff else None}
+        # The page cut travels in SQL; `limiter` is one of two fixed literal
+        # fragments (never caller-controlled text), so the f-string stays
+        # safe.
+        limiter = "" if limit is None else "\n                LIMIT :limit OFFSET :offset"
+        if limit is not None:
+            params["limit"], params["offset"] = limit, offset
         async with get_session() as session:
             # IDs are stable route markers, not a chronological range: imported
             # history can interleave the IDs of two different periods.
-            member_ids = (await session.execute(text("""
+            page_ids = (await session.execute(text(f"""
                 WITH ordered AS (
                     SELECT id, played_at,
                            lag(played_at) OVER (ORDER BY played_at, id) AS previous
@@ -135,32 +157,32 @@ class ListeningPeriods:
                         (julianday(played_at)-julianday(previous))*1440 > 30 THEN 1 ELSE 0 END AS starts
                     FROM ordered
                 ), groups AS (
-                    SELECT id, sum(starts) OVER
+                    SELECT id, played_at, sum(starts) OVER
                         (ORDER BY played_at, id ROWS UNBOUNDED PRECEDING) AS period FROM marks
                 )
                 SELECT id FROM groups WHERE period IN (
                     SELECT period FROM groups WHERE id = :first
                 ) AND period IN (
                     SELECT period FROM groups WHERE id = :last
-                )
-            """), {"first": first_id, "last": last_id,
-                    "cutoff": cutoff.isoformat(sep=" ") if cutoff else None})).scalars().all()
-            if not member_ids:
+                ) ORDER BY played_at, id{limiter}
+            """), params)).scalars().all()
+            if not page_ids:
                 return []
-            # Chronological page over the period members. Batch the IN fetch
-            # to stay under SQLite variable limits; final order is applied in
-            # Python so chunking never changes the sequence.
-            by_id = {}
-            for start in range(0, len(member_ids), _BATCH_IDS):
-                chunk = member_ids[start:start + _BATCH_IDS]
-                rows = (await session.execute(select(H, Song, Download.file_path, Download.thumbnail_url)
+            # Page rows (page-sized for limit windows, full members for the
+            # legacy unlimited contract). Batch the IN fetch to stay under
+            # SQLite variable limits; the same (played_at, id) sort as before
+            # keeps the sequence identical regardless of chunk boundaries.
+            rows = []
+            for start in range(0, len(page_ids), _BATCH_IDS):
+                chunk = page_ids[start:start + _BATCH_IDS]
+                rows.extend((await session.execute(select(H, Song, Download.file_path, Download.thumbnail_url)
                     .outerjoin(Song, Song.video_id == H.video_id)
                     .outerjoin(Download, Download.video_id == H.video_id)
-                    .where(H.id.in_(chunk)))).all()
-                for history, song, download_path, downloaded_thumbnail in rows:
-                    by_id[history.id] = (history, song, download_path, downloaded_thumbnail)
-            ordered = sorted(by_id.values(), key=lambda r: (r[0].played_at, r[0].id))
-            page = ordered[offset:(offset + limit) if limit is not None else None]
+                    .where(H.id.in_(chunk)))).all())
+            ordered = sorted(rows, key=lambda r: (r[0].played_at, r[0].id))
+            # limit windows were already cut in SQL; only the legacy full path
+            # applies the offset in Python.
+            page = ordered if limit is not None else ordered[offset:None]
         tracks = []
         for history, song, download_path, downloaded_thumbnail in page:
             if song:

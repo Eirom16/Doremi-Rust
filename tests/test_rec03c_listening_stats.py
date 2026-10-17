@@ -222,6 +222,87 @@ async def test_rec03c2_stats_period_delegates_and_today_injectable(isolated_db):
 
 
 @pytest.mark.asyncio
+async def test_rec03c2_tracks_large_session_sql_pagination(isolated_db):
+    # Sesión extensa (620 entradas): la página pequeña se recorta en SQL
+    # (LIMIT/OFFSET en el CTE de períodos) y NO materializa todos los
+    # identificadores/objetos en Python; el contrato legacy limit=None
+    # conserva el camino completo (save_as_playlist lo usa).
+    from doremi.db.database import get_session
+    from doremi.db.models import PlayHistory
+    from doremi.services.listening_periods import ListeningPeriods
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with get_session() as session:
+        session.add_all([PlayHistory(video_id=f"s{i:04d}", title=f"T{i}", artist="A",
+                                     played_at=now - timedelta(seconds=(620 - i) * 2),
+                                     listen_time_ms=60000, was_played=True)
+                         for i in range(620)])
+        await session.commit()
+    periods = await ListeningPeriods().recent(limit=1)
+    assert periods[0]["track_count"] == 620
+    args = ListeningPeriods.parse_identity(periods[0]["navigate"].split("id=", 1)[1])
+    expected = [f"s{i:04d}" for i in range(620)]
+    assert [t["videoId"] for t in await ListeningPeriods().tracks(*args, limit=100, offset=200)] == expected[200:300]
+    # Páginas consecutivas sin omisiones ni repeticiones.
+    chained = []
+    for start in range(0, 620, 100):
+        chained.extend(await ListeningPeriods().tracks(*args, limit=100, offset=start))
+    assert [t["videoId"] for t in chained] == expected
+    # Camino completo (limit=None): mismo orden y contenido.
+    full = await ListeningPeriods().tracks(*args)
+    assert [t["videoId"] for t in full] == expected
+    # Evidencia: el recorte viaja en SQL y ningún enunciado enlaza todos los
+    # miembros (el camino antiguo enlazaba ~620 ids por lotes).
+    from sqlalchemy import event
+    statements = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        values = list(parameters) if isinstance(parameters, (list, tuple)) else list(parameters or {})
+        statements.append((statement, values))
+
+    import doremi.db.database as db
+    from sqlalchemy import event as sync_event
+    event.listen(db.get_engine().sync_engine, "before_cursor_execute", capture)
+    try:
+        page = await ListeningPeriods().tracks(*args, limit=5, offset=300)
+    finally:
+        sync_event.remove(db.get_engine().sync_engine, "before_cursor_execute", capture)
+    assert [t["videoId"] for t in page] == expected[300:305]
+    assert any("LIMIT" in sql and "OFFSET" in sql for sql, _ in statements)
+    # Ningún enunciado ejecutado materializó 620 miembros: el máximo de
+    # parámetros enlazados queda en el rango de la página (≤ lote/acumulador).
+    assert max(len(values) for _, values in statements) <= 10
+
+
+@pytest.mark.asyncio
+async def test_rec03c2_tracks_interleaved_ids_sql_paging(isolated_db):
+    # IDs históricos intercalados: el recorte LIMIT/OFFSET en SQL respeta la
+    # membresía del período y no se apoya en suponer IDs cronológicos.
+    from doremi.db.database import get_session
+    from doremi.db.models import PlayHistory
+    from doremi.services.listening_periods import ListeningPeriods
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with get_session() as session:
+        session.add_all([
+            PlayHistory(video_id="solo", title="S", artist="Ar", played_at=now - timedelta(minutes=10),
+                        listen_time_ms=60000, was_played=True),
+            PlayHistory(video_id="period_new", title="Pn", artist="Ar", played_at=now - timedelta(minutes=45),
+                        listen_time_ms=60000, was_played=True),
+            PlayHistory(video_id="period_old", title="Po", artist="Ar", played_at=now - timedelta(minutes=60),
+                        listen_time_ms=60000, was_played=True),
+        ])
+        await session.commit()
+    periods = await ListeningPeriods().recent(limit=2)
+    recent_args = ListeningPeriods.parse_identity(periods[0]["navigate"].split("id=", 1)[1])
+    assert [t["videoId"] for t in await ListeningPeriods().tracks(*recent_args)] == ["solo"]
+    older_args = ListeningPeriods.parse_identity(periods[1]["navigate"].split("id=", 1)[1])
+    # Miembros {3 (period_old), 2 (period_new)}: el corte SQL por página no
+    # asume contigüidad de identificadores.
+    assert [t["videoId"] for t in await ListeningPeriods().tracks(*older_args, limit=1, offset=0)] == ["period_old"]
+    assert [t["videoId"] for t in await ListeningPeriods().tracks(*older_args, limit=1, offset=1)] == ["period_new"]
+    assert [t["videoId"] for t in await ListeningPeriods().tracks(*older_args, limit=5, offset=2)] == []
+
+
+@pytest.mark.asyncio
 async def test_rec03c2_read_paths_do_not_write(isolated_db):
     from doremi.db.database import get_session
     from doremi.db.models import Collection, Song
