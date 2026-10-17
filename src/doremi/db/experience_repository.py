@@ -14,6 +14,13 @@ Adaptations vs rescue (no schema/migration changes):
   imports preserved to avoid import cycles;
 - no network (only ``urllib.parse``), no QML/Qt, no file deletes,
   frozen-safe via ``AppDirs``.
+
+REC-03C additive extension (backward compatible, no schema/migration
+changes): ``smart_tracks(rule, limit, now, *, offline_only, offset=0,
+include_unavailable=False)`` pages in SQL over the eligible set and can
+flag (instead of drop) failed-``is_file`` rows so product paging works
+over *visible* items when files disappeared. Existing callers keep their
+exact behavior; regression suites: ``tests/test_rec03c_*``.
 """
 from __future__ import annotations
 
@@ -43,6 +50,12 @@ def _coerce_limit(value: int, *, default: int, name: str) -> int:
     if value <= 0:
         raise ValueError(f"Invalid {name}")
     return min(value, _MAX_LIMIT)
+
+
+def _coerce_offset(value: int, *, name: str = "offset") -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"Invalid {name}")
+    return value
 
 
 def collection_route(kind, identity):
@@ -220,10 +233,25 @@ class ExperienceRepository:
                          completed=bool(h.completed)) for h, c, thumb, local_path, download_path in rows
                     if not offline_only or (local_path or download_path) and Path(local_path or download_path).is_file()]
 
-    async def smart_tracks(self, rule, limit=100, now=None, *, offline_only=False):
+    async def smart_tracks(self, rule, limit=100, now=None, *, offline_only=False,
+                           offset=0, include_unavailable=False):
+        """Ordered smart collection with real SQL pagination.
+
+        ``limit``/``offset`` cut in SQL over the full eligible set (no more
+        than ``limit`` rows are returned, offset never depends on a 1000-row
+        over-fetch). Default ``offset=0`` keeps existing callers intact.
+        ``include_unavailable=True`` keeps failed-``is_file`` rows instead of
+        dropping them, flagged ``is_downloaded=False``/``local_path=None`` so
+        callers that paginate over *visible* items can filter themselves
+        without losing the candidate position; the default (False) preserves
+        the legacy drop behavior. Ties never change order between pages: the
+        rule sort is followed by ``Song.video_id`` as a deterministic
+        tie-break.
+        """
         if rule not in SMART_TITLES:
             raise ValueError("Unknown smart playlist")
         limit = _coerce_limit(limit, default=100, name="limit")
+        offset = _coerce_offset(offset)
         now = now or datetime.now(timezone.utc).replace(tzinfo=None)
         if now.tzinfo:
             now = now.astimezone(timezone.utc).replace(tzinfo=None)
@@ -253,12 +281,13 @@ class ExperienceRepository:
         else:
             query = query.where(agg.c.score > 0).order_by(agg.c.score.desc(), agg.c.recent.desc())
         async with get_session() as session:
-            rows = (await session.execute(query.order_by(Song.video_id).limit(limit))).all()
+            rows = (await session.execute(
+                query.order_by(Song.video_id).offset(offset).limit(limit))).all()
         result = []
         for song, path, score in rows:
             path = song.local_path or path
             available = bool(path and Path(path).is_file())
-            if (rule == "offline" or offline_only) and not available:
+            if not include_unavailable and (rule == "offline" or offline_only) and not available:
                 continue
             result.append(dict(videoId=song.video_id, title=song.title, artist=song.artist, album=song.album,
                                duration_ms=song.duration_ms or 0, thumbnail_url=song.thumbnail_url or "",

@@ -8,26 +8,36 @@ REC-03C.3 recovery from rescue working tree
   with ``cover_fields`` mosaics and structured ``artists`` credits where the
   source already provides them (remote YT payloads).
 - Explicit pagination: ``gather_playlist(..., *, limit=1000, offset=0)``.
-  ``local-list:`` forwards to ``LocalLibraryRepository.tracks`` (never
-  ``tracks(limit=None)``); ``session:`` forwards to
-  ``ListeningPeriods.tracks``; ``smart:`` forwards ``limit`` to
-  ``ExperienceRepository.smart_tracks`` (which has no offset, so
-  ``limit+offset`` rows are fetched then sliced). ``local_`` slices the
-  filtered download list. Remote YT branch returns the full provider
+  Local branches paginate over the *visible* set through
+  ``_paginate_visible`` — each repository call is a bounded window
+  (``limit + 1`` first, growing ×4 capped at 1000 = every repository cap,
+  so no window request is ever silently clamped). A page is cut only after
+  unavailable candidates are skipped, so offline pages never shrink and
+  consecutive pages never omit or repeat a track. ``has_more`` comes from
+  ``limit + 1`` evidence (exact), not from ``len(page) == limit``
+  heuristics. ``smart:`` uses the same helper over the additive
+  ``ExperienceRepository.smart_tracks(..., offset, include_unavailable)``
+  contract (REC-03C branch), with a per-gather fixed ``now`` so candidate
+  windows share rule boundaries. Remote YT branch returns the full provider
   response (provider owns its pagination).
 - No silent truncation: paginated branches return ``limit``/``offset`` and
-  ``has_more`` (``len(page) == limit`` heuristic; exact when the store holds
-  more than the page). Callers fetch later pages with ``offset+limit``.
+  ``has_more`` (evidence-based; a caller fetching ``offset+limit`` past the
+  last page gets an empty page with ``has_more=False``). Callers fetch
+  later pages with ``offset+limit``.
 - Order and duplicate occurrences preserved (``position`` order; ``append``
   retains duplicates). ``local:`` identities returned as-is, never mapped to
-  YouTube IDs. Offline availability comes from ``track_data``/repo
-  ``is_file`` checks, so disappeared files are never reported as available;
-  offline pages may be short because unavailable items are hidden, not
-  counted. Single bounded repo call per branch (no N-plus-1). No Qt widgets;
-  ``NetworkMonitor`` imported lazily; no network on import; no remote
-  downloads in tests (``yt_client`` is mocked).
+  YouTube IDs. Offline availability comes from repository-computed
+  ``is_downloaded`` (``track_data``/``is_file`` live in the repositories),
+  so disappeared files are never reported as available. Single bounded repo
+  call per page when nothing filters (fast path); when offline filtering
+  applies, windows advance without revisiting candidates (no N-plus-1 over
+  the same rows; worst case one full candidate scan, still bounded). No Qt
+  widgets; ``NetworkMonitor`` imported lazily; no network on import; no
+  remote downloads in tests (``yt_client`` is mocked).
 """
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 from loguru import logger
 from doremi.services.artwork import cover_fields
@@ -52,6 +62,46 @@ def _coerce_offset(value, *, name="offset"):
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"Invalid {name}")
     return value
+
+
+async def _paginate_visible(fetch_window, limit, offset, *, window, cand, skipped, visible=None):
+    """Page over the *visible* tracks instead of raw store candidates.
+
+    ``fetch_window(window, cand)`` returns the ordered candidate slice of
+    ``window`` items starting at candidate position ``cand`` (usually the
+    repository's own ``limit``/``offset``). ``visible(track)`` filters items
+    that must not occupy page space (e.g. offline-unavailable); ``None``
+    keeps everything. ``skipped`` primes how many visible items the caller
+    already jumped over (``offset`` when candidates were pre-skipped in the
+    repository).
+
+    Leaves cursor ``window``/``cand`` invariants: candidates advance by
+    exactly what a window returned, windows grow ×4 (capped at
+    ``_MAX_LIMIT``, equal to every repository cap so requests are never
+    clamped), and candidate positions are never revisited. Pagination ends
+    either at ``limit`` visible items plus one more (exact ``has_more``
+    evidence) or when a window returns fewer candidates than requested
+    (candidate set exhausted). A small page therefore performs at most a few
+    bounded repository calls and a worst-case scan is one pass over the
+    store — never unbounded and never an infinite loop.
+    """
+    page: list = []
+    while True:
+        batch = await fetch_window(window, cand)
+        for track in batch:
+            if visible is not None and not visible(track):
+                continue
+            if skipped < offset:
+                skipped += 1
+                continue
+            if len(page) < limit:
+                page.append(track)
+            else:
+                return page, True
+        if len(batch) < window:
+            return page, False
+        cand += len(batch)
+        window = min(window * 4, _MAX_LIMIT)
 
 
 def _duration_display(duration: str | None, dur_ms: int) -> str:
@@ -94,44 +144,69 @@ async def gather_playlist(yt_client, playlist_id: str, *, limit=1000, offset=0) 
     from doremi.system.network import NetworkMonitor
     offline = NetworkMonitor.current_connectivity() is False
 
-    def available_tracks(tracks):
-        return [track for track in tracks if track.get("is_downloaded")] if offline else tracks
-
     if playlist_id.startswith("session:"):
         from doremi.services.listening_periods import ListeningPeriods
         try:
             first, last, cutoff = ListeningPeriods.parse_identity(playlist_id)
-            tracks = await ListeningPeriods().tracks(first, last, cutoff, limit=limit, offset=offset)
         except (ValueError, OverflowError):
-            tracks = []
-        tracks = available_tracks(tracks)
+            first = None
+        if first is None:
+            tracks, has_more = [], False
+        else:
+            async def period_window(window, cand):
+                return await ListeningPeriods().tracks(first, last, cutoff,
+                                                       limit=window, offset=cand)
+            # Candidates share the period's chronology; when offline the
+            # page is cut over visible tracks only.
+            tracks, has_more = await _paginate_visible(
+                period_window, limit, offset,
+                window=min(limit + 1, _MAX_LIMIT),
+                cand=0 if offline else offset, skipped=0 if offline else offset,
+                visible=(lambda t: t.get("is_downloaded")) if offline else None)
         result.update(title="Sesión musical", author="Tu historial", tracks=tracks,
-                      track_count=len(tracks), has_more=len(tracks) == limit,
-                      **cover_fields(tracks))
+                      track_count=len(tracks), has_more=has_more, **cover_fields(tracks))
         return result
 
     if playlist_id.startswith("local-list:"):
         from doremi.db.local_library_repository import LocalLibraryRepository
-        title, tracks = await LocalLibraryRepository().tracks(playlist_id, limit=limit, offset=offset)
-        tracks = available_tracks(tracks)
-        result.update(title=title, author="Doremi · Playlist local", tracks=tracks, track_count=len(tracks),
-                      has_more=len(tracks) == limit, **cover_fields(tracks))
+        repo = LocalLibraryRepository()
+        titles: list = []
+
+        async def list_window(window, cand):
+            fetched_title, items = await repo.tracks(playlist_id, limit=window, offset=cand)
+            titles.append(fetched_title)
+            return items
+        tracks, has_more = await _paginate_visible(
+            list_window, limit, offset,
+            window=min(limit + 1, _MAX_LIMIT),
+            cand=0 if offline else offset, skipped=0 if offline else offset,
+            visible=(lambda t: t.get("is_downloaded")) if offline else None)
+        result.update(title=titles[-1] if titles else "",
+                      author="Doremi · Playlist local", tracks=tracks,
+                      track_count=len(tracks), has_more=has_more, **cover_fields(tracks))
         return result
 
     if playlist_id.startswith("smart:"):
         from doremi.db.experience_repository import ExperienceRepository, SMART_TITLES
         rule = playlist_id.split(":", 1)[1]
-        # smart_tracks has limit but no offset: over-fetch then slice.
-        fetched = await ExperienceRepository().smart_tracks(rule, limit=min(_MAX_LIMIT, limit + offset) or limit,
-                                                            offline_only=offline)
-        page = fetched[offset:offset + limit] if offset else fetched[:limit]
-        # smart_tracks already applies offline_only in SQL; keep the filter
-        # for safety without changing order.
-        if offline:
-            page = [t for t in page if t.get("is_downloaded")]
+        # One fixed instant per gather: candidate windows and pages all
+        # share the same rule boundaries (30/60-day cuts), so pages stay
+        # comparable.
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        filter_unavailable = offline or rule == "offline"
+
+        async def smart_window(window, cand):
+            return await ExperienceRepository().smart_tracks(
+                rule, limit=window, now=now, offset=cand, offline_only=offline,
+                include_unavailable=True)
+        page, has_more = await _paginate_visible(
+            smart_window, limit, offset,
+            window=min(limit + 1, _MAX_LIMIT),
+            cand=0 if filter_unavailable else offset,
+            skipped=0 if filter_unavailable else offset,
+            visible=(lambda t: t.get("is_downloaded")) if filter_unavailable else None)
         result.update(title=SMART_TITLES[rule], author="Doremi · Colección inteligente",
-                      tracks=page, track_count=len(page),
-                      has_more=len(fetched) == min(_MAX_LIMIT, limit + offset),
+                      tracks=page, track_count=len(page), has_more=has_more,
                       **cover_fields(page))
         return result
 

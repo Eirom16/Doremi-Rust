@@ -261,6 +261,31 @@ async def test_rec03c3_deleted_songs_kept_as_history_not_autodeleted(isolated_db
 
 
 @pytest.mark.asyncio
+async def test_rec03c3_smart_pagination_beyond_1000(isolated_db, online):
+    # >1000 canciones elegibles: la página offset>0 por recorte Python sobre
+    # un tope de 1000 no puede recorrerlas; la paginación real viaja en SQL.
+    from doremi.db.database import get_session
+    from doremi.db.models import Song
+    from doremi.ui.screens.playlist_data import gather_playlist
+    async with get_session() as session:
+        session.add_all([Song(video_id=f"v{i:04d}", title=f"T{i}", artist="A", is_liked=True)
+                         for i in range(1200)])
+        await session.commit()
+    expected = [f"v{i:04d}" for i in range(1200)]
+    first = await gather_playlist(None, "smart:liked", limit=600, offset=0)
+    second = await gather_playlist(None, "smart:liked", limit=600, offset=600)
+    # Las 1200 comparten puntaje (sin historial): el empate se resuelve por
+    # videoId de forma determinista, así páginas consecutivas no omiten ni
+    # repiten canciones.
+    assert [t["videoId"] for t in first["tracks"]] == expected[:600]
+    assert first["has_more"] is True
+    assert [t["videoId"] for t in second["tracks"]] == expected[600:]
+    assert second["has_more"] is False
+    tail = await gather_playlist(None, "smart:liked", limit=600, offset=1200)
+    assert tail["tracks"] == [] and tail["has_more"] is False
+
+
+@pytest.mark.asyncio
 async def test_rec03c3_no_n_plus_1_single_repo_call(isolated_db, online, monkeypatch):
     from doremi.db import local_library_repository as llr
     from doremi.ui.screens.playlist_data import gather_playlist
