@@ -119,6 +119,25 @@ módulos; sin red en importación (solo `urllib.parse`, `sqlalchemy`, `stdlib`).
 - Paginación sin truncado silencioso: `limit/offset/has_more` en resultado;
   páginas posteriores con `offset+limit`; offline puede dar páginas cortas
   (no disponibles ocultos, no contados) —documentado.
+- **REC-03C.4 (correcciones P1/P2)**:
+  - `ExperienceRepository.smart_tracks` gana parámetros aditivos
+    `offset=0` (paginación SQL con desempate determinista `Song.video_id`
+    tras el orden de cada regla) e `include_unavailable=False` (filas con
+    `is_file` fallido quedan marcadas `is_downloaded=False/local_path=None`
+    en lugar de descartarse). Firmas previas intactas: llamantes existentes
+    (`home_composer limit=100`, tests REC-03B) no requieren cambios y
+    conservan el comportamiento heredado por default.
+  - `playlist_data._paginate_visible`: paginación sobre el conjunto VISIBLE
+    (ventana `limit+1`, crecimiento ×4 con tope 1.000 = tope de los tres
+    repositorios, nunca clamped), salta desaparecidos sin consumir página,
+    cursa `has_more` por evidencia `limit+1` y nunca revisita posiciones
+    (sin N+1 y sin bucle infinito: terminación garantizada por finitud del
+    store y crecimiento del cursor).
+  - `ListeningPeriods.tracks`: corte de página en SQL (`LIMIT/OFFSET` en
+    CTE de miembros, `ORDER BY played_at, id`); camino `limit=None` intacto
+    para `save_as_playlist` (sigue no idempotente, ensure/create/append
+    2 Tx sin transacción global —no se cambió esa semántica de
+    optimización—). Mismos baches IN ≤500 por límite de variables SQLite.
 - Borrados: canciones borradas no se autoborran del historial (`tracks`
   inner-join las oculta en la vista; historial intacto —test).
 - Determinismo: `identity` con params ordenados; `compose_home` deepcopy +
@@ -137,10 +156,33 @@ completa 514 passed; nativas 17; packaging 16. Workflows
 `test_rec03c_*` autodetectados). Smoke no reclama funcionalidad Home/stats/
 playlists.
 
+Tras correcciones P1/P2 (REC-03C.4): 5 tests de regresión añadidos
+(beyond-1000 smart, offline visible local-list/session, sesión extensa
+620 SQL pushdown + evidencia de binds, IDs intercalados) → 45 focalizadas,
+519 completa, nativas 17, packaging 16, `git diff --check` limpio.
+Filtros `paths` de `linux-appimage.yml` ampliados (aditivos) para que el
+PR #12 dispare el job `appimage` (suite completa) con los cambios de esta
+fase. El estado VERIFIED sigue condicionado al CI verde.
+
 ## 5. Riesgos pendientes y árboles
 
-- `is_file` heredado en `track_data/cover_fields/Experience` (necesario para
-  offline; acotado; `get_available` ya usa `to_thread`).
+- `is_file` heredado en `track_data/cover_fields/Experience` (necesario
+  para offline; acotado; `get_available` ya usa `to_thread`). REC-03C.4
+  evalúa el bloqueo para paginación visible: ~32 µs/stat y ≤ `limit+1
+  stats/llamada pequeña` (40 ms/1000 stats medidos en ext4 local); ventanas
+  crecen ×4 cap 1.000, así que el peor caso sigue un solo barrido acotado
+  —no se introduce `to_thread` nuevo ni se re-firma `track_data` (REC-03B).
+- `smart:` offline/offline-only: la pertenencia por regla usa `now` fijo
+  por llamada `gather_playlist` (ventanas y página comparten frontera
+  30/60 días); entre PÁGINAS distintas, un `now` de reloj distinto puede
+  mover cut-off sub-second —inherente al contrato actual (no empeorado).
+- Offline `smart:`/`liked` vía SQL pre-filtra
+  (`file_path/local_path NOT NULL`): las filas sin ninguna ruta grabada no
+  son candidatos (nunca fueron disponibles); filas CON ruta muerta sí
+  entran y se marcan (`include_unavailable`) para el corte visible.
+- `has_more` con `limit=1000`: ventana pedida 1001 se satura al tope de
+  repositorio 1000; el helper resuelve evidencia escaneando la siguiente
+  ventana (coste acotado, sin falso `False`).
 - Lock `append/delete` proceso-local; `position` PK puede colisionar
   multiproceso (heredado REC-03B).
 - `remember_collections` puede vaciar thumb con `""` (heredado).
@@ -148,4 +190,6 @@ playlists.
 - `stats sum(listen)` incluye inválidos (heredado, preservado).
 - Licencias: publicación pública BLOQUEADA. No fusionar/tags/releases.
 - Árboles: rescate sin escrituras nuevas; principal y worktrees previos
-  intactos; REC-03C solo añade 3 fuentes + 3 tests + 2 docs.
+  intactos; REC-03C solo añade 3 fuentes + 3 tests + 2 docs (REC-03C.4
+  modifica 3 fuentes existentes + 2 tests + 2 docs + 1 workflow de CI,
+  rama apilada sobre REC-03B).
