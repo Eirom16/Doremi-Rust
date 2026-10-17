@@ -4,7 +4,18 @@ Rama: `recovery/rec03c-product-composition` → destino
 `recovery/rec03b-data-repositories` (apilado, no `main`).
 Base: `03324773740b58c0d1bfe1b4b8d64fe25f429e04`. Rescate (lectura): `c00d772`.
 Fecha: 2026-10-14 (UTC). Solo `tmp_path`/XDG temporales + mocks.
-Estado: NO VERIFIED (pendiente CI verde del PR).
+Estado: **VERIFIED (para el alcance validado)** — PR #12 apilado sobre
+REC-03B con HEAD funcional `c77f258d8c8b895b795254a5d91012ba764420ac`;
+CI run 39071294276 (`Linux AppImage (F0B-3B)`, `completed`/`success`):
+suite completa **519 passed in 15.01s**, nativas **17 passed**,
+packaging **16 passed**, PyInstaller y AppImage Type 2 **SUCCESS**,
+smoke y controles de persistencia (XDG, sin DB real) **SUCCESS**,
+`git diff --check` limpio. Los smoke NO demuestran funcionalidades
+interactivas completas (`offline`/`offscreen` y ejecución desde
+launcher/distinto CWD: cubren ausencia de dependencias, arranque
+congelado y persistencia de rutas, no flujos Home/listening/stats/
+playlists) y la publicación pública sigue **BLOQUEADA por licencias
+pendientes** (sin fusionar, sin tags, sin releases).
 
 ## 1. Pruebas nuevas (40 passed → 45 tras correcciones P1/P2)
 
@@ -51,6 +62,15 @@ QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
 Resultado original: **514 passed**. Tras correcciones P1/P2 (REC-03C.4):
 **519 passed** (474 baseline REC-03B + 40 REC-03C + 5 nuevas). Sin fallos.
 
+CI oficial (run 39071294276, workflow `Linux AppImage (F0B-3B)`, commit
+`c77f258`): **519 passed in 15.01s**; nativas (`test_native_rs`) **17**;
+packaging (`test_linux_packaging` + `test_linux_appimage`) **16**;
+`git diff --check` limpio; build PyInstaller **SUCCESS**; AppImage
+Type 2 x86_64 **SUCCESS** (tests A–D + contenedor limpio + Xvfb); smoke
+directo/launcher **SUCCESS**; XDG persistence probe **SUCCESS** (sin DB
+real del usuario). Los tiempos propios de ejecución local son de
+referencia y no sustituyen la evidencia del CI.
+
 Nativas (`tests/test_native_rs.py`): **17 passed**.
 Packaging (`test_linux_packaging.py` + `test_linux_appimage.py`):
 **16 passed**. Sin nuevas dependencias; `AppDirs` frozen-safe; nuevos `.py`
@@ -85,13 +105,20 @@ bajo `src/doremi/{services,ui/screens}` incluidos automáticamente.
   suite completa + nativas + packaging + `git diff --check` al publicar los
   commits de corrección. El job `appimage` ejecuta `pytest tests/ -q`
   completo: los 5 tests nuevos quedan incluidos.
-- Smoke no reclama funcionalidad interactiva.
+- Smoke no reclama funcionalidad interactiva: los smoke del CI validan
+  arranque congelado (directo/launcher/otro CWD/AppImage extract) y
+  persistencia XDG de rutas sin DB real, NO flujos completos de
+  Home/listening/stats/playlists ni compatibilidad interactiva de UI.
+  Licencias pendientes: publicación pública sigue BLOQUEADA (sin
+  fusionar, sin tags, sin releases).
 - Commits: `d8ab1ca` (03C.1 feat) + `859a6ef` (03C.2 feat) + `59c8659`
   (03C.2 test) + `e3eb4bd` (03C.3 feat) + `18efbf1` (03C.3 test) + docs + REC-03C.4
   `283343e` (fix smart SQL pagination) + `32dd5ba` (test paginación offline
-  visible) + `d30c3d9` (perf tracks SQL pushdown) + docs correcciones. PR apilado
-  sobre `recovery/rec03b-data-repositories` (crear tras docs; no fusionar, no
-  tags/releases). No VERIFIED hasta CI verde.
+  visible) + `d30c3d9` (perf tracks SQL pushdown) + docs correcciones +
+  commit documental de cierre REC-03C.5. PR apilado sobre
+  `recovery/rec03b-data-repositories` — VERIFICADO con CI run 39071294276
+  verde sobre `c77f258` publicados en el PR; no fusionado, sin tags, sin
+  releases.
 - Riesgos documentados en REPORT §5 (heredados + `create+append` 2 Tx).
 
 ## 5. Correcciones P1/P2 (REC-03C.4, corrección técnica de revisión)
@@ -152,3 +179,12 @@ completa **519 passed**, nativas **17**, packaging **16**, `git diff --check`
 limpio. Rendimiento P2 medido: página `limit=5` en sesión de 2.000 miembros,
 offset 1.000 — 121.68 ms antes → 18.77 ms después (−85%); memoria acotada al
 tamaño de página (5 filas + CTE en SQLite).
+
+Veredicto CI sobre las correcciones: run 39071294276 (`completed`/
+`success`) ejecutó las 5 pruebas nuevas dentro de la suite completa y el
+paquete/portable congelado incluye `playlist_data`/`listening_periods`.
+Estabilidad documentada: `has_more` es evidencia (`limit+1`); si el
+conjunto visible cambia entre llamadas de página (archivos que
+aparecen/desaparecen, historial nuevo), un `offset` puede apuntar a
+ítems distintos —propiedad de conjuntos vivos, no defecto: el orden es
+determinista y el corte es consistente sobre los mismos datos.

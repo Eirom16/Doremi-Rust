@@ -10,7 +10,14 @@ sin instalaciones/compilaciones/pruebas/escrituras/cambios Git allí).
 Principal intacto: `/home/eirom/Proyectos/Doremi/Doremi-Rust` (no alterado).
 Worktrees previos intactos: rec02/rec03a/rec03b (sin cambios).
 PR base: `https://github.com/Eirom16/Doremi-Rust/pull/11` (REC-03B, abierto, sin fusionar).
-Estado: NO VERIFIED (pendiente CI verde del PR apilado).
+PR propio: `https://github.com/Eirom16/Doremi-Rust/pull/12` (REC-03C apilado, abierto).
+Estado: **VERIFIED (para el alcance validado)** — CI run
+39071294276 (`Linux AppImage (F0B-3B)`, `completed`/`success`) sobre
+`c77f258d8c8b895b795254a5d91012ba764420ac` publicado en el PR #12.
+Alcance validado: suite completa 519 passed in 15.01s, nativas 17,
+packaging 16, `git diff --check`, PyInstaller + AppImage Type 2, smoke
+y persistencia XDG. NO valida interacción QML/controles ni autoriza
+publicación (licencias pendientes; sin fusionar/tags/releases).
 
 ## 1. Auditoría, procedencia exacta y matriz
 
@@ -162,7 +169,21 @@ Tras correcciones P1/P2 (REC-03C.4): 5 tests de regresión añadidos
 519 completa, nativas 17, packaging 16, `git diff --check` limpio.
 Filtros `paths` de `linux-appimage.yml` ampliados (aditivos) para que el
 PR #12 dispare el job `appimage` (suite completa) con los cambios de esta
-fase. El estado VERIFIED sigue condicionado al CI verde.
+fase. En su momento el estado VERIFIED quedó condicionado al CI verde
+(denominación heredada del hito REC-03C.4).
+
+**Cierre REC-03C.5 (VERIFIED para el alcance validado):** run
+39071294276, workflow `Linux AppImage (F0B-3B)`, commit `c77f258`,
+conclusión `completed`/`success`. Suite completa 519 passed in 15.01s;
+nativas 17 passed; packaging 16 passed; PyInstaller SUCCESS; AppImage
+Type 2 (tests A–D, contenedor limpio, Xvfb) SUCCESS; smoke directo/
+launcher SUCCESS; XDG persistence probe SUCCESS. Job
+`Linux x86_64 AppImage (type 2)` completo en
+`success`. Los smoke NO demuestran funcionalidades interactivas
+completas: verifican arranque congelado y persistencia de rutas;
+compatibilidad interactiva Home/stats/playlists queda fuera del alcance
+de la fase (pre-auditoría de UI en fase posterior). Publicación pública
+sigue BLOQUEADA por licencias pendientes.
 
 ## 5. Riesgos pendientes y árboles
 
@@ -176,6 +197,23 @@ fase. El estado VERIFIED sigue condicionado al CI verde.
   por llamada `gather_playlist` (ventanas y página comparten frontera
   30/60 días); entre PÁGINAS distintas, un `now` de reloj distinto puede
   mover cut-off sub-second —inherente al contrato actual (no empeorado).
+- **Estabilidad de paginación ante cambios de datos** (REC-03C.4/5): el
+  conjunto visible puede cambiar entre llamadas de página (archivos que
+  reaparecen/desaparecen, historial nuevo). Cada página se recompone
+  desde el orden determinista (`position`; `(played_at, id)`; orden de
+  regla + `videoId`), así que sobre los mismos datos no hay omisiones ni
+  repeticiones y `has_more` es evidencia; ante mutaciones del conjunto,
+  un mismo `offset` puede apuntar a ítems distintos —propiedad de
+  conjuntos vivos, inherente al contrato publicado, no defecto del
+  corte—. Compat e integridad: solo parámetros aditivos con defaults
+  (llamantes y tests REC-03B intactos); historial nunca escrito; sin
+  truncado silencioso ni reseteos destructivos en la fase.
+- **Atomicidad parcial de `save_as_playlist`** (conservada): `append`
+  atómico por sí, pero `create`+`append` siguen siendo 2 transacciones
+  (sin unidad cross-repo); ante fallo de `append` la playlist vacía
+  creada se borra best-effort. Reintentos crean NUEVA uuid (no
+  idempotente, con test). No se prometió una transacción global durante
+  la optimización P2.
 - Offline `smart:`/`liked` vía SQL pre-filtra
   (`file_path/local_path NOT NULL`): las filas sin ninguna ruta grabada no
   son candidatos (nunca fueron disponibles); filas CON ruta muerta sí
@@ -192,4 +230,5 @@ fase. El estado VERIFIED sigue condicionado al CI verde.
 - Árboles: rescate sin escrituras nuevas; principal y worktrees previos
   intactos; REC-03C solo añade 3 fuentes + 3 tests + 2 docs (REC-03C.4
   modifica 3 fuentes existentes + 2 tests + 2 docs + 1 workflow de CI,
-  rama apilada sobre REC-03B).
+  rama apilada sobre REC-03B; REC-03C.5 es commit exclusivamente
+  documental: solo los 2 docs de la fase).
