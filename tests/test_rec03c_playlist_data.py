@@ -286,6 +286,76 @@ async def test_rec03c3_smart_pagination_beyond_1000(isolated_db, online):
 
 
 @pytest.mark.asyncio
+async def test_rec03c3_local_list_offline_pagination_excludes_missing(isolated_db, offline, tmp_path):
+    # La página pedida (4) cae tras 7 ocurrencias sin archivo: la vista debe
+    # devolver 4 ítems VISIBLES de posiciones posteriores y has_more por
+    # evidencia limit+1, no la heurística len(page)==limit sobre la página
+    # filtrada.
+    from doremi.db.local_library_repository import LocalLibraryRepository, local_identity
+    from doremi.db.repository import SongRepository
+    from doremi.ui.screens.playlist_data import gather_playlist
+    avail_ids = []
+    for n in range(9):
+        real = tmp_path / f"Ok{n}.wav"
+        real.write_bytes(b"RIFF" + bytes([n]))
+        await LocalLibraryRepository().import_files([str(real)])
+        avail_ids.append(local_identity(real))
+    for n in range(7):
+        await SongRepository().upsert_song(video_id=f"gone{n}", title=f"G{n}", artist="A")
+    pid = await LocalLibraryRepository().create_playlist("Late page")
+    await LocalLibraryRepository().append(pid, [f"gone{i}" for i in range(7)] + avail_ids)
+    first = await gather_playlist(None, pid, limit=4, offset=0)
+    second = await gather_playlist(None, pid, limit=4, offset=4)
+    third = await gather_playlist(None, pid, limit=4, offset=8)
+    tail = await gather_playlist(None, pid, limit=4, offset=12)
+    # Páginas completas de visibles pese a los desaparecidos previos; sin
+    # omisiones ni saltos; concatenación == orden de disponibles.
+    assert [t["videoId"] for t in first["tracks"]] == avail_ids[:4]
+    assert len(first["tracks"]) == 4 and first["has_more"] is True
+    assert [t["videoId"] for t in second["tracks"]] == avail_ids[4:8]
+    assert second["has_more"] is True
+    assert [t["videoId"] for t in third["tracks"]] == avail_ids[8:]
+    assert third["has_more"] is False
+    assert tail["tracks"] == [] and tail["has_more"] is False
+    chained = first["tracks"] + second["tracks"] + third["tracks"]
+    assert [t["videoId"] for t in chained] == avail_ids
+    # Ninguna ruta desaparecida se devuelve como disponible.
+    assert all(t["is_downloaded"] for t in chained)
+
+
+@pytest.mark.asyncio
+async def test_rec03c3_session_offline_pagination_excludes_missing(isolated_db, offline, tmp_path):
+    # Misma corrección para la rama session: (historial): la paginación
+    # visible offline no omite lo disponible posterior a los desaparecidos.
+    from doremi.db.local_library_repository import LocalLibraryRepository, local_identity
+    from doremi.db.repository import HistoryRepository
+    from doremi.services.listening_periods import ListeningPeriods
+    from doremi.ui.screens.playlist_data import gather_playlist
+    avail_ids = []
+    for n in range(9):
+        real = tmp_path / f"Ses{n}.flac"
+        real.write_bytes(b"fLaC" + bytes([n]))
+        await LocalLibraryRepository().import_files([str(real)])
+        avail_ids.append(local_identity(real))
+    for n in range(7):
+        await HistoryRepository().add_entry(f"gone{n}", f"G{n}", "A", 1000, listen_time_ms=900)
+    for video_id in avail_ids:
+        await HistoryRepository().add_entry(video_id, "L", "A", 1000, listen_time_ms=900)
+    periods = await ListeningPeriods().recent()
+    identity = max(periods, key=lambda p: p["track_count"])["navigate"].split("id=", 1)[1]
+    first = await gather_playlist(None, identity, limit=4, offset=0)
+    second = await gather_playlist(None, identity, limit=4, offset=4)
+    third = await gather_playlist(None, identity, limit=4, offset=8)
+    assert [t["videoId"] for t in first["tracks"]] == avail_ids[:4]
+    assert first["has_more"] is True
+    assert [t["videoId"] for t in second["tracks"]] == avail_ids[4:8]
+    assert second["has_more"] is True
+    assert [t["videoId"] for t in third["tracks"]] == avail_ids[8:]
+    assert third["has_more"] is False
+    assert all(t["is_downloaded"] for t in first["tracks"] + second["tracks"] + third["tracks"])
+
+
+@pytest.mark.asyncio
 async def test_rec03c3_no_n_plus_1_single_repo_call(isolated_db, online, monkeypatch):
     from doremi.db import local_library_repository as llr
     from doremi.ui.screens.playlist_data import gather_playlist
