@@ -41,6 +41,12 @@ on:
       - "src/doremi/db/experience_repository.py"
       - "src/doremi/services/listening_periods.py"
       - "src/doremi/ui/screens/playlist_data.py"
+      - "src/doremi/ui/controllers/playback_controller.py"
+      - "src/doremi/ui/controllers/queue_controller.py"
+      - "src/doremi/ui/main_window.py"
+      - "src/doremi/ui/screens/playlist_qml.py"
+      - "src/doremi/ui/screens/album_qml.py"
+      - "tests/test_rec041*.py"
   pull_request:
     paths:
       - "doremi-linux.spec"
@@ -75,6 +81,12 @@ on:
       - "src/doremi/db/experience_repository.py"
       - "src/doremi/services/listening_periods.py"
       - "src/doremi/ui/screens/playlist_data.py"
+      - "src/doremi/ui/controllers/playback_controller.py"
+      - "src/doremi/ui/controllers/queue_controller.py"
+      - "src/doremi/ui/main_window.py"
+      - "src/doremi/ui/screens/playlist_qml.py"
+      - "src/doremi/ui/screens/album_qml.py"
+      - "tests/test_rec041*.py"
   workflow_dispatch:
 
 env:
