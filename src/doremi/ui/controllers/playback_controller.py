@@ -782,6 +782,9 @@ class PlaybackController:
             song_repo = SongRepository()
 
             await self._upsert_listened_song(item)
+            # Procedencia capturada al solicitar la reproducción y viajada por
+            # el QueueItem durante toda la sesión: no se recalcula aquí.
+            context_type = str(getattr(item, "context_type", "") or "") or "queue"
             await history_repo.add_entry(
                 video_id=item.video_id,
                 title=item.title,
@@ -792,7 +795,10 @@ class PlaybackController:
                 skip_count=result.skip_count,
                 completed=result.completed,
                 was_played=result.was_played,
-                context_type="queue",
+                context_type=context_type,
+                context_id=str(getattr(item, "context_id", "") or ""),
+                context_title=str(getattr(item, "context_title", "") or ""),
+                position_ms=max(0, int(result.position_ms or 0)),
             )
             if result.was_played:
                 await song_repo.record_play(item.video_id)
