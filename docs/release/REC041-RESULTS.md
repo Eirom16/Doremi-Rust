@@ -53,12 +53,13 @@ que el PR ejecute la suite representativa con los archivos de esta unidad.
 
 | Evidencia (PR #13) | Valor |
 |---|---|
-| Run | `39084863494` — https://github.com/Eirom16/Doremi-Rust/actions/runs/39084863494 |
-| Evento / conclusión | `pull_request` / `completed` + `success` |
-| SHA verificado | `b5d55a3599269986f1aba2b9715236023106cf11` (`docs(rec041.5)`) |
-| Suite completa | **541 passed in 16.32s** (519 REC-03C + 22 nuevas) |
-| Nativas | **17 passed in 0.18s** |
-| Packaging (portable+appimage) | **16 passed in 0.15s** |
+| Run (PR #13) | `39084863494` — success @ `b5d55a3` (código) — https://github.com/Eirom16/Doremi-Rust/actions/runs/39084863494 |
+| Run (final, docs) | `39085300112` — success @ `1526621` (SHA final) — https://github.com/Eirom16/Doremi-Rust/actions/runs/39085300112 |
+| Evento / conclusión | `pull_request` / `completed` + `success` en ambos runs |
+| SHA verificado | código `b5d55a3` (`docs(rec041.5)`) · final `1526621` (`docs(rec041.6)`) |
+| Suite completa | **541 passed** (16.32s run 1 / 15.19s run 2; 519 REC-03C + 22 nuevas) |
+| Nativas | **17 passed** (0.18s ambos runs) |
+| Packaging (portable+appimage) | **16 passed** (0.15s/0.16s) |
 | `git diff --check` | limpio (paso de CI) |
 
 Estado: **VERIFIED (para el alcance validado)**.
