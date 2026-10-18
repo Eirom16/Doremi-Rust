@@ -9,9 +9,14 @@ no modificado; solo consultas.
 Worktrees previos intactos: rec02 / rec03a / rec03b / rec03c (sin cambios).
 PR base: PR #12 (REC-03C, abierto, sin fusionar). PR propio: REC-04.1 apilado
 sobre `recovery/rec03c-product-composition`, nunca sobre `main`.
-Estado: **EN VERIFICACIÓN DE CI** (suite local 541 passed; VERIFIED exige
-CI verde — ver `REC041-RESULTS.md`). Publicación bloqueada por licencias;
-sin fusiones, tags ni releases.
+Estado: **VERIFIED (para el alcance validado)** — CI run `39084863494`
+(`Linux AppImage (F0B-3B)`, `completed`/`success`) sobre
+`b5d55a3599269986f1aba2b9715236023106cf11` publicado en el PR #13.
+Alcance validado: suite completa **541 passed in 16.32s** (519 REC-03C +
+22 de esta unidad), nativas **17**, packaging regressions **16**,
+`git diff --check`, PyInstaller + AppImage Type 2, smoke y persistencia
+XDG. NO valida interacción QML/controles ni autoriza publicación
+(licencias pendientes; sin fusionar/tags/releases).
 
 ## 1. Defecto D1 y alcance
 
