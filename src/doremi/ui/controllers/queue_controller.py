@@ -39,12 +39,19 @@ class QueueController:
         self._like_lock = asyncio.Lock()
 
     def on_play_next_requested(self, video_id, title, artist, thumb_url):
-        self.run_async(self.add_to_queue_async(video_id, title, artist, thumb_url, add_next=True))
+        from doremi.services.playback_context import playback_context
+        self.run_async(self.add_to_queue_async(
+            video_id, title, artist, thumb_url, add_next=True,
+            context=playback_context(self.main_window)))
 
     def on_add_to_queue_requested(self, video_id, title, artist, thumb_url):
-        self.run_async(self.add_to_queue_async(video_id, title, artist, thumb_url, add_next=False))
+        from doremi.services.playback_context import playback_context
+        self.run_async(self.add_to_queue_async(
+            video_id, title, artist, thumb_url, add_next=False,
+            context=playback_context(self.main_window)))
 
-    async def add_to_queue_async(self, video_id, title, artist, thumb_url, add_next=True):
+    async def add_to_queue_async(self, video_id, title, artist, thumb_url, add_next=True,
+                                 *, context: dict | None = None):
         # Try to get duration from stream info
         dur_ms = 0
         try:
@@ -57,6 +64,9 @@ class QueueController:
         item = QueueItem(
             video_id=video_id, title=title, artist=artist,
             album="", duration_ms=dur_ms, thumbnail_url=thumb_url,
+            context_type=str((context or {}).get("context_type", "") or "") or "queue",
+            context_id=str((context or {}).get("context_id", "") or ""),
+            context_title=str((context or {}).get("context_title", "") or ""),
         )
         if add_next:
             self.queue.add_next(item)

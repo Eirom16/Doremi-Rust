@@ -90,6 +90,8 @@ class PlaylistScreenQml(QObject):
         if not items or not self.on_play_song:
             return
         from doremi.audio.queue import QueueItem
+        context_type = ("smart" if (self._playlist_id or "").startswith("smart:")
+                        else "playlist")
         queue_items = [
             QueueItem(
                 video_id=t.get("videoId", ""),
@@ -98,6 +100,9 @@ class PlaylistScreenQml(QObject):
                 album="",
                 duration_ms=t.get("duration_ms", 0),
                 thumbnail_url=t.get("thumbnail_url", "") or self._vm.thumbnail,
+                context_type=context_type,
+                context_id=self._playlist_id or "",
+                context_title=self._vm.title,
             )
             for t in items
         ]
