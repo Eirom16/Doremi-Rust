@@ -90,16 +90,38 @@ class PlaybackController:
         thumbnail_url: str,
         queue_items: list[QueueItem] | None = None,
         queue_index: int = 0,
+        *,
+        context: dict | None = None,
     ) -> None:
         logger.info(f"_play_song called: {title[:30]} video_id={video_id}")
         self._finalize_listening("replaced")
         if queue_items:
+            if context:
+                # La procedencia la estampa el productor (playlist/álbum/…).
+                # El contexto de pantalla capturado en el boundary solo cubre
+                # items que aún no tienen origen; nunca se reasigna uno existente.
+                from dataclasses import replace
+                safe_context = {
+                    key: context[key] for key in
+                    ("context_type", "context_id", "context_title")
+                    if key in context
+                }
+                queue_items = [
+                    replace(item, **safe_context)
+                    if item.context_type == "unknown" and safe_context else item
+                    for item in queue_items
+                ]
             self.queue.set_queue(queue_items, queue_index)
         else:
+            context = {
+                key: value for key, value in (context or {}).items()
+                if key in ("context_type", "context_id", "context_title")
+            }
             item = QueueItem(
                 video_id=video_id, title=title, artist=artist,
                 album=album, duration_ms=duration_ms,
                 thumbnail_url=thumbnail_url,
+                **context,
             )
             self.queue.set_queue([item], 0)
 
@@ -197,6 +219,7 @@ class PlaybackController:
                     album=album_name,
                     duration_ms=dur_ms,
                     thumbnail_url=t_thumbnail_url,
+                    context_type="autoplay",
                 ))
 
             if new_items:
@@ -759,6 +782,9 @@ class PlaybackController:
             song_repo = SongRepository()
 
             await self._upsert_listened_song(item)
+            # Procedencia capturada al solicitar la reproducción y viajada por
+            # el QueueItem durante toda la sesión: no se recalcula aquí.
+            context_type = str(getattr(item, "context_type", "") or "") or "queue"
             await history_repo.add_entry(
                 video_id=item.video_id,
                 title=item.title,
@@ -769,7 +795,10 @@ class PlaybackController:
                 skip_count=result.skip_count,
                 completed=result.completed,
                 was_played=result.was_played,
-                context_type="queue",
+                context_type=context_type,
+                context_id=str(getattr(item, "context_id", "") or ""),
+                context_title=str(getattr(item, "context_title", "") or ""),
+                position_ms=max(0, int(result.position_ms or 0)),
             )
             if result.was_played:
                 await song_repo.record_play(item.video_id)
@@ -827,6 +856,7 @@ class PlaybackController:
                             album="",
                             duration_ms=0,
                             thumbnail_url=(t.get("thumbnail") or [{}])[0].get("url",""),
+                            context_type="autoplay",
                         )
                         for t in watch.get("tracks", [])[1:]
                     ]
@@ -864,6 +894,7 @@ class PlaybackController:
 
         self._finalize_listening("replaced")
         # Set queue to a single local item so queue controls and state work properly
+        context = metadata.get("playback_context") or {}
         item = QueueItem(
             video_id=video_id,
             title=title,
@@ -872,7 +903,10 @@ class PlaybackController:
             duration_ms=dur_ms,
             thumbnail_url=thumbnail_url,
             is_local=True,
-            local_path=path
+            local_path=path,
+            context_type=str(context.get("context_type", "") or "") or "local",
+            context_id=str(context.get("context_id", "") or ""),
+            context_title=str(context.get("context_title", "") or ""),
         )
         self.queue.set_queue([item], 0)
         self._update_queue_panel()
@@ -880,8 +914,13 @@ class PlaybackController:
         self.run_async(self._play_current())
 
     def _play_local_playlist(self, tracks_metadata: list[dict], start_index: int = 0) -> None:
+        # Contexto capturado aquí, en el boundary sincrono de la acción del
+        # usuario: la navegación posterior no reatribuye el origen.
+        from doremi.services.playback_context import playback_context
+        context = playback_context(self.main_window)
         queue_items = []
         for m in tracks_metadata:
+            item_context = m.get("playback_context", context)
             item = QueueItem(
                 video_id=m.get("video_id", "local"),
                 title=m.get("title", "Unknown"),
@@ -890,7 +929,10 @@ class PlaybackController:
                 duration_ms=m.get("duration_ms", 0),
                 thumbnail_url=m.get("thumbnail_url", ""),
                 is_local=True,
-                local_path=m.get("file_path", "")
+                local_path=m.get("file_path", ""),
+                context_type=str(item_context.get("context_type", "") or "") or "local",
+                context_id=str(item_context.get("context_id", "") or ""),
+                context_title=str(item_context.get("context_title", "") or ""),
             )
             queue_items.append(item)
 
@@ -902,6 +944,10 @@ class PlaybackController:
 
     def _play_local_wrapper(self, path: str, metadata: dict) -> None:
         """Wrapper to run _play_local as async task from sync callback."""
+        # Captura en el boundary sincrono: la pantalla activa define el origen
+        # antes de que la tarea asíncrona arranque.
+        from doremi.services.playback_context import playback_context
+        metadata = dict(metadata, playback_context=playback_context(self.main_window))
         self.run_async(self._play_local(path, metadata))
 
     def _on_play_pause(self) -> None:

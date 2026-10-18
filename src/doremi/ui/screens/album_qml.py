@@ -88,6 +88,9 @@ class AlbumScreenQml(QObject):
                 album=self._vm.title or "",
                 duration_ms=t.get("duration_ms", 0),
                 thumbnail_url=t.get("thumbnail_url", "") or self._vm.thumbnail,
+                context_type="album",
+                context_id=self._browse_id or "",
+                context_title=self._vm.title,
             )
             for t in items
         ]

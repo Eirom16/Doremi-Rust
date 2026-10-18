@@ -631,6 +631,10 @@ class MainWindow(QMainWindow):
         queue_items: list[QueueItem] | None = None,
         queue_index: int = 0,
     ) -> None:
+        # El origen se captura aquí, al pedir el usuario la reproducción;
+        # navegar después no debe reatribuir la procedencia del tema en curso.
+        from doremi.services.playback_context import playback_context
+        context = playback_context(self)
         self._run_async(
             self.playback_controller._play_song(
                 video_id,
@@ -641,6 +645,7 @@ class MainWindow(QMainWindow):
                 thumbnail_url,
                 queue_items,
                 queue_index,
+                context=context,
             )
         )
 
