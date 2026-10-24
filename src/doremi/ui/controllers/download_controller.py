@@ -6,6 +6,7 @@ from PySide6.QtWidgets import QMessageBox
 from loguru import logger
 from doremi.utils.i18n import _, _f
 from doremi.ui.screens.downloads_data import delete_audio_file
+from doremi.services.collection_identity import is_downloadable_playlist_identity
 
 
 class DownloadController:
@@ -62,9 +63,15 @@ class DownloadController:
         self.main_window.statusBar().showMessage(f"Descarga completa!", 5000)
 
     def on_download_playlist_requested(self, playlist_id, title, thumbnail_url):
+        if not is_downloadable_playlist_identity(playlist_id):
+            logger.info(f"Ignoring non-downloadable collection: {playlist_id!r}")
+            return
         self.run_async(self.download_playlist_async(playlist_id, title, thumbnail_url))
 
     async def download_playlist_async(self, playlist_id, title, thumbnail_url):
+        if not is_downloadable_playlist_identity(playlist_id):
+            logger.info(f"Ignoring non-downloadable collection: {playlist_id!r}")
+            return
         self.main_window.statusBar().showMessage(f"Iniciando descarga de playlist: {title}", 3000)
 
         def navigate_to_downloads():

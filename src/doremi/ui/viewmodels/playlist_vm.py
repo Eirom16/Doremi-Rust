@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from doremi.services.collection_identity import has_local_playlist_namespace
 
 from PySide6.QtCore import (
     QAbstractListModel, Property, QModelIndex, QObject, Qt, Signal, Slot,
@@ -261,7 +262,7 @@ class PlaylistViewModel(QObject):
         self.header_changed.emit()
 
     def _update_total(self, data: dict) -> None:
-        local = self._playlist_id.startswith(("session:", "local-list:", "smart:", "local_"))
+        local = has_local_playlist_namespace(self._playlist_id)
         if local and "has_more" in data:
             self._total_count = self.loadedCount if not self._has_more and self._initial_offset == 0 else -1
         else:

@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.services.download_manager import DownloadManager
+from doremi.services.collection_identity import has_local_playlist_namespace
 from doremi.ui.viewmodels.playlist_vm import PlaylistViewModel
 
 from doremi.ui.qml_paths import qml_dir
@@ -205,7 +206,7 @@ class PlaylistScreenQml(QObject):
     async def load_more(self) -> bool:
         """Append one local page. Remote provider pagination remains untouched."""
         playlist_id = self._playlist_id
-        if (not playlist_id or not playlist_id.startswith(("session:", "local-list:", "smart:", "local_"))
+        if (not has_local_playlist_namespace(playlist_id)
                 or self._vm.loading or not self._vm.hasMore
                 or (self._page_task and not self._page_task.done())):
             return False
