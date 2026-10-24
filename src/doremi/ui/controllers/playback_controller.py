@@ -351,6 +351,9 @@ class PlaybackController:
             return self._current_play_id == play_id and self.queue.current is item
 
         from doremi.services.local_playback import available_local_path
+        requested_local = (item.is_local or (item.video_id or "").startswith("local:")
+                           or item.context_type == "local"
+                           or (item.context_id or "").startswith("local_"))
         # Keep a valid producer path (including imported files) before looking
         # for a download. An old DB response must never overwrite newer media.
         item.local_path = available_local_path(item.local_path)
@@ -415,6 +418,11 @@ class PlaybackController:
         self.run_async(self._load_related(item, play_id))
         if not item.is_local and not resume:
             if hasattr(self, 'network_monitor') and not self.network_monitor.is_connected:
+                if requested_local:
+                    # A disappeared local medium still fails/skips through
+                    # the existing boundary; it is not a new remote selection.
+                    await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista.")
+                    return
                 logger.warning(f"Offline: cannot play non-local song {item.title}")
                 from doremi.ui.widgets.toast import ToastNotification
                 ToastNotification.show(self.main_window, f"Sin conexión: '{item.title}' no está descargada.", "error")

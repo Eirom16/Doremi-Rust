@@ -110,7 +110,9 @@ async def test_online_remote_members_remain_in_order_and_stream(rig, isolated_db
 
 
 @pytest.mark.asyncio
-async def test_disappeared_import_does_not_stream_a_local_identity(rig, isolated_db, tmp_path):
+@pytest.mark.parametrize('connected', [True, False])
+async def test_disappeared_import_does_not_stream_a_local_identity(rig, isolated_db, tmp_path, connected):
+    rig.pc.network_monitor.is_connected = connected
     rig.pc.queue.set_queue([QueueItem('local:missing', 'Missing', '', '', 100000, '',
                                      is_local=True, local_path=str(tmp_path / 'gone'))])
     await rig.pc._play_current()
@@ -186,3 +188,19 @@ async def test_local_download_producer_captures_collection_before_navigation_con
     item = rig.pc.queue.current
     assert (item.context_type, item.context_id, item.context_title) == ('playlist', 'local_PLfixture', 'Downloaded')
     assert screen._vm._local_meta == [dict(video_id='available', file_path=str(path))]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('producer', ['restored', 'local_metadata'])
+async def test_disappeared_previously_local_download_keeps_offline_failure_skip_boundary(rig, isolated_db, tmp_path, producer):
+    rig.pc.network_monitor.is_connected = False
+    if producer == 'local_metadata':
+        rig.mw._current_path = 'playlist?id=local_PLfixture'
+        rig.pc._play_local_playlist([dict(video_id='remote-id', file_path=str(tmp_path / 'gone'))])
+    else:
+        rig.pc.queue.set_queue([QueueItem('remote-id', 'Missing download', '', '', 100000, '',
+                                         is_local=True, local_path=str(tmp_path / 'gone'))])
+    await rig.pc._play_current()
+    rig.pc.extractor.get_stream_info.assert_not_awaited()
+    rig.player.play_url.assert_not_awaited()
+    rig.mw._handle_playback_failure.assert_awaited_once()
