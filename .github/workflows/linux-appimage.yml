@@ -10,6 +10,7 @@ on:
     branches: [build/f0b3b-linux-appimage]
     paths:
       - "doremi-linux.spec"
+      - "pyproject.toml"
       - ".github/workflows/linux-appimage.yml"
       - "packaging/linux/**"
       - "packaging/appimage/**"
@@ -63,6 +64,7 @@ on:
   pull_request:
     paths:
       - "doremi-linux.spec"
+      - "pyproject.toml"
       - ".github/workflows/linux-appimage.yml"
       - "packaging/linux/**"
       - "packaging/appimage/**"
