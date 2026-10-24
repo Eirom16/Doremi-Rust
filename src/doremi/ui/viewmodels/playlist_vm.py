@@ -66,11 +66,19 @@ class PlaylistTrackModel(QAbstractListModel):
 
     def set_items(self, items: list[dict]) -> None:
         self.beginResetModel()
-        self._items = items
+        self._items = list(items)
         self.endResetModel()
 
     def get(self, row: int) -> dict | None:
         return self._items[row] if 0 <= row < len(self._items) else None
+
+    def append_items(self, items: list[dict]) -> None:
+        if not items:
+            return
+        first = len(self._items)
+        self.beginInsertRows(QModelIndex(), first, first + len(items) - 1)
+        self._items.extend(items)
+        self.endInsertRows()
 
     def all_items(self) -> list[dict]:
         return list(self._items)
@@ -87,6 +95,7 @@ class PlaylistViewModel(QObject):
     header_changed = Signal()
     dl_state_changed = Signal()
     error_changed = Signal()
+    pagination_changed = Signal()
 
     # Mismas señales que PlaylistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -125,6 +134,13 @@ class PlaylistViewModel(QObject):
         self._dl_text = ""
         self._dl_percent = 0
         self._error_text = ""
+        self._has_more = False
+        self._page_offset = 0
+        self._page_limit = 1000
+        self._initial_offset = 0
+        self._loading_more = False
+        self._load_more_error = ""
+        self._total_count = -1
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -146,6 +162,9 @@ class PlaylistViewModel(QObject):
 
     @Property(str, notify=header_changed)
     def meta(self) -> str:
+        if self._total_count < 0:
+            loaded = f"{self.loadedCount} canciones cargadas"
+            return f"{self._author} • {loaded}" if self._author else loaded
         if self._author and self._track_count:
             return f"{self._author} • {self._track_count} canciones"
         return self._author or (f"{self._track_count} canciones" if self._track_count else "")
@@ -165,6 +184,35 @@ class PlaylistViewModel(QObject):
     @Property(str, notify=error_changed)
     def errorText(self) -> str:
         return self._error_text
+
+    @Property(bool, notify=pagination_changed)
+    def hasMore(self) -> bool:
+        return self._has_more
+
+    @Property(int, notify=pagination_changed)
+    def pageOffset(self) -> int:
+        return self._page_offset
+
+    @Property(int, notify=pagination_changed)
+    def pageLimit(self) -> int:
+        return self._page_limit
+
+    @Property(int, notify=pagination_changed)
+    def loadedCount(self) -> int:
+        return self._tracks.rowCount()
+
+    @Property(int, notify=pagination_changed)
+    def totalCount(self) -> int:
+        """-1 means unknown, never infer a collection total from a partial page."""
+        return self._total_count
+
+    @Property(bool, notify=pagination_changed)
+    def loadingMore(self) -> bool:
+        return self._loading_more
+
+    @Property(str, notify=pagination_changed)
+    def loadMoreError(self) -> str:
+        return self._load_more_error
 
     @Property(str, notify=dl_state_changed)
     def dlState(self) -> str:
@@ -203,7 +251,50 @@ class PlaylistViewModel(QObject):
         self._is_fully = bool(data.get("is_fully_downloaded", False))
         self._local_meta = list(data.get("local_meta", []))
         self._tracks.set_items(data.get("tracks", []))
+        self._page_offset = self._initial_offset = data.get("offset", 0)
+        self._page_limit = data.get("limit", 1000)
+        self._has_more = bool(data.get("has_more", False))
+        self._loading_more = False
+        self._load_more_error = ""
+        self._update_total(data)
+        self.pagination_changed.emit()
         self.header_changed.emit()
+
+    def _update_total(self, data: dict) -> None:
+        local = self._playlist_id.startswith(("session:", "local-list:", "smart:", "local_"))
+        if local and "has_more" in data:
+            self._total_count = self.loadedCount if not self._has_more and self._initial_offset == 0 else -1
+        else:
+            self._total_count = data.get("track_count", self.loadedCount)
+        self._track_count = max(0, self._total_count)
+        if self._has_more:
+            self._is_fully = False
+
+    def set_loading_more(self, value: bool) -> None:
+        if self._loading_more != value:
+            self._loading_more = value
+            self.pagination_changed.emit()
+
+    def set_load_more_error(self, message: str) -> None:
+        self._load_more_error = message
+        self.pagination_changed.emit()
+
+    def append_page(self, data: dict) -> bool:
+        """Append the next offset once, keeping actual duplicate occurrences."""
+        if (not self._has_more or data.get("playlist_id") != self._playlist_id
+                or data.get("offset") != self._page_offset + self._page_limit
+                or data.get("limit") != self._page_limit):
+            return False
+        self._tracks.append_items(data.get("tracks", []))
+        self._local_meta.extend(data.get("local_meta", []))
+        self._page_offset = data["offset"]
+        self._has_more = bool(data.get("has_more", False))
+        self._downloaded_count += data.get("downloaded_count", 0)
+        self._load_more_error = ""
+        self._update_total(data)
+        self.pagination_changed.emit()
+        self.header_changed.emit()
+        return True
 
     def set_download_state(self, state: str, percent: int = 0) -> None:
         if state == self.DL_FULL:

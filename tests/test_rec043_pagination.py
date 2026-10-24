@@ -214,3 +214,79 @@ async def test_error_on_first_page_can_retry_with_same_contract(screen, monkeypa
     assert screen._vm.errorText and not screen._vm.loading
     await screen.load('local-list:x', limit=2)
     assert screen._vm.loadedCount == 2 and not screen._vm.errorText
+
+
+@pytest.mark.asyncio
+async def test_old_visible_rows_cannot_start_with_new_playlist_context_while_loading(screen, monkeypatch):
+    import doremi.ui.screens.playlist_data as module
+    entered, release = asyncio.Event(), asyncio.Event()
+    screen._playlist_id = 'local-list:old'
+    screen._vm.set_data(page('local-list:old'))
+    screen._vm.set_loading(False)
+    async def gather(*a, **k):
+        entered.set()
+        await release.wait()
+        return page('local-list:new')
+    monkeypatch.setattr(module, 'gather_playlist', gather)
+    pending = asyncio.create_task(screen.load('local-list:new', limit=2))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        screen._vm.play_at(0)
+        screen.on_play_song.assert_not_called()
+    finally:
+        release.set()
+        await pending
+
+
+@pytest.mark.asyncio
+async def test_header_download_refresh_ignores_previous_generation(screen, monkeypatch):
+    from doremi.db.repository import DownloadRepository
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def downloads(self):
+        entered.set()
+        await release.wait()
+        return [SimpleNamespace(parent_playlist_id='local-list:new')]
+    monkeypatch.setattr(DownloadRepository, 'get_downloads', downloads)
+    screen._playlist_id = 'local-list:old'
+    screen._vm.refresh_counters = Mock()
+    pending = asyncio.create_task(screen._refresh_counts())
+    await asyncio.wait_for(entered.wait(), 2)
+    screen._load_generation += 1
+    screen._playlist_id = 'local-list:new'
+    release.set()
+    await pending
+    screen._vm.refresh_counters.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_existing_retry_callback_keeps_explicit_page_contract(screen, monkeypatch):
+    import doremi.ui.screens.playlist_data as module
+    mocked = AsyncMock(side_effect=[RuntimeError('temporary'), page(offset=4, more=False)])
+    monkeypatch.setattr(module, 'gather_playlist', mocked)
+    await screen.load('local-list:x', limit=2, offset=4)
+    screen._retry()
+    # ensure_future is the real callback; let it enter load() before awaiting.
+    await asyncio.sleep(0)
+    if screen._load_task:
+        await screen._load_task
+    assert mocked.await_args.kwargs == {'limit': 2, 'offset': 4}
+    assert screen._vm.pageOffset == 4
+
+
+@pytest.mark.asyncio
+async def test_cancelled_new_identity_cannot_replay_previous_rows(screen, monkeypatch):
+    import doremi.ui.screens.playlist_data as module
+    screen._playlist_id = 'local-list:old'
+    screen._vm.set_data(page('local-list:old'))
+    screen._vm.set_loading(False)
+    entered = asyncio.Event()
+    async def gather(*a, **k):
+        entered.set()
+        await asyncio.Event().wait()
+    monkeypatch.setattr(module, 'gather_playlist', gather)
+    pending = asyncio.create_task(screen.load('local-list:new', limit=2))
+    await asyncio.wait_for(entered.wait(), 2)
+    pending.cancel()
+    await asyncio.gather(pending, return_exceptions=True)
+    screen._vm.play_at(0)
+    screen.on_play_song.assert_not_called()
