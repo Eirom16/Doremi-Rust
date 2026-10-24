@@ -12,12 +12,17 @@ REQUIRED_CHECKS = frozenset({
 def validate(path):
     with open(path, encoding='utf-8') as stream:
         result = json.load(stream)
-    assert result.get('ok') is True, 'smoke ok must be true'
-    assert result.get('frozen') is True, 'must execute the frozen AppImage'
+    if not isinstance(result, dict) or result.get('ok') is not True:
+        raise ValueError('smoke ok must be true')
+    if result.get('frozen') is not True:
+        raise ValueError('must execute the frozen AppImage')
     checks = result.get('checks')
-    assert isinstance(checks, dict), 'missing checks'
-    assert REQUIRED_CHECKS <= checks.keys(), f'missing mandatory checks: {REQUIRED_CHECKS - checks.keys()}'
-    assert all(value is True for value in checks.values()), checks
+    if not isinstance(checks, dict):
+        raise ValueError('missing checks')
+    if not REQUIRED_CHECKS <= checks.keys():
+        raise ValueError(f'missing mandatory checks: {REQUIRED_CHECKS - checks.keys()}')
+    if not all(value is True for value in checks.values()):
+        raise ValueError(f'failed checks: {checks}')
     print(f"SMOKE_JSON_VALID: {len(checks)} checks; frozen=true; ok=true")
     return result
 

@@ -103,3 +103,11 @@ def test_probe_has_no_stale_json_fallback(probe_env):
     (bindir/'docker').write_text('#!/bin/bash\nexit 0\n')
     result = run_probe(env, output, image)
     assert result.returncode != 0 and '=PASS' not in result.stdout
+
+
+def test_smoke_validation_cannot_be_disabled_by_python_optimization(probe_env):
+    env, output, image, _ = probe_env
+    data = report(); data['ok'] = False
+    env.update(PYTHONOPTIMIZE='1', FAKE_REPORT=json.dumps(data))
+    result = run_probe(env, output, image)
+    assert result.returncode != 0 and '=PASS' not in result.stdout
