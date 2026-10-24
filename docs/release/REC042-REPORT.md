@@ -67,7 +67,8 @@ el seek sin protección de Rescate ni su autoplay de navegación.
 Cambios de contrato:
 
 1. Navegación mantiene un token de intención, invalidado al elegir otra ruta,
-   incluso una ruta bloqueada. `_current_nav_task` conserva su cancelación;
+   incluso una ruta bloqueada o una resolución de artista/álbum pendiente.
+   `_current_nav_task` conserva su cancelación;
    el token protege también frente a loaders que absorben la cancelación.
 2. La selección comprueba `_load_generation`, identidad de pantalla y VM
    cargado, sin error. Una reproducción elegida durante la animación o carga
@@ -98,10 +99,11 @@ Cambios de contrato:
    `resume`, `position`, `next` y `autoplay` son acciones de una sola navegación.
    Atrás/reconexión no repiten reproducción; `autoplay` no está implementado.
 
-Prueba roja B, repetida con la batería final contra el código A: 23 fallos /
+Prueba roja B, repetida con la batería de 33 casos contra el código A: 23 fallos /
 10 pases. La prueba adicional de selección durante la animación falló también
 contra la primera implementación B, y se corrigió antes del commit. Batería
-final: 33 pases.
+final: 35 pases. Dos regresiones adicionales de resolvers (artista/álbum)
+fallaron antes de invalidar la intención al iniciar la búsqueda de otro destino.
 
 ## Límites y riesgos pendientes
 

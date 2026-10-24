@@ -22,7 +22,10 @@ El worktree nuevo se creó desde ese SHA, sin mover las ramas anteriores.
 | `2343134` | B: miembros, contexto, tokens y seek protegido; pruebas adicionales |
 | `2a6559c` | CI: filtros aditivos para todos los archivos de REC042 y sus documentos |
 
-El commit documental sigue a los anteriores. Consultar `git log` o el HEAD
+| `7668a19` | Documentación inicial de contratos y resultados |
+| `f1de238` | B: invalidar reanudación al resolver artista/álbum; 2 regresiones rojas previas |
+
+El sellado documental sigue a los anteriores. Consultar `git log` o el HEAD
 del PR para su SHA; ninguna fase anterior se reescribe.
 
 ## Pruebas locales
@@ -41,10 +44,11 @@ nueva; sin base de datos, música o configuración reales.
 | A pérdida de conexión en smart, antes del refresco | `tests/test_rec042_offline_navigation.py::test_connection_loss_refreshes_smart_offline_filter -q` | 1 failed |
 | A final | `tests/test_rec042_offline_navigation.py -q` | **25 passed** |
 | B roja inicial | `tests/test_rec042_collection_resume.py -q` | 22 failed / 8 passed |
-| B roja, batería final contra código A | mismo archivo, sin implementación B | 23 failed / 10 passed |
+| B roja, batería de 33 casos contra código A | mismo archivo, sin implementación B | 23 failed / 10 passed |
 | B selección durante animación, antes de snapshot inicial | `tests/test_rec042_collection_resume.py::test_playback_selection_during_navigation_animation_cancels_resume -q` | 1 failed |
-| Focalizadas A+B y contratos previos | `tests/test_rec042_collection_resume.py tests/test_rec042_offline_navigation.py tests/test_rec041_playback_context.py tests/test_playback_request_races.py tests/test_player.py tests/test_controllers.py -q` | **128 passed**, 24.73 s |
-| Suite completa | `tests/ -q` | **599 passed**, 42.62 s (541 + 58) |
+| B resolvers artista/álbum, antes de invalidar intención | `tests/test_rec042_collection_resume.py::test_resolving_a_new_destination_invalidates_pending_resume -q` | 2 failed |
+| Focalizadas A+B y contratos previos | `tests/test_rec042_collection_resume.py tests/test_rec042_offline_navigation.py tests/test_rec041_playback_context.py tests/test_playback_request_races.py tests/test_player.py tests/test_controllers.py -q` | **130 passed**, 25.94 s |
+| Suite completa | `tests/ -q` | **601 passed**, 41.84 s (541 + 60) |
 | Nativas + packaging | `tests/test_native_rs.py tests/test_linux_packaging.py tests/test_linux_appimage.py -q` | **33 passed**, 0.62 s (17 nativas + 16 packaging) |
 | Diff | `git diff --check` | limpio |
 | Workflow | `yaml.safe_load` + comparación de paths con archivos modificados | válido, cobertura completa |
