@@ -47,6 +47,11 @@ on:
       - "src/doremi/ui/screens/playlist_qml.py"
       - "src/doremi/ui/screens/album_qml.py"
       - "tests/test_rec041*.py"
+      - "src/doremi/ui/controllers/navigation_controller.py"
+      - "src/doremi/ui/controllers/integrations_controller.py"
+      - "src/doremi/audio/player.py"
+      - "tests/test_rec042*.py"
+      - "docs/release/REC042*.md"
   pull_request:
     paths:
       - "doremi-linux.spec"
@@ -87,6 +92,11 @@ on:
       - "src/doremi/ui/screens/playlist_qml.py"
       - "src/doremi/ui/screens/album_qml.py"
       - "tests/test_rec041*.py"
+      - "src/doremi/ui/controllers/navigation_controller.py"
+      - "src/doremi/ui/controllers/integrations_controller.py"
+      - "src/doremi/audio/player.py"
+      - "tests/test_rec042*.py"
+      - "docs/release/REC042*.md"
   workflow_dispatch:
 
 env:
