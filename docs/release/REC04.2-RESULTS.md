@@ -4,9 +4,11 @@
 
 Base validada: `96f3a455beec7dc725463b3999207ad04fe09060` (CI-HARDENING).
 Rama: `recovery/rec04-ui-playlists`; worktree: `rec042-ui-playlists`.
-Este primer informe registra evidencia local. El CI de este HEAD documental
-se comprobará antes de declarar VERIFIED; la evidencia final se anotará en el
-PR sin trasladar automáticamente el verde de otro SHA.
+PR [#17](https://github.com/Eirom16/Doremi-Rust/pull/17), sobre CI-HARDENING.
+**VERIFIED para las interacciones y matriz ejecutadas en el HEAD indicado abajo.**
+Este sellado documental será comprobado además en su propio CI antes de entregar;
+el resultado final de su SHA exacto se anotará en el PR. El verde de otro SHA no
+se traslada automáticamente al commit documental.
 
 ## Commits por unidad
 
@@ -80,3 +82,34 @@ protegidos (principal, Rescate, REC02, REC03A/B/C, REC041/042/043 y CI-HARDENING
 sin cambios. Los estados preexistentes de Rescate y REC03A se conservan.
 ListeningPeriods byte-idéntico y ausencia de cambios DB/migraciones/Rust
 comprobados contra la base. Solo se escribe en este nuevo worktree.
+
+## CI real y artefactos comprobados
+
+- HEAD de código e informe inicial: `4923372919f51d720e4f94b125487fd5bd62dfb0`.
+- [Run 40113678478](https://github.com/Eirom16/Doremi-Rust/actions/runs/40113678478):
+  completed/success comprobado; job `120930430478`.
+- Suite **712 passed**, 43,13 s; nativas **17 passed**, 0,20 s;
+  packaging **16 passed**, 0,18 s. Sin skips forzados.
+- SMOKE_A/B/C, FUSE, X11_XVFB y persistencia XDG: PASS en el alcance de sus
+  probes. No equivalen a probar controles de playlist ni audio audible.
+- Negativo Docker real: CLEAN_ENV_2204=FAIL exit=42 seguido de
+  NEGATIVE_PROBE=EXPECTED_FAILURE_42, sin falso PASS.
+- Docker 22.04 obligatorio y 24.04 informativo: ambos PASS real,
+  SYSTEM_VLC_ABSENT, JSON ok=true/frozen=true y los nueve checks true.
+  Se descargaron y verificaron ambos JSON y logs del artefacto
+  [clean-container-evidence](https://github.com/Eirom16/Doremi-Rust/actions/runs/40113678478/artifacts/12567598019).
+- Se descargó el artefacto
+  [playlist-ui-interaction-evidence](https://github.com/Eirom16/Doremi-Rust/actions/runs/40113678478/artifacts/12567468068)
+  y se revisaron capturas reales del runner (lista final y error tras commit).
+  Métrica CI de 10.007 filas: 8 delegados iniciales, 17 finales; 127,85 ms y
+  1.608 KiB RSS incremental en proceso caliente. Las muestras frías locales
+  permanecen separadas en el JSON de rendimiento.
+
+GitHub mantuvo el estado global in_progress varios minutos después de cargar
+los artefactos y respondió con 502/timeouts al detalle de jobs. Se esperó hasta
+comprobar completed/success y obtener el log final. No se canceló ni reejecutó
+el run, no se ocultó ningún fallo y no se debilitó ninguna prueba.
+
+Los artefactos temporales expiran a los 7 días; estos resultados y los logs del
+run documentan su alcance. El commit de este sellado debe tener CI propio verde
+antes de la entrega, sin commits adicionales no comprobados después.
