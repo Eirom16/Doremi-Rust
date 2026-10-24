@@ -557,7 +557,8 @@ class MainWindow(QMainWindow):
         from doremi.ui.screens.playlist_qml import PlaylistScreenQml
         return self._require_qml(
             "playlist",
-            PlaylistScreenQml(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back),
+            PlaylistScreenQml(self.yt, self._play_song_sync, self._play_local_playlist, on_back=self._go_back,
+                              on_navigate=self._navigate_to),
         )
 
     def _build_album_qml(self):
@@ -705,6 +706,10 @@ class MainWindow(QMainWindow):
         """Async cleanup for graceful shutdown - call after event loop is still running."""
         if getattr(self, "_shutdown_complete", False):
             return
+        playlist = getattr(self, "playlist_screen", None)
+        finish_save = getattr(playlist, "finish_session_save_for_shutdown", None)
+        if finish_save is not None:
+            await finish_save()
         # Persist a partial listen before cancelling queued work or releasing
         # VLC.  This is intentionally awaited, unlike routine UI updates.
         playback = getattr(self, "playback_controller", None)

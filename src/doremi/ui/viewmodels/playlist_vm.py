@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import random
-from doremi.services.collection_identity import has_local_playlist_namespace
+from doremi.services.collection_identity import has_local_playlist_namespace, session_identity
 
 from PySide6.QtCore import (
     QAbstractListModel, Property, QModelIndex, QObject, Qt, Signal, Slot,
@@ -97,6 +97,7 @@ class PlaylistViewModel(QObject):
     dl_state_changed = Signal()
     error_changed = Signal()
     pagination_changed = Signal()
+    session_save_changed = Signal()
 
     # Mismas señales que PlaylistScreen (QtWidgets)
     download_requested = Signal(str, str, str, str)
@@ -112,6 +113,8 @@ class PlaylistViewModel(QObject):
     back_requested = Signal()
     retry_requested = Signal()
     load_more_requested = Signal()
+    save_session_requested = Signal(str)
+    open_saved_requested = Signal(str)
 
     DL_NONE = ""
     DL_PARTIAL = "partial"
@@ -143,6 +146,9 @@ class PlaylistViewModel(QObject):
         self._loading_more = False
         self._load_more_error = ""
         self._total_count = -1
+        self._save_busy = False
+        self._save_error = ""
+        self._saved_playlist_id = ""
 
     # ── Properties ─────────────────────────────────────────────────────────
 
@@ -182,6 +188,48 @@ class PlaylistViewModel(QObject):
     @Property(bool, notify=header_changed)
     def isLocalCollection(self) -> bool:
         return has_local_playlist_namespace(self._playlist_id)
+
+    @Property(str, notify=header_changed)
+    def playlistId(self) -> str:
+        return self._playlist_id
+
+    @Property(bool, notify=header_changed)
+    def isSession(self) -> bool:
+        return session_identity(self._playlist_id) is not None
+
+    @Property(bool, notify=session_save_changed)
+    def saveBusy(self) -> bool:
+        return self._save_busy
+
+    @Property(str, notify=session_save_changed)
+    def saveError(self) -> str:
+        return self._save_error
+
+    @Property(str, notify=session_save_changed)
+    def savedPlaylistId(self) -> str:
+        return self._saved_playlist_id
+
+    @Property(str, notify=session_save_changed)
+    def saveMessage(self) -> str:
+        if self._save_busy:
+            return "Guardando una sesión…"
+        if self._save_error:
+            return self._save_error
+        return "Playlist guardada. Puedes abrirla." if self._saved_playlist_id else ""
+
+    def set_save_state(self, busy: bool, error: str = "", playlist_id: str = "") -> None:
+        self._save_busy, self._save_error, self._saved_playlist_id = busy, error, playlist_id
+        self.session_save_changed.emit()
+
+    @Slot(str)
+    def save_session(self, title: str) -> None:
+        if self.isSession and not self._loading and not self._save_busy and title.strip():
+            self.save_session_requested.emit(title.strip())
+
+    @Slot()
+    def open_saved_playlist(self) -> None:
+        if self.isSession and not self._save_busy and self._saved_playlist_id:
+            self.open_saved_requested.emit(self._saved_playlist_id)
 
     @Slot()
     def load_more(self) -> None:

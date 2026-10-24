@@ -225,20 +225,20 @@ async def test_real_offline_1007_occurrences_added_row_playback_and_navigation(u
 
 @pytest.mark.asyncio
 async def test_large_list_keeps_delegate_allocation_bounded(ui):
-    import json, resource, time
+    import json, time
     ids = [str(i) for i in range(10007)]
     ui.screen._playlist_id = 'local-list:large'
     ui.vm.set_data(data('local-list:large', more=False, ids=ids)); ui.vm.set_loading(False)
-    before = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
+    before = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024 if Path('/proc/self/statm').exists() else 0
     started = time.perf_counter(); ui.show()
     initial_rows = len([i for i in ui.visual_items() if i.objectName().startswith('playlistTrackRow')])
     ui.end(); await ui.wait(lambda: ui.item('playlistTrackRow10006') is not None)
     final_rows = len([i for i in ui.visual_items() if i.objectName().startswith('playlistTrackRow')])
     assert 0 < initial_rows < 40 and 0 < final_rows < 60
-    after = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
+    after = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024 if Path('/proc/self/statm').exists() else 0
     evidence = dict(rows=10007, initial_delegates=initial_rows, final_delegates=final_rows,
         elapsed_ms=round((time.perf_counter()-started)*1000,2), rss_delta_kib=after-before,
-        peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+        platform=os.sys.platform)
     destination = Path(os.environ.get('DOREMI_UI_EVIDENCE_DIR', ui.tmp_path)); destination.mkdir(parents=True, exist_ok=True)
     (destination/'virtualization-10007.json').write_text(json.dumps(evidence,indent=2))
 
@@ -301,6 +301,7 @@ async def confirm_save_with_real_controls(ui, title):
     ui.click('sessionPlaylistTitle')
     QTest.keyClick(ui.widget, Qt.Key_A, Qt.ControlModifier)
     QTest.keyClicks(ui.widget, title)
+    ui.screenshot('session-save-dialog.png')
     ui.click('sessionPlaylistConfirm')
 
 
@@ -333,3 +334,211 @@ async def test_save_boundary_claims_before_task_and_blocks_button_plus_keyboard(
     ui.screen.on_navigate = Mock()
     ui.click('playlistOpenSaved')
     ui.screen.on_navigate.assert_called_once_with('playlist?id=local-list%3Asaved')
+
+
+async def seed_session(db, tmp_path):
+    from doremi.db.repository import SongRepository, HistoryRepository
+    from doremi.services.listening_periods import ListeningPeriods
+    path = tmp_path/'session.opus'; path.write_bytes(b'synthetic audio; not decoded')
+    for vid in ['local:a', 'local:b']:
+        await SongRepository().upsert_song(video_id=vid, title=vid, artist='Fixture', local_path=str(path), duration_ms=100000)
+    for vid in ['local:a', 'local:b', 'local:a']:
+        await HistoryRepository().add_entry(vid, vid, 'Fixture', 100000, listen_time_ms=60000)
+    from urllib.parse import parse_qs, urlsplit
+    return parse_qs(urlsplit((await ListeningPeriods().recent())[0]['navigate']).query)['id'][0]
+
+
+async def saved_collections(db):
+    from sqlalchemy import select
+    from doremi.db.models import Collection, LocalPlaylistTrack
+    async with db.get_session() as session:
+        collections = list((await session.scalars(select(Collection).where(Collection.context_id.startswith('local-list:')))).all())
+        rows = list((await session.scalars(select(LocalPlaylistTrack).order_by(LocalPlaylistTrack.playlist_id,LocalPlaylistTrack.position))).all())
+    return collections, rows
+
+
+@pytest.mark.asyncio
+async def test_real_qml_save_creates_one_playlist_then_allows_second_intent(ui, isolated_db, tmp_path):
+    identity = await seed_session(isolated_db, tmp_path)
+    await ui.screen.load(identity); ui.show()
+    await confirm_save_with_real_controls(ui, 'Saved session')
+    ui.vm.save_session('Duplicate activation')
+    QTest.keyClick(ui.widget, Qt.Key_Return)
+    await ui.wait(lambda: bool(ui.vm.savedPlaylistId))
+    first = ui.vm.savedPlaylistId
+    collections, rows = await saved_collections(isolated_db)
+    assert len(collections) == 1 and collections[0].title == 'Saved session'
+    assert [r.video_id for r in rows] == ['local:a','local:b','local:a']
+    ui.screenshot('session-save-success.png')
+    await confirm_save_with_real_controls(ui, 'Second intention')
+    await ui.wait(lambda: bool(ui.vm.savedPlaylistId) and ui.vm.savedPlaylistId != first)
+    collections, rows = await saved_collections(isolated_db)
+    assert len(collections) == 2 and len(rows) == 6
+    ui.screen.on_play_song.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('return_before_finish', [True, False])
+async def test_navigation_during_real_append_does_not_release_guard_or_publish_stale_result(ui, isolated_db, tmp_path, monkeypatch, return_before_finish):
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    identity = await seed_session(isolated_db, tmp_path)
+    other = await LocalLibraryRepository().create_playlist('Other playlist')
+    original = LocalLibraryRepository.append
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def append(repo, pid, vids):
+        entered.set(); await release.wait(); return await original(repo, pid, vids)
+    monkeypatch.setattr(LocalLibraryRepository, 'append', append)
+    await ui.screen.load(identity); ui.show()
+    tasks=[]
+    try:
+        await confirm_save_with_real_controls(ui, 'Saved during navigation')
+        await asyncio.wait_for(entered.wait(),2)
+        writer = ui.screen._save_write_task
+        assert ui.vm.saveBusy and not writer.done()
+        ui.screenshot('session-save-busy.png')
+        ui.screen.on_back = lambda: tasks.append(asyncio.create_task(ui.screen.load(other)))
+        ui.home(); ui.click('playlistBack'); await asyncio.gather(*tasks)
+        assert ui.vm._playlist_id == other and ui.vm.saveBusy and writer.cancelling() == 0
+        assert not ui.vm.savedPlaylistId
+        if return_before_finish:
+            tasks.clear()
+            ui.screen.on_back = lambda: tasks.append(asyncio.create_task(ui.screen.load(identity)))
+            ui.home(); ui.click('playlistBack'); await asyncio.gather(*tasks)
+            assert ui.vm.saveBusy and not ui.item('playlistSaveSession').isEnabled()
+            ui.vm.save_session('Must not duplicate')
+    finally:
+        release.set()
+        task = getattr(ui.screen,'_save_task',None)
+        if task: await asyncio.gather(task, return_exceptions=True)
+    assert not ui.vm.saveBusy
+    if not return_before_finish:
+        assert not ui.vm.savedPlaylistId and not ui.vm.saveError
+        await ui.screen.load(identity)
+    assert ui.vm.savedPlaylistId.startswith('local-list:')
+    collections, rows = await saved_collections(isolated_db)
+    assert len(collections) == 2 and len(rows) == 3  # Other + one saved session
+
+
+@pytest.mark.asyncio
+async def test_cancelled_ui_waiter_cannot_cancel_a_pending_write(ui, isolated_db, tmp_path, monkeypatch):
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    identity = await seed_session(isolated_db, tmp_path)
+    original = LocalLibraryRepository.append
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def append(repo, pid, vids):
+        entered.set(); await release.wait(); return await original(repo,pid,vids)
+    monkeypatch.setattr(LocalLibraryRepository,'append',append)
+    await ui.screen.load(identity); ui.show()
+    try:
+        await confirm_save_with_real_controls(ui,'Shielded write')
+        await asyncio.wait_for(entered.wait(),2)
+        waiter, writer = ui.screen._save_task, ui.screen._save_write_task
+        waiter.cancel()
+        await asyncio.sleep(0); ui.pump()
+        assert ui.vm.saveBusy and not writer.cancelled() and writer.cancelling() == 0
+        ui.vm.save_session('Duplicate while waiter cancelled')
+    finally:
+        release.set()
+        task=getattr(ui.screen,'_save_task',None)
+        if task: await asyncio.gather(task,return_exceptions=True)
+    assert not ui.vm.saveBusy and ui.vm.savedPlaylistId
+    collections,rows=await saved_collections(isolated_db)
+    assert len(collections)==1 and len(rows)==3
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('stage', ['before_create', 'after_create', 'after_commit'])
+async def test_real_qml_save_errors_do_not_retry_automatically(ui, isolated_db, tmp_path, monkeypatch, stage):
+    from doremi.services.listening_periods import ListeningPeriods
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    identity = await seed_session(isolated_db,tmp_path)
+    await ui.screen.load(identity); ui.show()
+    calls=[]
+    if stage=='before_create':
+        async def failed(*a,**k): calls.append('before'); raise RuntimeError('before create')
+        monkeypatch.setattr(ListeningPeriods,'save_as_playlist',failed)
+    elif stage=='after_create':
+        async def failed(*a,**k): calls.append('after create'); raise RuntimeError('append failed')
+        monkeypatch.setattr(LocalLibraryRepository,'append',failed)
+    else:
+        original=ListeningPeriods.save_as_playlist
+        async def failed(service,*a,**k):
+            pid=await original(service,*a,**k); calls.append(pid); raise RuntimeError('commit result uncertain')
+        monkeypatch.setattr(ListeningPeriods,'save_as_playlist',failed)
+    await confirm_save_with_real_controls(ui,'A failing save')
+    await ui.wait(lambda: bool(ui.vm.saveError))
+    assert not ui.vm.saveBusy and not ui.vm.savedPlaylistId
+    assert ui.item('playlistSaveStatus').isVisible() and 'Revisa' in ui.vm.saveMessage
+    for _ in range(5): ui.pump(); await asyncio.sleep(.01)
+    assert len(calls)==1
+    collections,rows=await saved_collections(isolated_db)
+    assert len(collections)==(1 if stage=='after_commit' else 0)
+    assert len(rows)==(3 if stage=='after_commit' else 0)
+    ui.screenshot('session-save-'+stage+'-error.png')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('identity,visible', [('session:1:2',True),('session:1:2:1700000000',True),
+    ('session:0:2',False),('session:3:2',False),('session:bogus',False),('local-list:x',False),('PLremote',False)])
+async def test_save_action_only_for_valid_session_identity(ui,identity,visible):
+    ui.screen._playlist_id=identity
+    ui.vm.set_data(data(identity,more=False)); ui.vm.set_loading(False)
+    ui.show()
+    assert ui.item('playlistSaveSession').isVisible()==visible
+
+
+@pytest.mark.asyncio
+async def test_accessibility_interfaces_expose_button_busy_and_count_state(ui,monkeypatch):
+    from PySide6.QtGui import QAccessible, QAccessibleActionInterface
+    import doremi.ui.screens.playlist_data as module
+    QAccessible.setActive(True)
+    entered, release=asyncio.Event(),asyncio.Event()
+    async def gather(yt,pid,**kwargs):
+        if kwargs.get('offset'):
+            entered.set(); await release.wait(); return data(offset=5,more=False,ids=['last'])
+        return data()
+    monkeypatch.setattr(module,'gather_playlist',gather)
+    await ui.screen.load('local-list:test',limit=5);ui.show();ui.end()
+    iface=QAccessible.queryAccessibleInterface(ui.item('playlistLoadMore'))
+    assert iface is not None and iface.text(QAccessible.Text.Name)=='Cargar más canciones'
+    assert iface.role()==QAccessible.Role.Button and not iface.state().disabled
+    try:
+        iface.actionInterface().doAction(QAccessibleActionInterface.pressAction())
+        await asyncio.wait_for(entered.wait(),2)
+        assert ui.vm.loadingMore and iface.state().disabled
+        iface.actionInterface().doAction(QAccessibleActionInterface.pressAction())
+    finally: release.set()
+    await ui.wait(lambda:ui.vm.loadedCount==6)
+    count=QAccessible.queryAccessibleInterface(ui.item('playlistCountStatus'))
+    assert count is not None and count.text(QAccessible.Text.Name)=='6 de 6 canciones'
+
+
+@pytest.mark.asyncio
+async def test_graceful_shutdown_waits_for_the_session_write_before_cleanup(ui, isolated_db, tmp_path, monkeypatch):
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    from doremi.ui.main_window import MainWindow
+    identity=await seed_session(isolated_db,tmp_path)
+    original=LocalLibraryRepository.append
+    entered,release=asyncio.Event(),asyncio.Event()
+    async def append(repo,pid,vids):
+        entered.set();await release.wait();return await original(repo,pid,vids)
+    monkeypatch.setattr(LocalLibraryRepository,'append',append)
+    await ui.screen.load(identity);ui.show()
+    host=SimpleNamespace(_shutdown_complete=False,playback_controller=None,playlist_screen=ui.screen,
+        _cleanup_on_close=Mock(),_pending_tasks=set(),_init_task=None,network_monitor=None,
+        download_manager=None,player=None,extractor=None)
+    shutdown=None
+    try:
+        await confirm_save_with_real_controls(ui,'Save before close')
+        await asyncio.wait_for(entered.wait(),2)
+        shutdown=asyncio.create_task(MainWindow.async_shutdown(host))
+        await asyncio.sleep(0)
+        assert not shutdown.done() and ui.vm.saveBusy
+        host._cleanup_on_close.assert_not_called()
+    finally:
+        release.set()
+        await asyncio.gather(ui.screen._save_task, *([shutdown] if shutdown else []), return_exceptions=True)
+    host._cleanup_on_close.assert_called_once()
+    assert host._shutdown_complete and not ui.vm.saveBusy
+    collections,rows=await saved_collections(isolated_db)
+    assert len(collections)==1 and len(rows)==3

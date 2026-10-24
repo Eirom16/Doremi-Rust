@@ -218,6 +218,17 @@ Item {
                             onClicked: screenVm.play_shuffle()
                         }
 
+                        HeaderButton {
+                            objectName: "playlistSaveSession"
+                            visible: screenVm.isSession
+                            enabled: !screenVm.saveBusy
+                            text: "Guardar como playlist"
+                            onClicked: {
+                                sessionSaveDialog.sessionIdentity = screenVm.playlistId
+                                sessionSaveDialog.open()
+                            }
+                        }
+
                         // Estado offline / descarga
                         Label {
                             visible: screenVm.isLocal || screenVm.dlState === "full"
@@ -263,6 +274,27 @@ Item {
                 }
 
                 Item { Layout.fillWidth: true }
+            }
+
+            ColumnLayout {
+                visible: !screenVm.loading && screenVm.isSession && screenVm.saveMessage !== ""
+                Layout.fillWidth: true
+                spacing: Theme.spacingSm
+                Label {
+                    objectName: "playlistSaveStatus"
+                    Layout.fillWidth: true
+                    text: screenVm.saveMessage
+                    color: screenVm.saveError !== "" ? root.colors["error"] : root.colors["text_secondary"]
+                    wrapMode: Text.WordWrap
+                    Accessible.role: Accessible.StaticText
+                    Accessible.name: text
+                }
+                HeaderButton {
+                    objectName: "playlistOpenSaved"
+                    visible: screenVm.savedPlaylistId !== "" && !screenVm.saveBusy
+                    text: "Abrir playlist guardada"
+                    onClicked: screenVm.open_saved_playlist()
+                }
             }
 
         }
@@ -462,6 +494,88 @@ Item {
                 onClicked: screenVm.load_more()
             }
             Item { Layout.preferredHeight: Theme.spacingLg }
+        }
+    }
+
+    Connections {
+        target: screenVm
+        function onHeader_changed() {
+            if (sessionSaveDialog.sessionIdentity !== screenVm.playlistId)
+                sessionSaveDialog.close()
+        }
+    }
+
+    // Same Qt Quick Dialog/HeaderButton system as collection confirmation.
+    Dialog {
+        id: sessionSaveDialog
+        objectName: "sessionSaveDialog"
+        property string sessionIdentity: ""
+        modal: true
+        focus: true
+        anchors.centerIn: Overlay.overlay
+        width: 420
+        padding: Theme.spacingLg
+        onOpened: {
+            sessionTitle.text = screenVm.title
+            sessionTitle.forceActiveFocus()
+            sessionTitle.selectAll()
+        }
+        function submit() {
+            if (sessionIdentity === screenVm.playlistId && !screenVm.saveBusy && sessionTitle.text.trim() !== "") {
+                screenVm.save_session(sessionTitle.text)
+                close()
+            }
+        }
+        background: Rectangle {
+            radius: Theme.radiusLg
+            color: root.colors["bg_surface"]
+            border.width: 1
+            border.color: root.colors["border"]
+        }
+        contentItem: ColumnLayout {
+            spacing: Theme.spacingMd
+            Label {
+                text: "Guardar sesión como playlist"
+                color: root.colors["text_primary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeTitle
+            }
+            TextField {
+                id: sessionTitle
+                objectName: "sessionPlaylistTitle"
+                Layout.fillWidth: true
+                maximumLength: 200
+                color: root.colors["text_primary"]
+                placeholderTextColor: root.colors["text_secondary"]
+                font.family: Theme.fontFamily
+                font.pixelSize: Theme.typeBody
+                leftPadding: Theme.spacingSm
+                background: Rectangle {
+                    radius: Theme.radiusSm
+                    color: root.colors["bg_elevated"]
+                    border.width: 1
+                    border.color: sessionTitle.activeFocus ? root.accentColor : root.colors["border"]
+                }
+                placeholderText: "Título de la playlist"
+                Accessible.name: "Título de la playlist"
+                onAccepted: sessionSaveDialog.submit()
+            }
+            RowLayout {
+                Layout.alignment: Qt.AlignRight
+                spacing: Theme.spacingSm
+                HeaderButton {
+                    objectName: "sessionPlaylistCancel"
+                    text: "Cancelar"
+                    onClicked: sessionSaveDialog.close()
+                }
+                HeaderButton {
+                    objectName: "sessionPlaylistConfirm"
+                    text: "Guardar"
+                    accessibleName: "Guardar sesión como playlist"
+                    enabled: !screenVm.saveBusy && sessionTitle.text.trim() !== ""
+                    onClicked: sessionSaveDialog.submit()
+                }
+            }
         }
     }
 
