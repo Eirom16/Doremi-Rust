@@ -24,24 +24,41 @@ Item {
         color: root.colors["bg_base"]
     }
 
-    Flickable {
+    ListView {
+        id: playlistList
+        objectName: "playlistList"
         anchors.fill: parent
         anchors.leftMargin: Theme.spacingLg
         anchors.rightMargin: Theme.spacingLg
         anchors.topMargin: Theme.spacingSm
         anchors.bottomMargin: themeBridge.miniPlayerVisible ? 112 : Theme.spacingLg
-        contentWidth: width
-        contentHeight: contentCol.height
         clip: true
-        flickableDirection: Flickable.VerticalFlick
+        focus: true
+        reuseItems: true
+        cacheBuffer: 144
+        spacing: Theme.spacingXs
+        model: !screenVm.loading && screenVm.found ? screenVm.tracks : null
+        Accessible.role: Accessible.List
+        Accessible.name: "Canciones de " + screenVm.title
+        ScrollBar.vertical: ScrollBar {}
+        Keys.onPressed: function(event) {
+            if (event.key === Qt.Key_End) {
+                currentIndex = count - 1
+                positionViewAtEnd()
+                event.accepted = true
+            } else if (event.key === Qt.Key_Home) {
+                currentIndex = 0
+                positionViewAtBeginning()
+                event.accepted = true
+            }
+        }
 
-        ColumnLayout {
-            id: contentCol
-            width: parent.width
+        header: ColumnLayout {
+            width: playlistList.width
             spacing: Theme.spacingLg
-
             // ── Volver ────────────────────────────────────────────────
             Rectangle {
+                objectName: "playlistBack"
                 Layout.preferredWidth: backLbl.implicitWidth + Theme.spacingMd * 2
                 Layout.preferredHeight: 36
                 radius: Theme.radiusSm
@@ -185,6 +202,7 @@ Item {
                         Layout.topMargin: Theme.spacingSm
 
                         HeroButton {
+                            objectName: "playlistPlayAll"
                             primary: true
                             text: "Reproducir"
                             iconCode: "" // play_arrow
@@ -192,6 +210,7 @@ Item {
                             onClicked: screenVm.play_all()
                         }
                         HeroButton {
+                            objectName: "playlistShuffle"
                             primary: false
                             text: "Aleatorio"
                             iconCode: "" // shuffle
@@ -246,18 +265,11 @@ Item {
                 Item { Layout.fillWidth: true }
             }
 
-            // ── Tracks ────────────────────────────────────────────────
-            ColumnLayout {
-                visible: !screenVm.loading && screenVm.found && screenVm.hasTracks
-                Layout.fillWidth: true
-                spacing: Theme.spacingXs
-                Layout.topMargin: Theme.spacingSm
+        }
 
-                Repeater {
-                    model: screenVm.tracks
-
-                    delegate: Rectangle {
+        delegate: Rectangle {
                         id: row
+                        objectName: "playlistTrackRow" + row.index
                         required property int index
                         required property string title
                         required property string artist
@@ -266,14 +278,16 @@ Item {
                         required property bool isDownloaded
                         required property string setVideoId
 
-                        Layout.fillWidth: true
-                        Layout.preferredHeight: 72
+                        width: playlistList.width
+                        height: 72
+                        ListView.onPooled: rowMenu.close()
                         radius: Theme.radiusLg
                         color: rowMa.containsMouse ? root.colors["bg_high"] : "transparent"
                         activeFocusOnTab: true
                         Accessible.role: Accessible.ListItem
                         Accessible.name: "Reproducir " + row.title + ", " + row.artist
                         Accessible.description: "Enter o espacio para reproducir; menú contextual disponible"
+                        Accessible.onPressAction: screenVm.play_at(row.index)
                         Keys.onReturnPressed: screenVm.play_at(row.index)
                         Keys.onSpacePressed: screenVm.play_at(row.index)
                         Keys.onPressed: (event) => {
@@ -372,7 +386,9 @@ Item {
 
                             ContextMenu {
                                 id: rowMenu
+                                objectName: "playlistTrackMenu" + row.index
                                 ContextMenuItem {
+                                    objectName: "playlistPlayNext" + row.index
                                     text: "Reproducir siguiente"
                                     onTriggered: screenVm.track_action(row.index, "play_next")
                                 }
@@ -408,8 +424,44 @@ Item {
                             }
                         }
                     }
-                }
+
+        footer: ColumnLayout {
+            width: playlistList.width
+            height: visible ? implicitHeight : 0
+            visible: !screenVm.loading && screenVm.found && screenVm.hasTracks
+            spacing: Theme.spacingSm
+            Item { Layout.preferredHeight: Theme.spacingSm }
+            Label {
+                objectName: "playlistCountStatus"
+                Layout.alignment: Qt.AlignHCenter
+                text: screenVm.totalCount >= 0
+                    ? screenVm.loadedCount + " de " + screenVm.totalCount + " canciones"
+                    : screenVm.loadedCount + " canciones cargadas"
+                color: root.colors["text_secondary"]
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
             }
+            Label {
+                objectName: "playlistPaginationError"
+                visible: screenVm.loadMoreError !== ""
+                Layout.fillWidth: true
+                text: screenVm.loadMoreError
+                color: root.colors["error"]
+                wrapMode: Text.WordWrap
+                Accessible.role: Accessible.StaticText
+                Accessible.name: text
+            }
+            HeaderButton {
+                objectName: "playlistLoadMore"
+                Layout.alignment: Qt.AlignHCenter
+                visible: screenVm.isLocalCollection && screenVm.hasMore
+                enabled: !screenVm.loadingMore && !screenVm.loading
+                text: screenVm.loadingMore ? "Cargando…"
+                    : screenVm.loadMoreError !== "" ? "Reintentar carga" : "Cargar más"
+                accessibleName: screenVm.loadingMore ? "Cargando más canciones" : "Cargar más canciones"
+                onClicked: screenVm.load_more()
+            }
+            Item { Layout.preferredHeight: Theme.spacingLg }
         }
     }
 

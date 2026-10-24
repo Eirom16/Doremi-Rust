@@ -111,6 +111,7 @@ class PlaylistViewModel(QObject):
     remove_track_requested = Signal(str, str, str)  # video_id, set_video_id, title
     back_requested = Signal()
     retry_requested = Signal()
+    load_more_requested = Signal()
 
     DL_NONE = ""
     DL_PARTIAL = "partial"
@@ -177,6 +178,15 @@ class PlaylistViewModel(QObject):
     @Property(bool, notify=header_changed)
     def isLocal(self) -> bool:
         return self._is_local
+
+    @Property(bool, notify=header_changed)
+    def isLocalCollection(self) -> bool:
+        return has_local_playlist_namespace(self._playlist_id)
+
+    @Slot()
+    def load_more(self) -> None:
+        if self.isLocalCollection and self._has_more and not self._loading and not self._loading_more:
+            self.load_more_requested.emit()
 
     @Property(bool, notify=header_changed)
     def hasTracks(self) -> bool:

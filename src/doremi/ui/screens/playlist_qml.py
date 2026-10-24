@@ -63,6 +63,7 @@ class PlaylistScreenQml(QObject):
         self._vm.remove_track_requested.connect(self._on_remove_track)
         self._vm.back_requested.connect(self._on_back)
         self._vm.retry_requested.connect(self._retry)
+        self._vm.load_more_requested.connect(self._request_load_more)
 
         # Progreso de descarga de la playlist (paridad widgets)
         dm = DownloadManager.get_instance()
@@ -218,12 +219,22 @@ class PlaylistScreenQml(QObject):
             if self._load_task is current:
                 self._load_task = None
 
+    def _request_load_more(self) -> None:
+        """Claim the UI request synchronously before scheduling its page task."""
+        if (self._vm.loading or self._vm.loadingMore or not self._vm.hasMore
+                or self._vm._playlist_id != self._playlist_id
+                or not has_local_playlist_namespace(self._playlist_id)):
+            return
+        self._vm.set_loading_more(True)
+        self._page_task = asyncio.ensure_future(self.load_more())
+
     async def load_more(self) -> bool:
         """Append one local page. Remote provider pagination remains untouched."""
         playlist_id = self._playlist_id
         if (not has_local_playlist_namespace(playlist_id)
                 or self._vm.loading or not self._vm.hasMore
-                or (self._page_task and not self._page_task.done())):
+                or (self._page_task and self._page_task is not asyncio.current_task()
+                    and not self._page_task.done())):
             return False
         current = asyncio.current_task()
         self._page_task = current

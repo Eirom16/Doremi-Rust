@@ -151,8 +151,6 @@ async def test_qml_more_error_retry_keeps_rows_and_busy_is_accessible(ui, monkey
     entered, release = asyncio.Event(), asyncio.Event()
     async def failed(*a, **k):
         entered.set(); await release.wait(); raise RuntimeError('temporary')
-    gather = AsyncMock(side_effect=[data(), failed, data(offset=5, more=False, ids=['last'])])
-    # AsyncMock sequence does not invoke callable entries; use an explicit counter.
     calls = 0
     async def load(yt, identity, **kwargs):
         nonlocal calls
@@ -175,3 +173,123 @@ async def test_qml_more_error_retry_keeps_rows_and_busy_is_accessible(ui, monkey
     ui.click('playlistLoadMore')
     await ui.wait(lambda: ui.vm.loadedCount == 6)
     assert not ui.vm.loadMoreError and gather.await_count == 3
+
+
+from test_rec042_offline_navigation import isolated_db
+
+
+@pytest.mark.asyncio
+async def test_real_offline_1007_occurrences_added_row_playback_and_navigation(ui, isolated_db, tmp_path, monkeypatch):
+    from doremi.db.models import Song
+    from doremi.db.local_library_repository import LocalLibraryRepository
+    import doremi.ui.screens.playlist_data as module
+    path = tmp_path/'synthetic.opus'; path.write_bytes(b'fixture; VLC is not invoked')
+    ids = [f'local:{i}' for i in range(1005)]
+    async with isolated_db.get_session() as session:
+        session.add_all([Song(video_id=v, title=v, artist='Fixture', local_path=str(path)) for v in ids])
+        await session.commit()
+    repo = LocalLibraryRepository(); identity = await repo.create_playlist('Offline 1007')
+    occurrences = ids[:500]+[ids[0]]+ids[500:]+[ids[0]]
+    await repo.append(identity, occurrences)
+    gather = AsyncMock(wraps=module.gather_playlist)
+    monkeypatch.setattr(module, 'gather_playlist', gather)
+    await ui.screen.load(identity); ui.show()
+    assert ui.vm.loadedCount == 1000
+    assert len([i for i in ui.visual_items() if i.objectName().startswith('playlistTrackRow')]) < 40
+    ui.click('playlistTrackRow0')
+    previous_queue = ui.screen.on_play_song.call_args.args[6]
+    assert len(previous_queue) == 1000
+    ui.end(); ui.click('playlistLoadMore')
+    # Keyboard activation of the now-disabled control cannot repeat the request.
+    QTest.keyClick(ui.widget, Qt.Key_Return)
+    await ui.wait(lambda: ui.vm.loadedCount == 1007)
+    assert gather.await_count == 2 and gather.await_args.kwargs == dict(limit=1000, offset=1000)
+    assert [t['videoId'] for t in ui.vm.tracks.all_items()] == occurrences
+    assert len(previous_queue) == 1000 and ui.screen.on_play_song.call_count == 1
+    ui.end()
+    await ui.wait(lambda: ui.item('playlistTrackRow1006') is not None)
+    ui.click('playlistTrackRow1006')
+    args = ui.screen.on_play_song.call_args.args
+    assert args[7] == 1006 and len(args[6]) == 1007 and args[0] == ids[0]
+    assert all(t.is_local and t.local_path == str(path) and t.context_id == identity for t in args[6])
+    ui.item('playlistTrackRow1006').forceActiveFocus()
+    QTest.keyClick(ui.widget, Qt.Key_Menu); ui.pump()
+    assert ui.item('playlistPlayNext1006') is not None
+    assert ui.item('playlistPlayNext1006').isVisible()
+    QTest.keyClick(ui.widget, Qt.Key_Escape); ui.pump()
+    ui.screenshot('playlist-offline-1007.png')
+    ui.home(); ui.click('playlistBack')
+    ui.screen.on_back.assert_called_once_with()
+    ui.screen.yt.get_playlist.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_large_list_keeps_delegate_allocation_bounded(ui):
+    import json, resource, time
+    ids = [str(i) for i in range(10007)]
+    ui.screen._playlist_id = 'local-list:large'
+    ui.vm.set_data(data('local-list:large', more=False, ids=ids)); ui.vm.set_loading(False)
+    before = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
+    started = time.perf_counter(); ui.show()
+    initial_rows = len([i for i in ui.visual_items() if i.objectName().startswith('playlistTrackRow')])
+    ui.end(); await ui.wait(lambda: ui.item('playlistTrackRow10006') is not None)
+    final_rows = len([i for i in ui.visual_items() if i.objectName().startswith('playlistTrackRow')])
+    assert 0 < initial_rows < 40 and 0 < final_rows < 60
+    after = int(Path('/proc/self/statm').read_text().split()[1])*os.sysconf('SC_PAGE_SIZE')//1024
+    evidence = dict(rows=10007, initial_delegates=initial_rows, final_delegates=final_rows,
+        elapsed_ms=round((time.perf_counter()-started)*1000,2), rss_delta_kib=after-before,
+        peak_rss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+    destination = Path(os.environ.get('DOREMI_UI_EVIDENCE_DIR', ui.tmp_path)); destination.mkdir(parents=True, exist_ok=True)
+    (destination/'virtualization-10007.json').write_text(json.dumps(evidence,indent=2))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('old_error', [False, True])
+async def test_qml_navigation_discards_a_late_page(ui, monkeypatch, old_error):
+    import doremi.ui.screens.playlist_data as module
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def gather(yt, identity, **kwargs):
+        offset = kwargs.get('offset',0)
+        if offset:
+            entered.set()
+            try: await release.wait()
+            except asyncio.CancelledError: await release.wait()
+            if old_error: raise RuntimeError('old page error')
+        return data(identity, offset=offset, more=not offset)
+    monkeypatch.setattr(module, 'gather_playlist', gather)
+    await ui.screen.load('local-list:old', limit=5); ui.show(); ui.end(); ui.click('playlistLoadMore')
+    await asyncio.wait_for(entered.wait(), 2)
+    pending = ui.screen._page_task
+    tasks=[]
+    ui.screen.on_back = lambda: tasks.append(asyncio.create_task(ui.screen.load('local-list:new', limit=5)))
+    try:
+        ui.home(); ui.click('playlistBack')
+        await asyncio.gather(*tasks)
+    finally:
+        release.set(); await asyncio.gather(pending, return_exceptions=True)
+    assert ui.vm._playlist_id == 'local-list:new' and ui.vm.loadedCount == 5
+    assert not ui.vm.loadMoreError and not ui.vm.loadingMore
+    assert ui.item('playlistLoadMore').isEnabled()
+    ui.screen.on_play_song.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_remote_playlist_has_no_fake_load_more_control(ui):
+    ui.screen._playlist_id = 'PLremote'
+    ui.vm.set_data(data('PLremote', more=True)); ui.vm.set_loading(False)
+    ui.show(); ui.end()
+    assert not ui.item('playlistLoadMore').isVisible()
+
+
+@pytest.mark.asyncio
+async def test_keyboard_context_menu_remains_operable(ui):
+    ui.screen._playlist_id = 'local-list:test'
+    ui.vm.set_data(data(more=False)); ui.vm.set_loading(False)
+    calls=[]
+    ui.vm.play_next_requested.connect(lambda *args: calls.append(args))
+    ui.show(); ui.end()
+    ui.item('playlistTrackRow4').forceActiveFocus()
+    QTest.keyClick(ui.widget, Qt.Key_Menu); ui.pump()
+    assert ui.item('playlistPlayNext4') is not None
+    ui.click('playlistPlayNext4')
+    assert calls and calls[-1][0] == 'v4'
