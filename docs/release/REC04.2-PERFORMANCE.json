@@ -1,0 +1,45 @@
+{
+  "method": "Separate cold processes; QQuickWidget 1000x720; offscreen/software; bundled fonts loaded; RSS delta around component construction; single samples, not timing gates",
+  "baseline_head": "96f3a455beec7dc725463b3999207ad04fe09060",
+  "listview_runtime_head": "3e3f677",
+  "measurements": {
+    "repeater_1007": {
+      "count": 1007,
+      "qt": "6.12.0",
+      "python": "3.12.14",
+      "status": "Status.Ready",
+      "rows": 1007,
+      "elapsed_ms": 10641.13,
+      "rss_delta_kib": 526208,
+      "errors": []
+    },
+    "listview_1007": {
+      "count": 1007,
+      "qt": "6.12.0",
+      "python": "3.12.14",
+      "status": "Status.Ready",
+      "rows": 8,
+      "elapsed_ms": 306.44,
+      "rss_delta_kib": 44364,
+      "errors": []
+    },
+    "listview_10007": {
+      "count": 10007,
+      "qt": "6.12.0",
+      "python": "3.12.14",
+      "status": "Status.Ready",
+      "rows": 8,
+      "elapsed_ms": 298.57,
+      "rss_delta_kib": 44320,
+      "errors": []
+    }
+  },
+  "interaction_scroll": {
+    "rows": 10007,
+    "initial_delegates": 8,
+    "final_delegates": 17,
+    "elapsed_ms": 288.5,
+    "rss_delta_kib": 1556,
+    "platform": "linux"
+  }
+}
