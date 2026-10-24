@@ -168,3 +168,21 @@ async def test_late_download_error_does_not_apply_cache_to_new_playback(rig, tmp
     await pending
     assert not item.is_local and item.local_path is None
     rig.player.play_url.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_local_download_producer_captures_collection_before_navigation_context_changes(rig, tmp_path):
+    path = tmp_path / 'download'
+    path.write_bytes(b'fixture')
+    screen = rig.mw.playlist_screen
+    screen._playlist_id = 'local_PLfixture'
+    screen._vm.set_data(dict(playlist_id=screen._playlist_id, title='Downloaded', is_local=True,
+        tracks=[dict(videoId='available')], local_meta=[dict(video_id='available', file_path=str(path))]))
+    screen.on_play_local_playlist = rig.pc._play_local_playlist
+    screen._vm.play_local_requested.connect(screen._on_vm_play_local)
+    # The next route can be selected before its fade/load starts.
+    rig.mw._current_path = 'album?id=ALnew'
+    screen._vm.play_at(0)
+    item = rig.pc.queue.current
+    assert (item.context_type, item.context_id, item.context_title) == ('playlist', 'local_PLfixture', 'Downloaded')
+    assert screen._vm._local_meta == [dict(video_id='available', file_path=str(path))]

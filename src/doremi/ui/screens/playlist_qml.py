@@ -88,6 +88,15 @@ class PlaylistScreenQml(QObject):
             return
         if self.on_play_local_playlist and meta_list:
             try:
+                if self._playlist_id:
+                    context = dict(
+                        context_type="smart" if self._playlist_id.startswith("smart:") else "playlist",
+                        context_id=self._playlist_id, context_title=self._vm.title,
+                    )
+                    # Metadata already accepts this REC-04.1.1 field. Stamp
+                    # at the producer boundary, before the next route's fade.
+                    meta_list = [dict(m, playback_context=m.get("playback_context") or context)
+                                 for m in meta_list]
                 self.on_play_local_playlist(meta_list, start_index)
             except Exception as e:
                 logger.error(f"Play local playlist error desde isla QML: {e}")
