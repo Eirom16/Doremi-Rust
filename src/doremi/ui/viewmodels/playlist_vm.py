@@ -290,7 +290,9 @@ class PlaylistViewModel(QObject):
         self._local_meta.extend(data.get("local_meta", []))
         self._page_offset = data["offset"]
         self._has_more = bool(data.get("has_more", False))
-        self._downloaded_count += data.get("downloaded_count", 0)
+        # The loader's download metadata is a collection aggregate, not an
+        # additional count to sum once per page (notably for local_).
+        self._downloaded_count = data.get("downloaded_count", self._downloaded_count)
         self._load_more_error = ""
         self._update_total(data)
         self.pagination_changed.emit()
@@ -303,7 +305,8 @@ class PlaylistViewModel(QObject):
         elif state == self.DL_ACTIVE:
             text = f"Descargando… {percent}%"
         elif state == self.DL_PARTIAL:
-            text = f"Descargar restantes ({self._downloaded_count}/{self._track_count})"
+            text = (f"{self._downloaded_count} canciones guardadas" if self._total_count < 0
+                    else f"Descargar restantes ({self._downloaded_count}/{self._track_count})")
         else:
             text = "Descargar playlist"
         changed = (

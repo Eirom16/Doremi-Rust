@@ -139,7 +139,8 @@ async def test_same_page_is_not_requested_concurrently(screen, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('old_outcome', ['success', 'error'])
-async def test_new_playlist_invalidates_late_page_even_if_cancellation_is_swallowed(screen, monkeypatch, old_outcome):
+@pytest.mark.parametrize('replacement', ['local-list:new', 'local-list:old'])
+async def test_new_playlist_invalidates_late_page_even_if_cancellation_is_swallowed(screen, monkeypatch, old_outcome, replacement):
     import doremi.ui.screens.playlist_data as module
     entered, release = asyncio.Event(), asyncio.Event()
     async def gather(yt, identity, **kwargs):
@@ -158,11 +159,11 @@ async def test_new_playlist_invalidates_late_page_even_if_cancellation_is_swallo
     pending = asyncio.create_task(screen.load_more())
     try:
         await asyncio.wait_for(entered.wait(), 2)
-        await screen.load('local-list:new', limit=2)
+        await screen.load(replacement, limit=2)
     finally:
         release.set()
         await asyncio.gather(pending, return_exceptions=True)
-    assert screen._playlist_id == screen._vm._playlist_id == 'local-list:new'
+    assert screen._playlist_id == screen._vm._playlist_id == replacement
     assert screen._vm.loadedCount == 2 and screen._vm.hasMore
     assert not screen._vm.loadMoreError and not screen._vm.loadingMore
 
@@ -290,3 +291,16 @@ async def test_cancelled_new_identity_cannot_replay_previous_rows(screen, monkey
     await asyncio.gather(pending, return_exceptions=True)
     screen._vm.play_at(0)
     screen.on_play_song.assert_not_called()
+
+
+def test_download_aggregate_is_not_summed_again_for_each_local_page(qapp):
+    vm = PlaylistViewModel()
+    first = page('local_PLx', local=True)
+    first['downloaded_count'] = 3  # loader reports the collection aggregate
+    vm.set_data(first)
+    vm.set_download_state(vm.DL_PARTIAL)
+    assert '/0' not in vm.dlText
+    final = page('local_PLx', local=True, offset=2, more=False, ids=['a'])
+    final['downloaded_count'] = 3
+    assert vm.append_page(final)
+    assert vm._downloaded_count == 3

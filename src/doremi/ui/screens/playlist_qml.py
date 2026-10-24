@@ -155,6 +155,12 @@ class PlaylistScreenQml(QObject):
     # ── Carga ──────────────────────────────────────────────────────────────
 
     async def load(self, playlist_id: str, *, limit: int = 1000, offset: int = 0) -> None:
+        """Replace a visible range; load_more() appends subsequent local pages.
+
+        Explicit reloads invalidate both first-page and incremental requests,
+        including reloads of the same identity. The old one-argument call
+        retains its initial range of up to 1000 local occurrences.
+        """
         if not playlist_id:
             return
         from doremi.ui.screens.playlist_data import _coerce_limit, _coerce_offset
