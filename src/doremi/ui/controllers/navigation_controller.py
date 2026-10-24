@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from loguru import logger
@@ -42,11 +43,19 @@ class NavigationController:
         encoded separators, Unicode and repeated parameters correctly, unlike
         splitting strings on ``?`` and ``=``.
         """
-        parsed = urlsplit((path or "").strip())
+        try:
+            parsed = urlsplit((path or "").strip())
+        except ValueError:
+            return "", {}
+        if parsed.scheme or parsed.netloc or parsed.fragment:
+            return "", {}
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if len(query.get("id", [])) > 1:
+            return "", {}
         route = parsed.path.strip("/")
         params = {
             key: values[-1]
-            for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            for key, values in query.items()
             if values
         }
         return route, params
@@ -79,12 +88,11 @@ class NavigationController:
 
         self.main_window._current_path = target_path
         self.main_window._current_route = route
-        if self.should_show_offline_state(route):
+        if self.should_show_offline_state(route, params):
             self.main_window._offline_blocked_path = target_path
             self.show_offline_state(route)
             return
-        if route not in self.main_window.ONLINE_ROUTES:
-            self.main_window._offline_blocked_path = None
+        self.main_window._offline_blocked_path = None
 
         if route != "search":
             self.main_window.search_bar.clear_query()
@@ -99,11 +107,41 @@ class NavigationController:
         await asyncio.sleep(0.3)
         await self.load_screen_with_query(route, params)
 
-    def should_show_offline_state(self, route: str) -> bool:
+    @staticmethod
+    def _is_local_collection(params: dict[str, str]) -> bool:
+        """Recognize only well-formed identities handled by local data loaders."""
+        identity = params.get("id", "")
+        if identity.startswith("smart:"):
+            from doremi.db.experience_repository import SMART_TITLES
+            return identity[6:] in SMART_TITLES
+        if re.fullmatch(r"(?:local-list:|local_)[A-Za-z0-9_-]+", identity):
+            return True
+        if re.fullmatch(r"session:[1-9][0-9]*:[1-9][0-9]*(?::[0-9]+)?", identity):
+            from doremi.services.listening_periods import ListeningPeriods
+            try:
+                first, last, _ = ListeningPeriods.parse_identity(identity)
+                return first <= last
+            except (ValueError, OverflowError, OSError):
+                return False
+        return False
+
+    def should_show_offline_state(
+        self, route: str, params: dict[str, str] | None = None,
+        *, is_connected: bool | None = None,
+    ) -> bool:
+        """Shared policy for route entry and connectivity transitions.
+
+        Legacy route-only callers remain conservative; never infer the target
+        collection from the previous ``_current_path``. Connectivity callbacks
+        may supply the transition value before a monitor snapshot updates.
+        """
+        if is_connected is None:
+            monitor = getattr(self.main_window, "network_monitor", None)
+            is_connected = monitor is None or monitor.is_connected
         return (
             route in self.main_window.ONLINE_ROUTES
-            and hasattr(self.main_window, "network_monitor")
-            and not self.main_window.network_monitor.is_connected
+            and not is_connected
+            and not (route == "playlist" and self._is_local_collection(params or {}))
         )
 
     def show_offline_state(self, route: str) -> None:
