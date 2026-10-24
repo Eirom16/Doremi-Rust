@@ -53,11 +53,17 @@ El reproductor vuelve a validar al iniciar, porque un archivo puede desaparecer
 entre la acción y la reproducción. El fallo de un archivo importado no se
 convierte en una petición de streaming de su identidad local.
 
+Si un medio previamente local desaparece sin conexión, se conserva el boundary
+de fallo/skip existente, tanto en la cola recuperada como en local_. Una
+selección remota no disponible conserva su bloqueo offline; el flag de
+disponibilidad no se utiliza para borrar la intención local capturada.
+
 Pruebas rojas: 13 fallos / 8 pases sobre la base exacta. Se descartó una primera
 invocación con un fixture faltante, que no se cuenta como evidencia roja.
 Se añadieron dos regresiones posteriores, cada una roja antes del cierre:
 excepción tardía de descargas y captura `local_` con la ruta de ventana ya
-cambiada. Batería A final: 23 casos.
+cambiada. El cierre offline añadió tres regresiones rojas sobre pérdida de
+medio importado/recuperado y metadatos local_. Batería A final: 26 casos.
 
 Se actualizó únicamente el fixture de una prueba REC-04.1.1: el supuesto
 `/tmp/no-file.mp3` se sustituyó por un archivo sintético temporal. Las

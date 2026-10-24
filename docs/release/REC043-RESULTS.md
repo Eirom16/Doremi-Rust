@@ -27,9 +27,11 @@ CI de ese HEAD: [40055058283](https://github.com/Eirom16/Doremi-Rust/actions/run
 | `9db7f10` | A: contexto local_ capturado en el productor |
 | `a6e0adf` | CI: paths aditivos de código, pruebas y documentos |
 | `ef34c1b` | REPORT/RESULTS con evidencia local completa |
+| `6d63d7e` | Primer sellado CI (antes del cierre de semántica offline) |
+| `2be870b` | A: conservar boundary de fallo/skip para medios locales desaparecidos offline |
 
 HEAD de código probado localmente:
-`a6e0adf941d5e0d82cd8776d29810a72c8aac43b`.
+`2be870b19a9bd21e5ce7eb9ea9584c5e20b6c625`.
 Los commits documentales posteriores se identifican en git log y en el PR.
 Ningún commit de las fases anteriores se reescribe.
 
@@ -58,6 +60,8 @@ NavigationController/MusicPlayer y el servicio de D7 permanecen intactos.
 | D2 inicial, batería de 21 casos contra c58cc97 | **13 failed / 8 passed** |
 | D2 error tardío de DB → caché | **1 failed** |
 | D2 origen local_ durante cambio de ruta | **1 failed** |
+| D2 medio importado/recuperado desaparecido offline | **2 failed / 1 passed** |
+| D2 metadatos local_ sin archivo offline | **1 failed / 1 passed** |
 | B contrato inicial | **16 failed** |
 | B filas previas / refresh de contadores / retry explícito | **3 failed** |
 | B cancelación dejando filas de otra identidad | **1 failed** |
@@ -81,17 +85,17 @@ sintéticos temporales, red/extractor/VLC simulados; sin DB o música reales.
 
 | Bloque | Comando (python -m pytest) | Resultado |
 |---|---|---|
-| A, B, D6, contexto REC041 y reanudación REC042 | `tests/test_rec043_local_playback.py tests/test_rec043_pagination.py tests/test_rec043_download_safety.py tests/test_rec041_playback_context.py tests/test_rec042_collection_resume.py -q` | **126 passed**, 21.47 s |
+| A, B, D6, contexto REC041 y reanudación REC042 | `tests/test_rec043_local_playback.py tests/test_rec043_pagination.py tests/test_rec043_download_safety.py tests/test_rec041_playback_context.py tests/test_rec042_collection_resume.py -q` | **129 passed**, 21.77 s |
 | Integración ampliada anterior al último cierre | mismos REC043 + REC041/REC042, playback_request_races, playlist_qml, controllers y REC03C playlist/listening_stats | **203 passed**, 30.75 s |
 | Cierre de productor local_ + contratos de contexto/Playlist | `tests/test_rec043_local_playback.py tests/test_rec041_playback_context.py tests/test_playlist_qml.py -q` | **53 passed**, 5.03 s |
 | Cierre de contadores/refresh B + contratos Playlist | `tests/test_rec043_pagination.py tests/test_playlist_qml.py -q` | **31 passed**, 3.64 s |
-| Suite completa final | `tests/ -q` | **670 passed**, 47.74 s (601 + 69) |
+| Suite completa final | `tests/ -q` | **673 passed**, 46.57 s (601 + 72) |
 | Nativas + packaging | `tests/test_native_rs.py tests/test_linux_packaging.py tests/test_linux_appimage.py -q` | **33 passed**, 0.95 s (17 + 16) |
 | Diff | `git diff --check` | limpio |
 | Workflow | YAML + comparación de todos los paths modificados | válido y cubierto para pull_request/push (se conserva restricción de rama push) |
 | Servicio D7 | comparación de bytes con c58cc97 | idéntico |
 
-Las tres baterías nuevas contienen 23 casos cada una. Incluyen Play/Shuffle/fila,
+Baterías nuevas: A 26 casos, B 23, D6 23 (72 en total). Incluyen Play/Shuffle/fila,
 las cuatro clases de colección local, remoto online, archivos ausentes/vacíos/
 directorios, bandera de descarga insuficiente, orden y duplicados, 1007
 ocurrencias offline sobre SQLite, señales de inserción, concurrencia de página,
@@ -112,13 +116,13 @@ PR [#15](https://github.com/Eirom16/Doremi-Rust/pull/15), base
 
 | Evidencia remota comprobada | Resultado |
 |---|---|
-| HEAD de rama | `ef34c1b1d68dc89838bb2fba8676eca56cea39e3` |
-| Checkout de integración del PR | `a46dc0e968c08a6bdd8422ef87bc4d4237cb5a87` |
-| Run | [40105078060](https://github.com/Eirom16/Doremi-Rust/actions/runs/40105078060) — completed / success |
-| Job | `120904972779` — completed / success |
-| Suite completa | **670 passed**, 29.63 s |
-| Nativas | **17 passed**, 0.12 s |
-| Packaging | **16 passed**, 0.08 s |
+| HEAD de rama | `2be870b19a9bd21e5ce7eb9ea9584c5e20b6c625` |
+| Checkout de integración del PR | `c17af7b4204ec7ecbdb47b8a9491adf17603b5a5` |
+| Run | [40105872522](https://github.com/Eirom16/Doremi-Rust/actions/runs/40105872522) — completed / success |
+| Job | `120907320158` — completed / success |
+| Suite completa | **673 passed**, 35.61 s |
+| Nativas | **17 passed**, 0.18 s |
+| Packaging | **16 passed**, 0.17 s |
 | Bundle | PyInstaller/AppImage; smoke A/B/C, FUSE, X11, VLC y persistencia confirmados en logs |
 
 Este sellado documental es posterior al HEAD de la tabla. Se comprobará su
