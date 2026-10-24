@@ -419,16 +419,18 @@ def test_rec041_queue_controller_stamps_screen_context(qapp):
     assert (item.context_type, item.context_id) == ("playlist", "PLxyz")
 
 
-def test_rec041_local_playlist_play_stamps_window_context():
+def test_rec041_local_playlist_play_stamps_window_context(tmp_path):
+    path = tmp_path / "synthetic.mp3"
+    path.write_bytes(b"fixture; VLC mocked")
     controller = _controller()
     controller.main_window = SimpleNamespace(_current_path="playlist?id=local_123")
     controller._play_local_playlist(
         [{"video_id": "v1", "title": "T", "artist": "A", "album": "", "duration_ms": 0,
-          "thumbnail_url": "", "file_path": "/tmp/no-file.mp3"}],
+          "thumbnail_url": "", "file_path": str(path)}],
         start_index=0)
     (item,) = controller.queue.items
     assert (item.context_type, item.context_id) == ("playlist", "local_123")
-    assert item.is_local and item.local_path == "/tmp/no-file.mp3"
+    assert item.is_local and item.local_path == str(path)
 
 
 def test_rec041_local_single_file_capture_and_fallback(monkeypatch):

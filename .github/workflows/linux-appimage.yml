@@ -51,6 +51,12 @@ on:
       - "src/doremi/ui/controllers/integrations_controller.py"
       - "src/doremi/audio/player.py"
       - "tests/test_rec042*.py"
+      - "src/doremi/services/local_playback.py"
+      - "src/doremi/services/collection_identity.py"
+      - "src/doremi/ui/viewmodels/playlist_vm.py"
+      - "src/doremi/ui/controllers/download_controller.py"
+      - "tests/test_rec043*.py"
+      - "docs/release/REC043*.md"
       - "docs/release/REC042*.md"
   pull_request:
     paths:
@@ -96,6 +102,12 @@ on:
       - "src/doremi/ui/controllers/integrations_controller.py"
       - "src/doremi/audio/player.py"
       - "tests/test_rec042*.py"
+      - "src/doremi/services/local_playback.py"
+      - "src/doremi/services/collection_identity.py"
+      - "src/doremi/ui/viewmodels/playlist_vm.py"
+      - "src/doremi/ui/controllers/download_controller.py"
+      - "tests/test_rec043*.py"
+      - "docs/release/REC043*.md"
       - "docs/release/REC042*.md"
   workflow_dispatch:
 
