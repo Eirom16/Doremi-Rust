@@ -28,11 +28,24 @@ sin música ni DB reales. PyYAML se declara como dependencia de tests.
 
 ## CI real
 
-Pendiente al redactar este commit. No se declara VERIFIED con mocks ni con el
-run de REC043. Deben comprobarse el fallo forzado 42 y JSON completos de Docker
-22.04 y 24.04. Los smokes obligatorios no se debilitarán si revelan una
-incompatibilidad real. El HEAD final publicado se comprobará por separado,
-incluidos cambios documentales posteriores, antes de usarlo como base de UI.
+**VERIFIED para los probes y la matriz ejecutada.** PR
+[#16](https://github.com/Eirom16/Doremi-Rust/pull/16), apilado sobre REC043.
+
+- HEAD comprobado: `da49e490e129c0446381465adcf976acf78cd2e8`.
+- [Run 40109382295](https://github.com/Eirom16/Doremi-Rust/actions/runs/40109382295): completed/success;
+  job `120917722405`.
+- Suite: **685 passed**, 36.14 s; nativas **17**, packaging **16**.
+- Negativo real: FORCED_SMOKE_FAILURE → CLEAN_ENV_2204=FAIL exit=42 →
+  NEGATIVE_PROBE=EXPECTED_FAILURE_42; sin PASS antes de ese fallo.
+- Positivos reales: SYSTEM_VLC_ABSENT en ambos contenedores; JSON frozen=true,
+  ok=true y los nueve checks obligatorios true. CLEAN_ENV_2204=PASS y
+  CLEAN_ENV_2404=PASS; ambos outcomes success, sin error chmod sobre :ro.
+- Logs y JSON: artefacto temporal `clean-container-evidence` del run.
+
+Este sellado es posterior a ese HEAD. Se comprobará también el CI de su propio
+SHA publicado antes de entregar o crear la rama de UI; el resultado anterior
+no se traslada automáticamente al nuevo HEAD. La evidencia final se registra
+también en el PR. No se certifica ninguna otra distribución ni audio audible.
 
 ## Integridad
 
