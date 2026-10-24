@@ -10,6 +10,7 @@ on:
     branches: [build/f0b3b-linux-appimage]
     paths:
       - "doremi-linux.spec"
+      - "pyproject.toml"
       - ".github/workflows/linux-appimage.yml"
       - "packaging/linux/**"
       - "packaging/appimage/**"
@@ -32,6 +33,8 @@ on:
       - "tests/test_native_rs.py"
       - "tests/test_linux_packaging.py"
       - "tests/test_linux_appimage.py"
+      - "tests/test_ci_clean_env.py"
+      - "docs/release/CI-HARDENING*.md"
       - "tests/test_database.py"
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
@@ -61,6 +64,7 @@ on:
   pull_request:
     paths:
       - "doremi-linux.spec"
+      - "pyproject.toml"
       - ".github/workflows/linux-appimage.yml"
       - "packaging/linux/**"
       - "packaging/appimage/**"
@@ -83,6 +87,8 @@ on:
       - "tests/test_native_rs.py"
       - "tests/test_linux_packaging.py"
       - "tests/test_linux_appimage.py"
+      - "tests/test_ci_clean_env.py"
+      - "docs/release/CI-HARDENING*.md"
       - "tests/test_database.py"
       - "tests/test_repository.py"
       - "tests/test_rec02*.py"
@@ -425,45 +431,50 @@ jobs:
             echo "(informational only: FUSE mount may be blocked on hosted runners)"
           fi
 
-      # 9. Compatibility: clean containers without system VLC.
-      - name: Clean-env test (ubuntu:22.04 container, NO system VLC)
+      # 9. Real clean-container probes. Original artifact stays read-only.
+      - name: Negative Docker smoke probe detects forced failure
         run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/$APPIMAGE_FILE:/mnt/Doremi.AppImage:ro" \
-            ubuntu:22.04 bash -c '
-              set -e
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get update -qq
-              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 python3 > /dev/null
-              echo "--- container: no vlc expected ---"
-              (ldconfig -p | grep libvlc && echo "SYSTEM VLC PRESENT - test invalid" && exit 1) || echo "no system libvlc, good"
-              chmod +x /mnt/Doremi.AppImage
-              export QT_QPA_PLATFORM=offscreen
-              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
-              export DOREMI_SMOKE_OUT=/tmp/smoke-clean.json
-              /mnt/Doremi.AppImage --appimage-extract-and-run --smoke-test | tail -c 2000
-              python3 -c "import json; r=json.load(open(\"/tmp/smoke-clean.json\")); print(\"clean-env smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
-            ' | tee "$RUNNER_TEMP/clean-env.log"
-          echo "CLEAN_ENV_2204=PASS (ubuntu:22.04, no system VLC)" | tee -a appimage-manifest.txt
+          set -euo pipefail
+          out="$RUNNER_TEMP/clean-env-negative"
+          mkdir -p "$out"
+          set +e
+          DOREMI_PROBE_FORCE_FAILURE=1 bash packaging/appimage/probe-clean-env.sh "$GITHUB_WORKSPACE/$APPIMAGE_FILE" 22.04 "$out" >"$out/negative.log" 2>&1
+          code=$?
+          set -e
+          cat "$out/negative.log"
+          test "$code" -eq 42
+          grep -Fq FORCED_SMOKE_FAILURE "$out/negative.log"
+          if grep -q '^CLEAN_ENV_2204=PASS' "$out/negative.log"; then exit 1; fi
+          echo NEGATIVE_PROBE=EXPECTED_FAILURE_42
+
+      - name: Clean-env test (ubuntu:22.04 container, NO system VLC)
+        id: clean_env_2204
+        run: |
+          set -euo pipefail
+          bash packaging/appimage/probe-clean-env.sh "$GITHUB_WORKSPACE/$APPIMAGE_FILE" 22.04 "$RUNNER_TEMP/clean-env-2204"
+          echo CLEAN_ENV_2204=PASS >> appimage-manifest.txt
 
       - name: Extra distro probe (ubuntu:24.04, informational)
+        id: clean_env_2404
         continue-on-error: true
         run: |
-          docker run --rm \
-            -v "$GITHUB_WORKSPACE/$APPIMAGE_FILE:/mnt/Doremi.AppImage:ro" \
-            ubuntu:24.04 bash -c '
-              set -e
-              export DEBIAN_FRONTEND=noninteractive
-              apt-get update -qq
-              apt-get install -y -qq libgl1 libegl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libsm6 libxext6 libxrender1 libpulse0 python3 > /dev/null
-              chmod +x /mnt/Doremi.AppImage
-              export QT_QPA_PLATFORM=offscreen
-              export XDG_CONFIG_HOME=/tmp/cfg XDG_DATA_HOME=/tmp/data XDG_CACHE_HOME=/tmp/cache
-              export DOREMI_SMOKE_OUT=/tmp/smoke-2404.json
-              /mnt/Doremi.AppImage --appimage-extract-and-run --smoke-test | tail -c 2000
-              python3 -c "import json; r=json.load(open(\"/tmp/smoke-2404.json\")); print(\"24.04 smoke ok:\", r[\"ok\"], r[\"checks\"]); raise SystemExit(0 if r[\"ok\"] else 1)"
-            ' | tee "$RUNNER_TEMP/distro-24.04.log"
-          echo "DISTRO_24_04_EXIT=$?" | tee -a appimage-manifest.txt
+          set -euo pipefail
+          bash packaging/appimage/probe-clean-env.sh "$GITHUB_WORKSPACE/$APPIMAGE_FILE" 24.04 "$RUNNER_TEMP/clean-env-2404"
+          echo CLEAN_ENV_2404=PASS >> appimage-manifest.txt
+
+      - name: Record distro outcomes and preserve clean-container evidence
+        if: always()
+        run: |
+          printf 'CLEAN_ENV_2204_STEP_OUTCOME=%s\nCLEAN_ENV_2404_STEP_OUTCOME=%s\n' '${{ steps.clean_env_2204.outcome }}' '${{ steps.clean_env_2404.outcome }}' | tee -a appimage-manifest.txt
+
+      - name: Upload clean-container evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clean-container-evidence
+          path: ${{ runner.temp }}/clean-env-*
+          if-no-files-found: warn
+          retention-days: 7
 
       # Qt / X11 virtual + VLC/audio + persistence + ELF audit.
       - name: X11 virtual smoke via Xvfb (xcb, if available)

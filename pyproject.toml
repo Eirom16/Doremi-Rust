@@ -29,6 +29,7 @@ dependencies = [
 dev = [
     "pytest>=8.4",
     "pytest-asyncio>=1.4",
+    "PyYAML>=6,<7",
 ]
 
 [project.scripts]
