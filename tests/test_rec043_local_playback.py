@@ -99,6 +99,7 @@ async def test_online_remote_members_remain_in_order_and_stream(rig, isolated_db
     screen = rig.mw.playlist_screen
     screen.on_play_song = Mock()
     screen._playlist_id = 'local-list:mixed'
+    screen._vm.set_data(dict(playlist_id=screen._playlist_id, title='Mixed', tracks=[]))
     screen._on_vm_play_queue([dict(videoId=vid) for vid in ['first', 'second', 'first']], 1)
     args = screen.on_play_song.call_args.args
     await rig.pc._play_song(*args)
@@ -142,4 +143,28 @@ async def test_obsolete_download_result_does_not_mutate_reused_queue_item(rig, t
     release.set()
     await pending
     assert item.local_path == str(new)
+    rig.player.play_url.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_late_download_error_does_not_apply_cache_to_new_playback(rig, tmp_path, monkeypatch):
+    import doremi.db.repository as repositories
+    from doremi.services.offline_cache import OfflineCacheManager
+    path = tmp_path / 'old-cache'
+    path.write_bytes(b'fixture')
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def download(self, vid):
+        entered.set()
+        await release.wait()
+        raise RuntimeError('late DB error')
+    monkeypatch.setattr(repositories.DownloadRepository, 'get_download', download)
+    monkeypatch.setattr(OfflineCacheManager, 'get_instance', lambda: SimpleNamespace(local_path=lambda vid: str(path)))
+    item = QueueItem('same', 'Same', '', '', 100000, '')
+    rig.pc.queue.set_queue([item])
+    pending = asyncio.create_task(rig.pc._play_current())
+    await asyncio.wait_for(entered.wait(), 2)
+    rig.pc._current_play_id += 1
+    release.set()
+    await pending
+    assert not item.is_local and item.local_path is None
     rig.player.play_url.assert_not_awaited()

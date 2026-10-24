@@ -368,6 +368,9 @@ class PlaybackController:
         except Exception as e:
             logger.debug(f"Error checking download status in _play_current: {e}")
 
+        if not is_current():
+            return
+
         # La caché inteligente es independiente de las descargas visibles del usuario.
         if not item.is_local:
             try:
