@@ -189,6 +189,10 @@ class IntegrationsController:
                 self.main_window._show_offline_state(self.main_window._current_route)
             else:
                 self.main_window._offline_blocked_path = None
+                if route == "playlist" and nav._is_local_collection(params):
+                    # Reapply REC-03C availability filtering on an already
+                    # visible collection. No history entry or resume action.
+                    self.run_async(nav.load_screen_with_query(route, {"id": params["id"]}))
         else:
             self.main_window.offline_banner.hide_banner()
             ToastNotification.show(self.main_window, "Conexión de red restablecida", "success")

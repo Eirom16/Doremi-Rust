@@ -140,7 +140,7 @@ def test_connection_loss_keeps_local_playlist_visible(identity, monkeypatch):
     mw._current_route = 'playlist'
     mw._current_path = nav._path_for('playlist', {'id': identity})
     mw._offline_blocked_path = None
-    ic = IntegrationsController(None, PlayQueue(), None, None, None, Mock(), mw)
+    ic = IntegrationsController(None, PlayQueue(), None, None, None, lambda coro: coro.close(), mw)
     ic.on_connectivity_change(False)
     nav.set_stack_index.assert_not_called()
     assert mw._offline_blocked_path is None
@@ -159,3 +159,33 @@ def test_connection_loss_preserves_remote_query_for_retry(monkeypatch):
     mw._navigate_to = Mock()
     ic.on_connectivity_change(True)
     mw._navigate_to.assert_called_once_with('playlist?id=PLremote')
+
+
+@pytest.mark.asyncio
+async def test_connection_loss_refreshes_smart_offline_filter(isolated_db, tmp_path, monkeypatch):
+    from doremi.db.repository import SongRepository
+    from doremi.system.network import NetworkMonitor
+    from doremi.ui.screens.playlist_data import gather_playlist
+    import doremi.ui.controllers.integrations_controller as module
+    monkeypatch.setattr(module.ToastNotification, 'show', Mock())
+    nav, mw = host(connected=True)
+    monkeypatch.setattr(NetworkMonitor, 'current_connectivity', lambda: mw.network_monitor.is_connected)
+    path = tmp_path / 'fixture.mp3'
+    path.write_bytes(b'fixture')
+    await SongRepository().upsert_song(video_id='available', title='A', artist='A', local_path=str(path), is_liked=True)
+    await SongRepository().upsert_song(video_id='remote', title='R', artist='R', is_liked=True)
+    snapshots = []
+    async def load(pid):
+        snapshots.append(await gather_playlist(None, pid))
+    mw.playlist_screen.load.side_effect = load
+    await nav.navigate('playlist?id=smart:liked')
+    assert len(snapshots[-1]['tracks']) == 2
+    tasks = []
+    ic = IntegrationsController(None, PlayQueue(), None, None, None,
+                               lambda coro: tasks.append(asyncio.create_task(coro)), mw)
+    mw.network_monitor.is_connected = False
+    ic.on_connectivity_change(False)
+    await asyncio.gather(*tasks)
+    assert [t['videoId'] for t in snapshots[-1]['tracks']] == ['available']
+    assert mw._nav_history == ['downloads']
+    assert mw._offline_blocked_path is None
