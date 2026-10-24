@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
+from urllib.parse import urlencode
 
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtWidgets import QApplication
 from loguru import logger
 
 from doremi.services.download_manager import DownloadManager
-from doremi.services.collection_identity import has_local_playlist_namespace
+from doremi.services.collection_identity import has_local_playlist_namespace, session_identity
 from doremi.ui.viewmodels.playlist_vm import PlaylistViewModel
 
 from doremi.ui.qml_paths import qml_dir
@@ -34,16 +36,24 @@ class PlaylistScreenQml(QObject):
     like_requested = Signal(str, object)
     delete_download_requested = Signal(str)
 
-    def __init__(self, yt_client, on_play_song, on_play_local_playlist=None, on_back=None):
+    def __init__(self, yt_client, on_play_song, on_play_local_playlist=None, on_back=None, *, on_navigate=None):
         super().__init__()
         self.yt = yt_client
         self.on_play_song = on_play_song
         self.on_play_local_playlist = on_play_local_playlist
         self.on_back = on_back
+        self.on_navigate = on_navigate
         self._playlist_id: str | None = None  # leído por download_controller (paridad widgets)
         self._load_task: asyncio.Task | None = None
         self._load_generation = 0
         self._page_task: asyncio.Task | None = None
+        self._save_task: asyncio.Task | None = None
+        self._save_write_task: asyncio.Task | None = None
+        self._save_busy = False
+        self._save_closing = False
+        self._save_identity = ""
+        self._save_error = ""
+        self._saved_playlist_id = ""
 
         self._vm = PlaylistViewModel(QApplication.instance())
 
@@ -63,6 +73,9 @@ class PlaylistScreenQml(QObject):
         self._vm.remove_track_requested.connect(self._on_remove_track)
         self._vm.back_requested.connect(self._on_back)
         self._vm.retry_requested.connect(self._retry)
+        self._vm.load_more_requested.connect(self._request_load_more)
+        self._vm.save_session_requested.connect(self._request_save_session)
+        self._vm.open_saved_requested.connect(self._open_saved_playlist)
 
         # Progreso de descarga de la playlist (paridad widgets)
         dm = DownloadManager.get_instance()
@@ -76,6 +89,68 @@ class PlaylistScreenQml(QObject):
     def _on_back(self) -> None:
         if self.on_back:
             self.on_back()
+
+    def _sync_save_state(self) -> None:
+        same = getattr(self, "_save_identity", "") == self._playlist_id
+        self._vm.set_save_state(
+            getattr(self, "_save_busy", False),
+            getattr(self, "_save_error", "") if same else "",
+            getattr(self, "_saved_playlist_id", "") if same else "",
+        )
+
+    def _request_save_session(self, title: str) -> None:
+        snapshot = session_identity(self._playlist_id)
+        if (getattr(self, "_save_busy", False) or getattr(self, "_save_closing", False)
+                or snapshot is None or self._vm.loading
+                or self._vm._playlist_id != self._playlist_id or not title.strip()):
+            return
+        # Claim before creating ANY asynchronous task; all UI activations use
+        # this boundary. Navigation only owns _load_task and _page_task.
+        self._save_busy = True
+        self._save_identity = self._playlist_id
+        self._save_error = self._saved_playlist_id = ""
+        self._sync_save_state()
+        self._save_task = asyncio.ensure_future(self._save_session(snapshot, title.strip()))
+
+    async def _save_session(self, snapshot, title: str) -> None:
+        from doremi.services.listening_periods import ListeningPeriods
+        first, last, cutoff = snapshot
+        write = asyncio.create_task(ListeningPeriods().save_as_playlist(first, last, title, cutoff))
+        self._save_write_task = write
+        try:
+            while True:
+                try:
+                    identity = await asyncio.shield(write)
+                    break
+                except asyncio.CancelledError:
+                    if write.cancelled():
+                        raise
+                    # Canceling a UI waiter cannot cancel a write or release
+                    # its claim. Wait for the same operation, never retry it.
+            if not isinstance(identity, str) or not re.fullmatch(r"local-list:[A-Za-z0-9_-]+", identity):
+                raise ValueError("Invalid saved playlist identity")
+            self._saved_playlist_id = identity
+        except (Exception, asyncio.CancelledError) as exc:
+            logger.warning(f"Session save could not be confirmed: {exc}")
+            self._save_error = "No se pudo confirmar el guardado. Revisa tus playlists antes de guardar de nuevo."
+        finally:
+            self._save_write_task = None
+            self._save_busy = False
+            self._sync_save_state()
+
+    async def finish_session_save_for_shutdown(self) -> None:
+        """Keep graceful shutdown alive until the owned write has settled."""
+        self._save_closing = True
+        task = getattr(self, "_save_task", None)
+        if task and task is not asyncio.current_task():
+            await asyncio.shield(task)
+
+    def _open_saved_playlist(self, identity: str) -> None:
+        if (identity != getattr(self, "_saved_playlist_id", "") or self._save_busy
+                or self._playlist_id != self._save_identity):
+            return
+        if self.on_navigate:
+            self.on_navigate("playlist?" + urlencode({"id": identity}))
 
     def _retry(self) -> None:
         if self._playlist_id:
@@ -214,16 +289,27 @@ class PlaylistScreenQml(QObject):
             self._vm.set_error("No se pudo cargar la playlist. Comprueba tu conexión e inténtalo de nuevo.")
         finally:
             if is_current_request():
+                self._sync_save_state()
                 self._vm.set_loading(False)
             if self._load_task is current:
                 self._load_task = None
+
+    def _request_load_more(self) -> None:
+        """Claim the UI request synchronously before scheduling its page task."""
+        if (self._vm.loading or self._vm.loadingMore or not self._vm.hasMore
+                or self._vm._playlist_id != self._playlist_id
+                or not has_local_playlist_namespace(self._playlist_id)):
+            return
+        self._vm.set_loading_more(True)
+        self._page_task = asyncio.ensure_future(self.load_more())
 
     async def load_more(self) -> bool:
         """Append one local page. Remote provider pagination remains untouched."""
         playlist_id = self._playlist_id
         if (not has_local_playlist_namespace(playlist_id)
                 or self._vm.loading or not self._vm.hasMore
-                or (self._page_task and not self._page_task.done())):
+                or (self._page_task and self._page_task is not asyncio.current_task()
+                    and not self._page_task.done())):
             return False
         current = asyncio.current_task()
         self._page_task = current
