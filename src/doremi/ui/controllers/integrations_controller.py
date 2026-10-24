@@ -179,9 +179,20 @@ class IntegrationsController:
                 and getattr(self.main_window.home_screen, "_loaded", False)
             ):
                 self.main_window.home_screen.force_reload()
-            if self.main_window._current_route in self.main_window.ONLINE_ROUTES:
-                self.main_window._offline_blocked_path = self.main_window._current_route
+            nav = self.main_window.navigation_controller
+            path = getattr(self.main_window, "_current_path", None)
+            if not isinstance(path, str) or not path:
+                path = self.main_window._current_route
+            route, params = nav._parse_path(path)
+            if nav.should_show_offline_state(route, params, is_connected=False):
+                self.main_window._offline_blocked_path = path
                 self.main_window._show_offline_state(self.main_window._current_route)
+            else:
+                self.main_window._offline_blocked_path = None
+                if route == "playlist" and nav._is_local_collection(params):
+                    # Reapply REC-03C availability filtering on an already
+                    # visible collection. No history entry or resume action.
+                    self.run_async(nav.load_screen_with_query(route, {"id": params["id"]}))
         else:
             self.main_window.offline_banner.hide_banner()
             ToastNotification.show(self.main_window, "Conexión de red restablecida", "success")

@@ -1,5 +1,7 @@
 import asyncio
 import json
+import re
+from pathlib import Path
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from loguru import logger
@@ -33,6 +35,7 @@ class NavigationController:
         # navigate after the user has chosen a newer destination.
         self._resolution_generation = 0
         self._resolution_task: asyncio.Task | None = None
+        self._navigation_generation = 0
 
     @staticmethod
     def _parse_path(path: str) -> tuple[str, dict[str, str]]:
@@ -42,11 +45,19 @@ class NavigationController:
         encoded separators, Unicode and repeated parameters correctly, unlike
         splitting strings on ``?`` and ``=``.
         """
-        parsed = urlsplit((path or "").strip())
+        try:
+            parsed = urlsplit((path or "").strip())
+        except ValueError:
+            return "", {}
+        if parsed.scheme or parsed.netloc or parsed.fragment:
+            return "", {}
+        query = parse_qs(parsed.query, keep_blank_values=True)
+        if len(query.get("id", [])) > 1:
+            return "", {}
         route = parsed.path.strip("/")
         params = {
             key: values[-1]
-            for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+            for key, values in query.items()
             if values
         }
         return route, params
@@ -57,6 +68,8 @@ class NavigationController:
         return f"{route}?{urlencode(params)}" if params else route
 
     async def navigate(self, path: str, *, record_history: bool = True) -> None:
+        self._navigation_generation += 1
+        generation = self._navigation_generation
         route, params = self._parse_path(path)
         # ``podcast`` intentionally reuses the album screen and remains a
         # supported deep-link even in lightweight hosts that only declare the
@@ -65,12 +78,20 @@ class NavigationController:
         if route not in known_routes:
             logger.warning(f"Ignoring unknown internal route: {path!r}")
             route, params = "home", {}
+        resume_snapshot = None
+        if params.get("resume") and route in {"playlist", "album", "podcast"}:
+            resume_snapshot = (self.main_window.playback_controller._current_play_id,
+                               self.main_window.queue.current)
         current_path = getattr(self.main_window, "_current_path", "")
         if not isinstance(current_path, str) or not current_path:
             current_path = getattr(self.main_window, "_current_route", "home")
         if not isinstance(current_path, str) or not current_path:
             current_path = "home"
-        target_path = self._path_for(route, params)
+        # Resume parameters are one-shot actions, never history/sidebar state.
+        target_path = self._path_for(route, {
+            k: v for k, v in params.items()
+            if k not in {"resume", "position", "next", "autoplay"}
+        })
         if record_history and current_path and current_path != target_path:
             self.main_window._nav_history.append(current_path)
             # Keep history bounded without losing the most recent routes.
@@ -79,12 +100,11 @@ class NavigationController:
 
         self.main_window._current_path = target_path
         self.main_window._current_route = route
-        if self.should_show_offline_state(route):
+        if self.should_show_offline_state(route, params):
             self.main_window._offline_blocked_path = target_path
             self.show_offline_state(route)
             return
-        if route not in self.main_window.ONLINE_ROUTES:
-            self.main_window._offline_blocked_path = None
+        self.main_window._offline_blocked_path = None
 
         if route != "search":
             self.main_window.search_bar.clear_query()
@@ -97,13 +117,50 @@ class NavigationController:
 
         # Wait for the FadeStackedWidget animation (260ms) to complete before blocking thread with UI updates
         await asyncio.sleep(0.3)
+        if generation != self._navigation_generation:
+            return
+        if resume_snapshot is not None:
+            play_id, item = resume_snapshot
+            if (play_id != self.main_window.playback_controller._current_play_id
+                    or item is not self.main_window.queue.current):
+                params = {k: v for k, v in params.items() if k != "resume"}
         await self.load_screen_with_query(route, params)
 
-    def should_show_offline_state(self, route: str) -> bool:
+    @staticmethod
+    def _is_local_collection(params: dict[str, str]) -> bool:
+        """Recognize only well-formed identities handled by local data loaders."""
+        identity = params.get("id", "")
+        if identity.startswith("smart:"):
+            from doremi.db.experience_repository import SMART_TITLES
+            return identity[6:] in SMART_TITLES
+        if re.fullmatch(r"(?:local-list:|local_)[A-Za-z0-9_-]+", identity):
+            return True
+        if re.fullmatch(r"session:[1-9][0-9]*:[1-9][0-9]*(?::[0-9]+)?", identity):
+            from doremi.services.listening_periods import ListeningPeriods
+            try:
+                first, last, _ = ListeningPeriods.parse_identity(identity)
+                return first <= last
+            except (ValueError, OverflowError, OSError):
+                return False
+        return False
+
+    def should_show_offline_state(
+        self, route: str, params: dict[str, str] | None = None,
+        *, is_connected: bool | None = None,
+    ) -> bool:
+        """Shared policy for route entry and connectivity transitions.
+
+        Legacy route-only callers remain conservative; never infer the target
+        collection from the previous ``_current_path``. Connectivity callbacks
+        may supply the transition value before a monitor snapshot updates.
+        """
+        if is_connected is None:
+            monitor = getattr(self.main_window, "network_monitor", None)
+            is_connected = monitor is None or monitor.is_connected
         return (
             route in self.main_window.ONLINE_ROUTES
-            and hasattr(self.main_window, "network_monitor")
-            and not self.main_window.network_monitor.is_connected
+            and not is_connected
+            and not (route == "playlist" and self._is_local_collection(params or {}))
         )
 
     def show_offline_state(self, route: str) -> None:
@@ -115,6 +172,7 @@ class NavigationController:
         if not artist_name:
             return
 
+        self._navigation_generation += 1
         self._resolution_generation += 1
         generation = self._resolution_generation
         if self._resolution_task and not self._resolution_task.done():
@@ -149,6 +207,7 @@ class NavigationController:
         if not album_name:
             return
 
+        self._navigation_generation += 1
         self._resolution_generation += 1
         generation = self._resolution_generation
         if self._resolution_task and not self._resolution_task.done():
@@ -179,6 +238,7 @@ class NavigationController:
         self._resolution_task = asyncio.create_task(_resolve_task())
 
     def navigate_to(self, path: str, *, record_history: bool = True) -> None:
+        self._navigation_generation += 1
         # Any explicit route selection supersedes an unresolved artist/album
         # lookup.  Do not cancel a resolver here: it may be the caller that is
         # now scheduling its resolved route, but its token makes it harmless.
@@ -194,15 +254,22 @@ class NavigationController:
         )
 
     async def load_screen_with_query(self, route: str, params: dict[str, str]) -> None:
-        if route == "playlist" and params.get("id"):
-            playlist_id = params["id"]
-            await self.main_window.playlist_screen.load(playlist_id)
-        elif route == "album" and params.get("id"):
-            album_id = params["id"]
-            await self.main_window.album_screen.load(album_id)
-        elif route == "podcast" and params.get("id"):
-            podcast_id = params["id"]
-            await self.main_window.album_screen.load(podcast_id)
+        if route in {"playlist", "album", "podcast"} and params.get("id"):
+            screen = (self.main_window.playlist_screen if route == "playlist"
+                      else self.main_window.album_screen)
+            if not params.get("resume"):
+                await screen.load(params["id"])
+                return
+            generation = self._navigation_generation
+            load_generation = screen._load_generation + 1
+            playback = self.main_window.playback_controller
+            play_id = playback._current_play_id
+            previous_item = self.main_window.queue.current
+            await screen.load(params["id"])
+            if (generation == self._navigation_generation
+                    and play_id == playback._current_play_id
+                    and previous_item is self.main_window.queue.current):
+                await self._resume_collection(route, params, screen, generation, load_generation)
         elif route == "artist" and params.get("id"):
             artist_id = params["id"]
             await self.main_window.artist_screen.load(artist_id)
@@ -215,6 +282,86 @@ class NavigationController:
             self.main_window.library_screen.select_tab(tab)
         else:
             await self.load_screen(route)
+
+    async def _resume_collection(self, route, params, screen, generation, load_generation):
+        """Resume a loaded member through the existing playback/listen boundary.
+
+        Home's ``next=1`` means the historical member was completed. Advance
+        within this collection only, with no wrap or external autoplay.
+        """
+        from doremi.audio.player import PlayerState
+        from doremi.audio.queue import QueueItem
+
+        identity = params["id"]
+        identity_attr = "_playlist_id" if route == "playlist" else "_browse_id"
+        vm = screen._vm
+
+        def current_load():
+            return (generation == self._navigation_generation
+                    and screen._load_generation == load_generation
+                    and getattr(screen, identity_attr) == identity
+                    and vm.found and not vm.loading and not vm.errorText)
+
+        if not current_load() or params.get("next", "0") not in {"0", "1"}:
+            return
+        tracks = vm.tracks.all_items()
+        index = next((i for i, t in enumerate(tracks)
+                      if t.get("videoId") == params["resume"]), None)
+        if index is None:
+            return
+        advance = params.get("next") == "1"
+        if advance:
+            index += 1
+        if index >= len(tracks):
+            return
+        kind = "smart" if route == "playlist" and identity.startswith("smart:") else (
+            "playlist" if route == "playlist" else "album")
+        # local_ downloads keep paths in existing local_meta, other collections
+        # keep them on their track dictionaries. Do not alter the D2 pipeline.
+        local_meta = {t["video_id"]: t for t in getattr(vm, "_local_meta", [])}
+        offline = not self.main_window.network_monitor.is_connected
+        items, selected = [], None
+        for i, track in enumerate(tracks):
+            video_id = track.get("videoId", "")
+            path = track.get("local_path") or local_meta.get(video_id, {}).get("file_path")
+            available = bool(path and Path(path).is_file())
+            if not video_id or ((offline or video_id.startswith("local:")) and not available):
+                if i == index:
+                    return
+                continue
+            item = QueueItem(
+                video_id, track.get("title", ""), track.get("artist", ""),
+                track.get("album", "") or (vm.title if kind == "album" else ""),
+                track.get("duration_ms", 0), track.get("thumbnail_url", "") or vm.thumbnail,
+                is_local=available, local_path=path if available else None,
+                context_type=kind, context_id=identity, context_title=vm.title,
+            )
+            if i == index:
+                selected = len(items)
+            items.append(item)
+        if selected is None:
+            return
+        item = items[selected]
+        playback = self.main_window.playback_controller
+        player = self.main_window.player
+        play_id = playback._current_play_id + 1
+        await playback._play_song(item.video_id, item.title, item.artist, item.album,
+                                  item.duration_ms, item.thumbnail_url, items, selected)
+
+        def current_playback():
+            return (current_load() and playback._current_play_id == play_id
+                    and self.main_window.queue.current is item
+                    and player.status.current_video_id == item.video_id
+                    and player.status.state == PlayerState.PLAYING)
+
+        # Invalid/negative/overlong input starts the member at zero. The player
+        # clamps a guarded seek to VLC's prepared media length under its lock.
+        raw_position = params.get("position", "0")
+        position = int(raw_position) if re.fullmatch(r"[0-9]{1,18}", raw_position) else 0
+        if position and not advance and current_playback():
+            if item.duration_ms > 0:
+                position = min(position, item.duration_ms)
+            await player.seek(position, is_current=current_playback)
 
     def show_login(self) -> None:
         if not self.main_window.yt or not self.main_window.yt.is_authenticated:

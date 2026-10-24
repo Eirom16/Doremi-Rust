@@ -214,11 +214,19 @@ class MusicPlayer:
             self.status.position_ms = 0
             self._notify("state_changed", self.status)
 
-    async def seek(self, position_ms: int) -> None:
+    async def seek(
+        self, position_ms: int, *, is_current: Callable[[], bool] | None = None,
+    ) -> None:
+        """Optionally recheck an asynchronous intent inside the media lock."""
         if not self._available:
             return
         async with self._play_lock:
-            if self._player.get_length() > 0:
+            if is_current is not None and not is_current():
+                return
+            length = self._player.get_length()
+            if length > 0:
+                if is_current is not None:
+                    position_ms = min(position_ms, length)
                 self._player.set_time(max(0, position_ms))
 
     # ─── CONTROLES ────────────────────────────────────────────────────
