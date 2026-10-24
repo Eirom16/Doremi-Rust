@@ -322,3 +322,35 @@ async def test_guarded_seek_uses_prepared_media_length(rig, isolated_db, length,
         rig.player._player.set_time.assert_not_called()
     else:
         rig.player._player.set_time.assert_called_once_with(expected)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('kind', ['artist', 'album'])
+async def test_resolving_a_new_destination_invalidates_pending_resume(rig, isolated_db, kind):
+    entered, release, resolving = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    async def gather(*args, **kwargs):
+        entered.set()
+        try:
+            await release.wait()
+        except asyncio.CancelledError:
+            await release.wait()
+        return rig.data
+    async def search(*args, **kwargs):
+        resolving.set()
+        await asyncio.Event().wait()
+    rig.gather.side_effect = gather
+    rig.mw.yt = SimpleNamespace(search=search)
+    rig.nav.navigate_to(resume_path(rig))
+    pending = rig.mw._current_nav_task
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        getattr(rig.nav, f'resolve_and_navigate_{kind}')('New destination')
+        await asyncio.wait_for(resolving.wait(), 2)
+        release.set()
+        await pending
+        rig.player.play_url.assert_not_awaited()
+        rig.player._player.set_time.assert_not_called()
+    finally:
+        release.set()
+        rig.nav._resolution_task.cancel()
+        await asyncio.gather(pending, rig.nav._resolution_task, return_exceptions=True)

@@ -172,6 +172,7 @@ class NavigationController:
         if not artist_name:
             return
 
+        self._navigation_generation += 1
         self._resolution_generation += 1
         generation = self._resolution_generation
         if self._resolution_task and not self._resolution_task.done():
@@ -206,6 +207,7 @@ class NavigationController:
         if not album_name:
             return
 
+        self._navigation_generation += 1
         self._resolution_generation += 1
         generation = self._resolution_generation
         if self._resolution_task and not self._resolution_task.done():
