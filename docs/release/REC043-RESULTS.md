@@ -26,6 +26,7 @@ CI de ese HEAD: [40055058283](https://github.com/Eirom16/Doremi-Rust/actions/run
 | `1a2b082` | B: total desconocido y snapshots de descargas, refresh misma identidad |
 | `9db7f10` | A: contexto local_ capturado en el productor |
 | `a6e0adf` | CI: paths aditivos de código, pruebas y documentos |
+| `ef34c1b` | REPORT/RESULTS con evidencia local completa |
 
 HEAD de código probado localmente:
 `a6e0adf941d5e0d82cd8776d29810a72c8aac43b`.
@@ -102,10 +103,32 @@ los tests de filas comprueban señales Qt, no equivalen a verificación visual.
 
 ## CI y publicación
 
-Estado al redactar este commit: **VALIDADO LOCALMENTE; CI REC043 pendiente**.
-No se declara VERIFIED usando el CI de REC042. El PR debe apilarse sobre
-`recovery/rec042-navigation-resume`, nunca main. Antes de entregar se comprobará
-el CI del HEAD exacto publicado, incluidos commits documentales posteriores.
+**VERIFIED para D2, contrato incremental B y D6 en el alcance automatizado.**
+D7 está auditado/especificado, con implementación de UI diferida; no se declara
+un guard inexistente ni funcionalidad visual verificada.
+
+PR [#15](https://github.com/Eirom16/Doremi-Rust/pull/15), base
+`recovery/rec042-navigation-resume` exacta, nunca main.
+
+| Evidencia remota comprobada | Resultado |
+|---|---|
+| HEAD de rama | `ef34c1b1d68dc89838bb2fba8676eca56cea39e3` |
+| Checkout de integración del PR | `a46dc0e968c08a6bdd8422ef87bc4d4237cb5a87` |
+| Run | [40105078060](https://github.com/Eirom16/Doremi-Rust/actions/runs/40105078060) — completed / success |
+| Job | `120904972779` — completed / success |
+| Suite completa | **670 passed**, 29.63 s |
+| Nativas | **17 passed**, 0.12 s |
+| Packaging | **16 passed**, 0.08 s |
+| Bundle | PyInstaller/AppImage; smoke A/B/C, FUSE, X11, VLC y persistencia confirmados en logs |
+
+Este sellado documental es posterior al HEAD de la tabla. Se comprobará su
+propio CI antes de entregar y el HEAD/run exactos se registrarán también en el
+PR; no se infiere su resultado del run de código. La entrega no requiere ni
+realiza merge del PR.
+
+Los logs de este run vuelven a mostrar `chmod: Read-only file system` en los
+probes Docker, aunque el paso termina verde. Se excluye esa compatibilidad
+Docker de lo certificado; sí se informan los smokes ejecutados realmente.
 
 El workflow representativo ejecuta suite completa, nativas, packaging,
 PyInstaller/AppImage y sus smokes. Los nuevos paths incluyen ambos helpers,

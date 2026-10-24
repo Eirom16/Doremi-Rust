@@ -85,7 +85,7 @@ No se añade botón QML ni se reescribe la pantalla.
 
 El header identifica filas «cargadas» cuando no hay total conocido. No se
 muestra un denominador cero como total de una página parcial. Los contadores
-de descargas del loader son snapshots/aggregados, no cantidades que se sumen
+de descargas del loader son snapshots/agregados, no cantidades que se sumen
 otra vez por cada página.
 
 Una sola tarea incremental puede solicitar la página siguiente. Un refresh,
