@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import pytest_asyncio
 
 from doremi.audio.player import MusicPlayer, PlayerState
 from doremi.audio.queue import QueueItem
@@ -16,12 +17,14 @@ from test_rec042_offline_navigation import host, isolated_db
 from test_rec041_playback_context import _controller, qapp
 
 
-@pytest.fixture
-def rig(qapp, monkeypatch):
+@pytest_asyncio.fixture
+async def rig(qapp, monkeypatch):
     import doremi.ui.screens.playlist_data as playlist_data
     import doremi.ui.screens.album_data as album_data
     from doremi.system.network import NetworkMonitor
+    from doremi.services.offline_cache import OfflineCacheManager
     monkeypatch.setattr(NetworkMonitor, 'current_connectivity', lambda: True)
+    monkeypatch.setattr(OfflineCacheManager, 'get_instance', lambda: SimpleNamespace(local_path=lambda vid: None))
     nav, mw = host(connected=True)
     tracks = [dict(videoId=v, title=v, artist='Artist', album='Album', duration_ms=100000,
                    thumbnail_url='', is_downloaded=False) for v in ['first', 'target', 'last']]
@@ -37,15 +40,16 @@ def rig(qapp, monkeypatch):
         setattr(screen, attr, None)
         screen.yt = Mock()
         screen._refresh_download_state = Mock()
-        screen._refresh_dl_state = Mock()
         setattr(mw, route + '_screen', screen)
     gather = AsyncMock(side_effect=lambda *a, **k: dict(data, playlist_id=a[1]))
     monkeypatch.setattr(playlist_data, 'gather_playlist', gather)
     monkeypatch.setattr(album_data, 'gather_album', gather)
     pc = _controller()
+    pc.now_playing_screen = Mock()
     pc._play_current = PlaybackController._play_current.__get__(pc)
     pc.settings.player.crossfade_enabled = False
     player = MusicPlayer()  # conftest mocks the VLC module; no real media opened
+    player._player = Mock()
     player._player.get_length.return_value = 100000
     player._player.set_time = Mock()
     async def play(url, vid):
@@ -292,3 +296,29 @@ async def test_offline_unavailable_remote_member_does_not_touch_playback(rig, is
     assert rig.mw.queue.current is None
     rig.player.play_url.assert_not_awaited()
     rig.pc.extractor.get_stream_info.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_playback_selection_during_navigation_animation_cancels_resume(rig, isolated_db):
+    rig.nav.navigate_to(resume_path(rig))
+    pending = rig.mw._current_nav_task
+    # navigate() updates the route synchronously before its animation wait.
+    while rig.mw._current_route != 'playlist':
+        await asyncio.sleep(0)
+    other = QueueItem('other', 'Other', '', '', 100000, '')
+    rig.mw.queue.set_queue([other])
+    rig.pc._current_play_id += 1
+    await pending
+    assert rig.mw.queue.current is other
+    rig.player.play_url.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('length,expected', [(0, None), (10000, 10000)])
+async def test_guarded_seek_uses_prepared_media_length(rig, isolated_db, length, expected):
+    rig.player._player.get_length.return_value = length
+    await rig.nav.navigate(resume_path(rig))
+    if expected is None:
+        rig.player._player.set_time.assert_not_called()
+    else:
+        rig.player._player.set_time.assert_called_once_with(expected)
