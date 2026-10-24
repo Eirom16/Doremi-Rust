@@ -293,3 +293,43 @@ async def test_keyboard_context_menu_remains_operable(ui):
     assert ui.item('playlistPlayNext4') is not None
     ui.click('playlistPlayNext4')
     assert calls and calls[-1][0] == 'v4'
+
+
+async def confirm_save_with_real_controls(ui, title):
+    ui.home(); ui.click('playlistSaveSession')
+    await ui.wait(lambda: ui.item('sessionPlaylistTitle') is not None and ui.item('sessionPlaylistTitle').isVisible())
+    ui.click('sessionPlaylistTitle')
+    QTest.keyClick(ui.widget, Qt.Key_A, Qt.ControlModifier)
+    QTest.keyClicks(ui.widget, title)
+    ui.click('sessionPlaylistConfirm')
+
+
+@pytest.mark.asyncio
+async def test_save_boundary_claims_before_task_and_blocks_button_plus_keyboard(ui, monkeypatch):
+    import doremi.ui.screens.playlist_data as module
+    from doremi.services.listening_periods import ListeningPeriods
+    monkeypatch.setattr(module, 'gather_playlist', AsyncMock(return_value=data('session:1:3', more=False)))
+    entered, release = asyncio.Event(), asyncio.Event()
+    async def save(*args, **kwargs):
+        entered.set(); await release.wait(); return 'local-list:saved'
+    command = AsyncMock(side_effect=save)
+    monkeypatch.setattr(ListeningPeriods, 'save_as_playlist', command)
+    await ui.screen.load('session:1:3', limit=5); ui.show()
+    try:
+        assert ui.item('playlistSaveSession') is not None, 'missing session save action'
+        await confirm_save_with_real_controls(ui, 'Saved session')
+        assert ui.vm.saveBusy and command.await_count == 0, 'claim must happen before the task runs'
+        ui.vm.save_session('Duplicate')  # same synchronous boundary as keyboard/accessibility
+        QTest.keyClick(ui.widget, Qt.Key_Return)
+        await asyncio.wait_for(entered.wait(), 2)
+        assert command.await_count == 1 and not ui.item('playlistSaveSession').isEnabled()
+    finally:
+        release.set()
+        task = getattr(ui.screen, '_save_task', None)
+        if task: await asyncio.gather(task, return_exceptions=True)
+    await ui.wait(lambda: ui.vm.savedPlaylistId == 'local-list:saved')
+    assert not ui.vm.saveBusy and not ui.vm.saveError
+    assert command.await_args.args[:3] == (1, 3, 'Saved session')
+    ui.screen.on_navigate = Mock()
+    ui.click('playlistOpenSaved')
+    ui.screen.on_navigate.assert_called_once_with('playlist?id=local-list%3Asaved')
