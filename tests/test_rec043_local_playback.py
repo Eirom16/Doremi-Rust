@@ -8,6 +8,7 @@ import pytest
 from doremi.audio.queue import QueueItem
 from doremi.ui.controllers.playback_controller import PlaybackController
 from test_rec042_collection_resume import rig
+from test_rec041_playback_context import qapp
 from test_rec042_offline_navigation import isolated_db
 
 

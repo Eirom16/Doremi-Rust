@@ -350,16 +350,21 @@ class PlaybackController:
         def is_current() -> bool:
             return self._current_play_id == play_id and self.queue.current is item
 
-        # Check if downloaded and play local instead of streaming
+        from doremi.services.local_playback import available_local_path
+        # Keep a valid producer path (including imported files) before looking
+        # for a download. An old DB response must never overwrite newer media.
+        item.local_path = available_local_path(item.local_path)
+        item.is_local = bool(item.local_path)
         try:
             from doremi.db.repository import DownloadRepository
-            dl_repo = DownloadRepository()
-            download = await dl_repo.get_download(item.video_id)
-            if download and download.file_path:
-                import os
-                if os.path.exists(download.file_path):
+            if not item.is_local:
+                download = await DownloadRepository().get_download(item.video_id)
+                if not is_current():
+                    return
+                path = available_local_path(download.file_path) if download else None
+                if path:
                     item.is_local = True
-                    item.local_path = download.file_path
+                    item.local_path = path
         except Exception as e:
             logger.debug(f"Error checking download status in _play_current: {e}")
 
@@ -367,7 +372,7 @@ class PlaybackController:
         if not item.is_local:
             try:
                 from doremi.services.offline_cache import OfflineCacheManager
-                cached_path = OfflineCacheManager.get_instance().local_path(item.video_id)
+                cached_path = available_local_path(OfflineCacheManager.get_instance().local_path(item.video_id))
                 if cached_path:
                     item.is_local = True
                     item.local_path = cached_path
@@ -462,7 +467,8 @@ class PlaybackController:
                     # Don't return here, fall through to streaming logic below
 
         # Un archivo local sin ID remoto válido no admite fallback online.
-        if not item.video_id or item.video_id == "local" or not self.network_monitor.is_connected:
+        if (not item.video_id or item.video_id == "local"
+                or item.video_id.startswith("local:") or not self.network_monitor.is_connected):
             if is_current():
                 await self.main_window._handle_playback_failure(item, "No se pudo reproducir la pista.")
             return
@@ -917,9 +923,11 @@ class PlaybackController:
         # Contexto capturado aquí, en el boundary sincrono de la acción del
         # usuario: la navegación posterior no reatribuye el origen.
         from doremi.services.playback_context import playback_context
+        from doremi.services.local_playback import available_local_path
         context = playback_context(self.main_window)
         queue_items = []
         for m in tracks_metadata:
+            path = available_local_path(m.get("file_path"))
             item_context = m.get("playback_context", context)
             item = QueueItem(
                 video_id=m.get("video_id", "local"),
@@ -928,8 +936,8 @@ class PlaybackController:
                 album=m.get("album", "Local"),
                 duration_ms=m.get("duration_ms", 0),
                 thumbnail_url=m.get("thumbnail_url", ""),
-                is_local=True,
-                local_path=m.get("file_path", ""),
+                is_local=bool(path),
+                local_path=path,
                 context_type=str(item_context.get("context_type", "") or "") or "local",
                 context_id=str(item_context.get("context_id", "") or ""),
                 context_title=str(item_context.get("context_title", "") or ""),

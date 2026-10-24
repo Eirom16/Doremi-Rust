@@ -90,6 +90,7 @@ class PlaylistScreenQml(QObject):
         if not items or not self.on_play_song:
             return
         from doremi.audio.queue import QueueItem
+        from doremi.services.local_playback import available_local_path
         context_type = ("smart" if (self._playlist_id or "").startswith("smart:")
                         else "playlist")
         queue_items = [
@@ -103,8 +104,11 @@ class PlaylistScreenQml(QObject):
                 context_type=context_type,
                 context_id=self._playlist_id or "",
                 context_title=self._vm.title,
+                local_path=path,
+                is_local=bool(path),
             )
             for t in items
+            for path in [available_local_path(t.get("local_path"))]
         ]
         index = max(0, min(index, len(queue_items) - 1))
         first = queue_items[index]
