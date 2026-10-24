@@ -499,6 +499,14 @@ Item {
 
     Connections {
         target: screenVm
+        function onLoading_changed() {
+            if (screenVm.loading) {
+                // A primary reload can replace indices even for the same ID.
+                root.pendingRemoveIndex = -1
+                confirmRemove.close()
+                sessionSaveDialog.close()
+            }
+        }
         function onHeader_changed() {
             if (sessionSaveDialog.sessionIdentity !== screenVm.playlistId)
                 sessionSaveDialog.close()

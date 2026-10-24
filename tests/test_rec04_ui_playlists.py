@@ -295,14 +295,17 @@ async def test_keyboard_context_menu_remains_operable(ui):
     assert calls and calls[-1][0] == 'v4'
 
 
-async def confirm_save_with_real_controls(ui, title):
+async def confirm_save_with_real_controls(ui, title, *, keyboard=False):
     ui.home(); ui.click('playlistSaveSession')
     await ui.wait(lambda: ui.item('sessionPlaylistTitle') is not None and ui.item('sessionPlaylistTitle').isVisible())
     ui.click('sessionPlaylistTitle')
     QTest.keyClick(ui.widget, Qt.Key_A, Qt.ControlModifier)
     QTest.keyClicks(ui.widget, title)
     ui.screenshot('session-save-dialog.png')
-    ui.click('sessionPlaylistConfirm')
+    if keyboard:
+        QTest.keyClick(ui.widget, Qt.Key_Return); ui.pump()
+    else:
+        ui.click('sessionPlaylistConfirm')
 
 
 @pytest.mark.asyncio
@@ -370,7 +373,7 @@ async def test_real_qml_save_creates_one_playlist_then_allows_second_intent(ui, 
     assert len(collections) == 1 and collections[0].title == 'Saved session'
     assert [r.video_id for r in rows] == ['local:a','local:b','local:a']
     ui.screenshot('session-save-success.png')
-    await confirm_save_with_real_controls(ui, 'Second intention')
+    await confirm_save_with_real_controls(ui, 'Second intention', keyboard=True)
     await ui.wait(lambda: bool(ui.vm.savedPlaylistId) and ui.vm.savedPlaylistId != first)
     collections, rows = await saved_collections(isolated_db)
     assert len(collections) == 2 and len(rows) == 6
@@ -542,3 +545,27 @@ async def test_graceful_shutdown_waits_for_the_session_write_before_cleanup(ui, 
     assert host._shutdown_complete and not ui.vm.saveBusy
     collections,rows=await saved_collections(isolated_db)
     assert len(collections)==1 and len(rows)==3
+
+
+def visible_text_item(ui, text):
+    return next((i for i in ui.visual_items() if i.isVisible() and i.property('text')==text), None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('replacement', ['PLnew', 'PLold'])
+async def test_reload_closes_stale_remove_confirmation(ui, monkeypatch, replacement):
+    import doremi.ui.screens.playlist_data as module
+    first=data('PLold',more=False)
+    for i,track in enumerate(first['tracks']): track['setVideoId']='set'+str(i)
+    second=data(replacement,more=False,ids=['new'+str(i) for i in range(5)])
+    monkeypatch.setattr(module,'gather_playlist',AsyncMock(side_effect=[first,second]))
+    await ui.screen.load('PLold',limit=5);ui.show();ui.end()
+    ui.item('playlistTrackRow4').forceActiveFocus();QTest.keyClick(ui.widget,Qt.Key_Menu);ui.pump()
+    remove=visible_text_item(ui,'Quitar de esta playlist')
+    assert remove is not None
+    point=remove.mapToScene(QPointF(remove.width()/2,remove.height()/2))
+    QTest.mouseClick(ui.widget,Qt.LeftButton,Qt.NoModifier,QPoint(round(point.x()),round(point.y())));ui.pump()
+    assert visible_text_item(ui,'Quitar') is not None
+    await ui.screen.load(replacement,limit=5)
+    await ui.wait(lambda:visible_text_item(ui,'Quitar') is None)
+    assert [t['videoId'] for t in ui.vm.tracks.all_items()]==['new'+str(i) for i in range(5)]
