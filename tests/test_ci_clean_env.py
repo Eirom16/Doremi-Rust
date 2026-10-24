@@ -33,7 +33,7 @@ if rc: sys.exit(rc)
     docker.chmod(0o755)
     env = dict(os.environ, PATH=str(bindir)+os.pathsep+os.environ['PATH'],
                FAKE_OUTPUT=str(output), FAKE_REPORT=json.dumps(report()),
-               GITHUB_WORKSPACE=str(ROOT), APPIMAGE_FILE=str(image), RUNNER_TEMP=str(tmp_path))
+               GITHUB_WORKSPACE=str(tmp_path), APPIMAGE_FILE=image.name, RUNNER_TEMP=str(tmp_path))
     return env, output, image, bindir
 
 
@@ -47,7 +47,7 @@ def test_workflow_propagates_docker_failure_and_never_emits_pass(probe_env, name
     env, output, image, _ = probe_env
     env['FAKE_DOCKER_EXIT'] = '42'
     step = workflow_step(name)
-    result = subprocess.run(['bash', '-e', '-c', step['run']], env=env, cwd=output, text=True, capture_output=True)
+    result = subprocess.run(['bash', '-e', '-c', step['run']], env=env, cwd=ROOT, text=True, capture_output=True)
     assert result.returncode != 0, result.stdout + result.stderr
     assert '=PASS' not in result.stdout
     if name.startswith('Extra'):
