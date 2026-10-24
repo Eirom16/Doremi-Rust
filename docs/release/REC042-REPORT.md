@@ -117,6 +117,9 @@ fallaron antes de invalidar la intención al iniciar la búsqueda de otro destin
   orden visible, incluido el filtrado offline existente.
 - Si VLC inicia sin longitud positiva, se omite el seek; no se inventa una
   duración ni se deja un seek diferido que pueda aplicarse a otra pista.
+- El probe Docker heredado no demuestra compatibilidad en contenedor limpio:
+  aborta en `chmod` sobre montaje `:ro` aunque el paso CI figura success.
+  Ver la evidencia concreta y el alcance certificado en RESULTS.
 - Los tests usan VLC/red simulados y archivos sintéticos, no demuestran audio
   audible ni validación de dispositivo de audio real.
 - Sin Home nuevo, estadísticas, `experience_events`, QML, ViewModels, modelos,

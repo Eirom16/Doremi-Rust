@@ -21,9 +21,9 @@ El worktree nuevo se creó desde ese SHA, sin mover las ramas anteriores.
 | `50a9289` | A: refrescar disponibilidad al perder red, con regresión roja previa |
 | `2343134` | B: miembros, contexto, tokens y seek protegido; pruebas adicionales |
 | `2a6559c` | CI: filtros aditivos para todos los archivos de REC042 y sus documentos |
-
 | `7668a19` | Documentación inicial de contratos y resultados |
 | `f1de238` | B: invalidar reanudación al resolver artista/álbum; 2 regresiones rojas previas |
+| `b1d9ce3` | Resultados finales locales: 601 / 130, con cierre de resolvers |
 
 El sellado documental sigue a los anteriores. Consultar `git log` o el HEAD
 del PR para su SHA; ninguna fase anterior se reescribe.
@@ -61,9 +61,33 @@ sin tiempos de red ni audio reales.
 
 ## CI y estado
 
-**VALIDADO LOCALMENTE; CI de REC042 pendiente al redactar este commit.**
-No se declara VERIFIED con el CI de REC-04.1.1 ni con resultados locales.
-El PR se apila sobre `recovery/rec041-playback-context`, nunca sobre main.
+**VERIFIED para el alcance D3/D4 validado por el CI del código.**
+PR [#14](https://github.com/Eirom16/Doremi-Rust/pull/14), apilado sobre
+`recovery/rec041-playback-context`, nunca sobre main.
+
+| Evidencia remota de REC042 | Resultado |
+|---|---|
+| HEAD de rama validado | `b1d9ce3528f729b00c5c6f34ee3feb4d0fc77b95` |
+| Checkout de integración del PR | `19ea7d25d017575b0a45493df21daa19b5efff9c` |
+| Run | [40054656594](https://github.com/Eirom16/Doremi-Rust/actions/runs/40054656594) — `completed / success` |
+| Job | `120754837346` — Linux x86_64 AppImage |
+| Suite completa | **601 passed**, 34.61 s |
+| Nativas | **17 passed**, 0.16 s |
+| Packaging portable/AppImage | **16 passed**, 0.12 s |
+| PyInstaller y AppImage | construcción correcta; smoke A/B/C, FUSE, X11, VLC y persistencia confirmados en logs |
+
+Este sellado documental es posterior al SHA de código de la tabla. Su propio
+CI se comprobará por separado en el HEAD publicado antes de entregar; no se
+infiere su resultado del run anterior. La evidencia exacta de ese último HEAD
+se informa también en el PR.
+
+Limitación heredada observada en los logs: los probes Docker de Ubuntu
+22.04/24.04 montan el AppImage con `:ro` y abortan en `chmod` con
+`Read-only file system`. El pipeline/tee exterior permite que el paso figure
+success e imprima `CLEAN_ENV_2204=PASS`; ese marcador **no demuestra** el smoke
+en contenedor limpio. Se certifican las pruebas y smokes efectivamente
+ejecutados, no esa compatibilidad Docker. El defecto del harness queda
+registrado fuera del cambio funcional REC042; no se habilita publicación.
 
 El workflow `Linux AppImage (F0B-3B)` ejecuta nativas, packaging, suite completa,
 PyInstaller, AppImage y sus smoke tests. Los filtros de `pull_request` incluyen
