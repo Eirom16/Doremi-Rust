@@ -59,6 +59,10 @@ on:
       - "src/doremi/ui/viewmodels/playlist_vm.py"
       - "src/doremi/ui/controllers/download_controller.py"
       - "tests/test_rec043*.py"
+      - "src/doremi/ui/qml/PlaylistScreen.qml"
+      - "tests/test_rec04_ui*.py"
+      - "tools/measure_playlist_qml.py"
+      - "docs/release/REC04.2*"
       - "docs/release/REC043*.md"
       - "docs/release/REC042*.md"
   pull_request:
@@ -113,6 +117,10 @@ on:
       - "src/doremi/ui/viewmodels/playlist_vm.py"
       - "src/doremi/ui/controllers/download_controller.py"
       - "tests/test_rec043*.py"
+      - "src/doremi/ui/qml/PlaylistScreen.qml"
+      - "tests/test_rec04_ui*.py"
+      - "tools/measure_playlist_qml.py"
+      - "docs/release/REC04.2*"
       - "docs/release/REC043*.md"
       - "docs/release/REC042*.md"
   workflow_dispatch:
@@ -202,7 +210,19 @@ jobs:
         run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/test_linux_packaging.py tests/test_linux_appimage.py -q
 
       - name: Run full test suite (no skips forced)
+        env:
+          QT_QUICK_BACKEND: software
+          DOREMI_UI_EVIDENCE_DIR: ${{ runner.temp }}/playlist-ui-evidence
         run: QT_QPA_PLATFORM=offscreen PYTHONPATH=src python -m pytest tests/ -q
+
+      - name: Upload playlist interaction evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playlist-ui-interaction-evidence
+          path: ${{ runner.temp }}/playlist-ui-evidence
+          if-no-files-found: warn
+          retention-days: 7
 
       - name: Check no stray diff markers
         run: git diff --check
